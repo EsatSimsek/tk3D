@@ -14,9 +14,11 @@ Bu ilk sürüm şu bileşenleri içerir:
 - RTMW-x-l 2D wholebody tahmin sınıfı için entegrasyon arayüzü
 - RTMW3D-x single-view 3D yardımcı tahmin sınıfı için entegrasyon arayüzü
 - Kalibrasyonlu multi-view triangulation
+- Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
 - 3D temporal smoothing
 - 3D validation ve kalite ölçümleri
 - JSON, CSV, Excel ve figür export iskeleti
+- Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
 
 ## Kurulum
@@ -36,9 +38,10 @@ RTMW-x-l ve RTMW3D-x entegrasyonu için MMPose/MMPRETRAIN ortamı ayrıca kurulm
 ```powershell
 python scripts\inspect_session.py --session data\session_001\session.yaml
 python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
+python -m pytest -q
 ```
 
-`--dry-run`, gerçek video ve model olmadan beklenen output yapısını üretir.
+`--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
 
 ## Kalibrasyon
 
@@ -82,3 +85,24 @@ Session
 ```
 
 Puanlama motoru bu ilk sürümde uygulanmaz. Veri yapıları `Episode -> Task -> Phase -> Step -> Metric -> Error -> Score` hiyerarşisine hazır olacak şekilde tanımlanmıştır.
+
+## Güncel Durum
+
+Hazır olanlar:
+
+- Proje iskeleti ve Git ignore kuralları
+- `keypoints_3d_world[t, 133, 3]` veri sözleşmesi
+- Kamera kalibrasyonu için checkerboard tabanlı script
+- 2D/3D model adapter sınıfları
+- Multi-view triangulation çekirdeği
+- Sentetik 3 kamera dry-run pipeline
+- JSON/CSV/Excel/PNG/MP4 output üretimi
+- Triangulation, smoothing, validation ve pipeline testleri
+
+Bekleyenler:
+
+- RTMW-x-l gerçek MMPose inference bağlantısı
+- RTMW3D-x gerçek inference bağlantısı
+- Gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
+- Gerçek poomsae videolarında multi-person/person tracking eşlemesi
+- Phase/step detection ve scoring motoru

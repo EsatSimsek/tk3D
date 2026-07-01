@@ -25,6 +25,26 @@ def export_keypoints3d_csv(keypoints_3d_world: np.ndarray, output_path: str | Pa
     _write_csv(rows, output_path)
 
 
+def export_keypoints2d_csv(poses_2d_by_frame: dict[int, dict[str, Any]], output_path: str | Path) -> None:
+    rows = []
+    for frame_idx, poses_by_camera in poses_2d_by_frame.items():
+        for camera_id, pose in poses_by_camera.items():
+            for joint_idx in range(pose.keypoints_xy.shape[0]):
+                x, y = pose.keypoints_xy[joint_idx]
+                rows.append(
+                    {
+                        "frame_idx": frame_idx,
+                        "camera_id": camera_id,
+                        "joint_idx": joint_idx,
+                        "x": x,
+                        "y": y,
+                        "score": pose.scores[joint_idx],
+                        "valid": bool(pose.valid_mask[joint_idx]),
+                    }
+                )
+    _write_csv(rows, output_path)
+
+
 def export_quality_csv(
     triangulation_score: np.ndarray,
     reprojection_error: np.ndarray,
@@ -54,6 +74,27 @@ def export_validation_csv(frame_valid_ratio: np.ndarray, output_path: str | Path
     _write_csv(rows, output_path)
 
 
+def export_joint_validation_csv(joint_valid_ratio: np.ndarray, output_path: str | Path) -> None:
+    rows = [
+        {"joint_idx": joint_idx, "valid_ratio": float(value)}
+        for joint_idx, value in enumerate(joint_valid_ratio)
+    ]
+    _write_csv(rows, output_path)
+
+
+def export_placeholder_steps_csv(output_path: str | Path) -> None:
+    _write_csv(
+        [
+            {
+                "step_id": None,
+                "step_name": "pending_phase_detection",
+                "status": "not_computed",
+            }
+        ],
+        output_path,
+    )
+
+
 def export_excel(summary: dict[str, Any], csv_paths: dict[str, Path], output_path: str | Path) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,9 +113,11 @@ def _write_csv(rows: list[dict[str, Any]], output_path: str | Path) -> None:
 
 def _json_ready(value: Any) -> Any:
     if isinstance(value, np.ndarray):
-        return value.tolist()
+        return _json_ready(value.tolist())
     if isinstance(value, np.generic):
-        return value.item()
+        return _json_ready(value.item())
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
     if isinstance(value, Path):
         return str(value)
     if is_dataclass(value):

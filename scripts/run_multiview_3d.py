@@ -11,8 +11,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.data_structures import COCO_WHOLEBODY_KEYPOINTS
-from src.exporter import export_excel, export_keypoints3d_csv, export_quality_csv, export_session_json, export_validation_csv
+from src.exporter import (
+    export_excel,
+    export_joint_validation_csv,
+    export_keypoints2d_csv,
+    export_keypoints3d_csv,
+    export_placeholder_steps_csv,
+    export_quality_csv,
+    export_session_json,
+    export_validation_csv,
+)
 from src.smoothing_3d import moving_average_nan
+from src.synthetic_data import build_synthetic_triangulation_result
 from src.validation_3d import validate_triangulation
 from src.video_io import ensure_output_tree, load_session
 from src.visualization_2d import write_placeholder_overlay_video
@@ -35,7 +45,7 @@ def main() -> None:
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
 
     if args.dry_run:
-        result = build_dry_run_result(args.dry_run_frames)
+        result = build_synthetic_triangulation_result(args.dry_run_frames)
     else:
         raise NotImplementedError(
             "Live RTMW inference will be enabled after model files and calibration videos are available. "
@@ -65,13 +75,17 @@ def main() -> None:
     save_heatmap(result["used_cameras"], output_paths["figures"] / "camera_usage_heatmap.png", "Camera Usage")
 
     keypoints3d_csv = output_paths["csv"] / "keypoints_3d_world_flat.csv"
+    keypoints2d_csv = output_paths["csv"] / "keypoints_2d_flat.csv"
     quality_csv = output_paths["csv"] / "triangulation_quality.csv"
     validation_frames_csv = output_paths["csv"] / "validation_frames.csv"
+    validation_joints_csv = output_paths["csv"] / "validation_joints.csv"
+    validation_steps_csv = output_paths["csv"] / "validation_steps.csv"
+    export_keypoints2d_csv(result.get("poses_2d_by_frame", {}), keypoints2d_csv)
     export_keypoints3d_csv(keypoints_3d_world, keypoints3d_csv)
     export_quality_csv(result["triangulation_score"], result["reprojection_error"], result["used_cameras"], quality_csv)
     export_validation_csv(validation.frame_valid_ratio, validation_frames_csv)
-
-    create_empty_required_csvs(output_paths["csv"])
+    export_joint_validation_csv(validation.joint_valid_ratio, validation_joints_csv)
+    export_placeholder_steps_csv(validation_steps_csv)
 
     payload = {
         "session_id": session.session_id,
@@ -97,6 +111,7 @@ def main() -> None:
     export_excel(
         summary,
         {
+            "keypoints_2d": keypoints2d_csv,
             "keypoints_3d": keypoints3d_csv,
             "quality": quality_csv,
             "validation": validation_frames_csv,
@@ -106,44 +121,5 @@ def main() -> None:
 
     print(f"saved outputs under: {output_paths['root']}")
     print(f"keypoints_3d_world shape: {keypoints_3d_world.shape}")
-
-
-def build_dry_run_result(frame_count: int) -> dict[str, np.ndarray]:
-    keypoints = np.full((frame_count, COCO_WHOLEBODY_KEYPOINTS, 3), np.nan, dtype=float)
-    score = np.zeros((frame_count, COCO_WHOLEBODY_KEYPOINTS), dtype=float)
-    reprojection = np.full((frame_count, COCO_WHOLEBODY_KEYPOINTS), np.nan, dtype=float)
-    used_cameras = np.zeros((frame_count, COCO_WHOLEBODY_KEYPOINTS), dtype=int)
-
-    core_joint_count = 17
-    for frame_idx in range(frame_count):
-        phase = frame_idx / max(frame_count - 1, 1)
-        for joint_idx in range(core_joint_count):
-            keypoints[frame_idx, joint_idx] = [
-                0.03 * joint_idx,
-                0.02 * np.sin(phase * np.pi * 2 + joint_idx * 0.1),
-                1.0 + 0.01 * frame_idx,
-            ]
-            score[frame_idx, joint_idx] = 0.95
-            reprojection[frame_idx, joint_idx] = 2.0
-            used_cameras[frame_idx, joint_idx] = 3
-    return {
-        "keypoints_3d_world": keypoints,
-        "triangulation_score": score,
-        "reprojection_error": reprojection,
-        "used_cameras": used_cameras,
-    }
-
-
-def create_empty_required_csvs(csv_dir: Path) -> None:
-    for filename in [
-        "keypoints_2d_flat.csv",
-        "validation_joints.csv",
-        "validation_steps.csv",
-    ]:
-        path = csv_dir / filename
-        if not path.exists():
-            path.write_text("status\npending\n", encoding="utf-8")
-
-
 if __name__ == "__main__":
     main()
