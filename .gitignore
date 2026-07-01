@@ -1,0 +1,35 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local data and generated outputs
+data/**/videos/*.mp4
+data/**/videos/*.mov
+data/**/videos/*.avi
+data/**/calibration/*.mp4
+data/**/calibration/*.mov
+data/**/calibration/*.avi
+outputs/*
+!outputs/.gitkeep
+
+# Model artifacts
+models/
+weights/
+*.pth
+*.pt
+*.onnx
+*.engine
+
+# Large media exports
+*.mp4
+*.avi
+*.mov
+
+# Keep directory placeholders
+!.gitkeep
+!data/
+!data/**/
+!data/**/.gitkeep

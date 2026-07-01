@@ -1,0 +1,21 @@
+session_id: session_001
+task_name: taegeuk_1_jang
+fps: null
+
+cameras:
+  - camera_id: cam_front
+    video_path: videos/cam_front.mp4
+    calibration_video_path: calibration/cam_front_calib.mp4
+  - camera_id: cam_back
+    video_path: videos/cam_back.mp4
+    calibration_video_path: calibration/cam_back_calib.mp4
+  - camera_id: cam_side
+    video_path: videos/cam_side.mp4
+    calibration_video_path: calibration/cam_side_calib.mp4
+
+sync:
+  method: frame_index
+  offsets:
+    cam_front: 0
+    cam_back: 0
+    cam_side: 0

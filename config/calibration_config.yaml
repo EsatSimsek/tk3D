@@ -1,0 +1,15 @@
+checkerboard:
+  pattern_size: [9, 6]
+  square_size_m: 0.025
+  min_valid_frames: 12
+  frame_stride: 10
+
+calibration:
+  flags:
+    fix_aspect_ratio: false
+    zero_tangent_dist: false
+  reprojection_error_warn_px: 1.5
+
+extrinsics:
+  world_origin_camera: cam_front
+  solve_from_checkerboard: true
