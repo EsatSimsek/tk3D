@@ -124,11 +124,12 @@ def _render_matplotlib_frames(
     import cv2
     import matplotlib.pyplot as plt
 
-    limits = _axis_limits(keypoints_3d_world)
+    render_points = _center_body_for_render(keypoints_3d_world)
+    limits = _axis_limits(render_points)
     frames: list[np.ndarray] = []
     width, height = size
     dpi = 100
-    for frame_idx, keypoints in enumerate(keypoints_3d_world):
+    for frame_idx, keypoints in enumerate(render_points):
         fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
         ax.set_facecolor("#f7f7f7")
@@ -137,10 +138,10 @@ def _render_matplotlib_frames(
         ax.set_xlim(*limits["x"])
         ax.set_ylim(*limits["y"])
         ax.set_zlim(*limits["z"])
-        ax.set_xlabel("X world")
-        ax.set_ylabel("Y world")
-        ax.set_zlabel("Z world")
-        ax.set_title(f"TK3D world skeleton - frame {frame_idx}")
+        ax.set_xlabel("X body")
+        ax.set_ylabel("Y body")
+        ax.set_zlabel("Z body")
+        ax.set_title(f"TK3D 3D human skeleton - frame {frame_idx}")
         ax.view_init(elev=18, azim=-65)
         ax.grid(True, alpha=0.25)
         fig.tight_layout()
@@ -174,7 +175,8 @@ def _render_fallback_frames(
     import cv2
 
     width, height = size
-    points_2d = _normalize_points_for_image(keypoints_3d_world, size=size)
+    render_points = _center_body_for_render(keypoints_3d_world)
+    points_2d = _normalize_points_for_image(render_points, size=size)
     frames = []
     for frame_idx in range(keypoints_3d_world.shape[0]):
         frame = np.full((height, width, 3), 255, dtype=np.uint8)
@@ -191,15 +193,47 @@ def _render_fallback_frames(
     return frames
 
 
+def _center_body_for_render(keypoints_3d_world: np.ndarray) -> np.ndarray:
+    """Return a human-centered copy for visualization only.
+
+    WholeBody triangulation can contain noisy face/hand outliers. The exported
+    JSON/CSV keeps the original world coordinates; the video render centers on
+    stable COCO body joints so the person is visible instead of becoming a dot
+    in a huge world-coordinate box.
+    """
+
+    points = np.asarray(keypoints_3d_world, dtype=float).copy()
+    if points.ndim != 3 or points.shape[1] == 0:
+        return points
+
+    body_count = min(points.shape[1], 17)
+    body = points[:, :body_count, :]
+    centered = np.full_like(points, np.nan, dtype=float)
+
+    anchor_indices = [idx for idx in (5, 6, 11, 12) if idx < body_count]
+    for frame_idx in range(points.shape[0]):
+        anchors = body[frame_idx, anchor_indices] if anchor_indices else body[frame_idx]
+        valid_anchors = anchors[np.all(np.isfinite(anchors), axis=1)]
+        if valid_anchors.size:
+            center = np.nanmean(valid_anchors, axis=0)
+        else:
+            valid_body = body[frame_idx][np.all(np.isfinite(body[frame_idx]), axis=1)]
+            if not valid_body.size:
+                continue
+            center = np.nanmedian(valid_body, axis=0)
+        centered[frame_idx, :body_count] = points[frame_idx, :body_count] - center
+
+    return centered
+
 def _axis_limits(keypoints_3d_world: np.ndarray) -> dict[str, tuple[float, float]]:
     finite = keypoints_3d_world[np.all(np.isfinite(keypoints_3d_world), axis=-1)]
     if finite.size == 0:
         return {"x": (-1.0, 1.0), "y": (-1.0, 1.0), "z": (0.0, 2.0)}
-    mins = np.min(finite, axis=0)
-    maxs = np.max(finite, axis=0)
+    mins = np.nanpercentile(finite, 5, axis=0)
+    maxs = np.nanpercentile(finite, 95, axis=0)
     centers = (mins + maxs) / 2.0
-    spans = np.maximum(maxs - mins, 0.5)
-    spans = np.full(3, float(np.max(spans)))
+    spans = np.maximum(maxs - mins, 50.0)
+    spans = np.full(3, float(np.max(spans) * 1.25))
     return {
         "x": (float(centers[0] - spans[0] / 2), float(centers[0] + spans[0] / 2)),
         "y": (float(centers[1] - spans[1] / 2), float(centers[1] + spans[1] / 2)),
@@ -239,3 +273,4 @@ def _save_fallback_png(path: Path, data: np.ndarray, scale_to_255: bool) -> None
         image = (image * 255.0).clip(0, 255).astype(np.uint8)
     image = cv2.resize(image, (max(320, image.shape[1] * 8), max(120, image.shape[0] * 8)))
     cv2.imwrite(str(path), image)
+

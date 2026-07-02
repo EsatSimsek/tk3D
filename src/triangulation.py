@@ -29,9 +29,11 @@ def triangulate_frame(
             point = pose.keypoints_xy[joint_idx]
             if not np.all(np.isfinite(point)):
                 continue
+            calibration = calibrations[camera_id]
+            point = undistort_point(point, calibration)
             camera_ids.append(camera_id)
             points_2d.append(point.astype(float))
-            projection_mats.append(calibrations[camera_id].projection_matrix.astype(float))
+            projection_mats.append(calibration.projection_matrix.astype(float))
             scores.append(float(pose.scores[joint_idx]))
 
         if len(points_2d) < min_views:
@@ -54,6 +56,19 @@ def triangulate_frame(
         used_cameras=used_cameras,
     )
 
+
+def undistort_point(point: np.ndarray, calibration: CameraCalibration) -> np.ndarray:
+    distortion = np.asarray(calibration.distortion_coefficients, dtype=float).reshape(-1)
+    if distortion.size == 0 or not np.any(np.abs(distortion) > 1e-12):
+        return np.asarray(point, dtype=float)
+    src = np.asarray(point, dtype=float).reshape(1, 1, 2)
+    corrected = cv2.undistortPoints(
+        src,
+        calibration.intrinsic_matrix.astype(float),
+        distortion,
+        P=calibration.intrinsic_matrix.astype(float),
+    )
+    return corrected.reshape(2)
 
 def triangulate_n_view(points_2d: list[np.ndarray], projection_mats: list[np.ndarray]) -> np.ndarray | None:
     if len(points_2d) == 2:
@@ -100,3 +115,5 @@ def stack_triangulated(poses: list[TriangulatedPose3D]) -> dict[str, np.ndarray]
         "reprojection_error": np.stack([pose.reprojection_error for pose in poses], axis=0),
         "used_cameras": np.stack([pose.used_cameras for pose in poses], axis=0),
     }
+
+
