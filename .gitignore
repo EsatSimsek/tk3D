@@ -37,3 +37,5 @@ weights/
 !data/**/
 !data/**/.gitkeep
 .venv311/
+data/aist_test/annotations/**
+data/aist_test/annotations/cameras.zip

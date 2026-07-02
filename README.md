@@ -140,16 +140,17 @@ Hazır olanlar:
 - JSON/CSV/Excel/PNG/MP4 output üretimi
 - Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
 - Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
-- Model runtime raporu: RTMW-x-l / RTMW3D-x config, checkpoint ve MMPose ortam hazır mı
+- Model runtime raporu: RTMW-x / RTMW3D-x config, checkpoint ve MMPose ortam hazır mı
+- AIST++ camera data importer: mapping.txt + setting_*.json dosyalarından gerçek 9 kamera intrinsic/extrinsic üretimi
+- RTMW-x gerçek MMPose inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Triangulation, smoothing, validation ve pipeline testleri
 
 Bekleyenler:
 
-- RTMW-x-l gerçek MMPose inference bağlantısı
 - RTMW3D-x gerçek inference bağlantısı
-- Gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
+- Kendi poomsae kameraları için gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
 - Phase/step detection ve scoring motoru
 
@@ -161,6 +162,7 @@ RTMW/MMPose gerçek video inference için Python 3.11 ortamı kullanılır. Ayr�
 cd C:\Users\WWWW\Desktop\tk3d
 .\.venv311\Scripts\Activate.ps1
 python scripts\check_models.py --session data\aist_test\session_front_back.yaml
+python scripts\import_aist_cameras.py --session data\aist_test\session_all.yaml
 python scripts\run_pose2d_overlays.py --session data\aist_test\session_front_back.yaml --camera c01 --max-frames 30 --stride 10
 python scripts\run_rtmw_multiview_3d.py --session data\aist_test\session_front_back.yaml --max-frames 30 --stride 10
 ```
@@ -173,5 +175,7 @@ Ana çıktılar:
 - `outputs/aist_test/json/rtmw_session_3d.json`
 - `outputs/aist_test/csv/rtmw_keypoints_3d_world_flat.csv`
 
-Not: AIST camera calibration dosyaları indirilmediği için `run_rtmw_multiview_3d.py` şu an test amaçlı yaklaşık kalibrasyon kullanır. Metrik olarak doğru 3D için AIST++ camera parameters veya checkerboard calibration gerekir.
+Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken RTMW multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için yine checkerboard calibration gerekir.
+
+
 

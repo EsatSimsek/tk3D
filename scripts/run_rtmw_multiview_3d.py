@@ -29,12 +29,13 @@ def main() -> None:
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--max-frames", type=int, default=30)
     parser.add_argument("--stride", type=int, default=1)
+    parser.add_argument("--max-cameras", type=int, default=None, help="Optional limit for faster tests; default uses all session cameras.")
     args = parser.parse_args()
 
     session = load_session(args.session)
     if len(session.cameras) < 2:
         raise SystemExit("Need at least two cameras.")
-    cameras = session.cameras[:2]
+    cameras = session.cameras[: args.max_cameras] if args.max_cameras else session.cameras
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
 
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
@@ -66,7 +67,7 @@ def main() -> None:
 
     captures = [cv2.VideoCapture(str(camera.video_path)) for camera in cameras]
     if not all(capture.isOpened() for capture in captures):
-        raise SystemExit("Could not open both videos.")
+        raise SystemExit("Could not open all selected videos.")
 
     fps = captures[0].get(cv2.CAP_PROP_FPS) or 30.0
     overlay_writers = []
@@ -74,7 +75,7 @@ def main() -> None:
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         output_path = output_paths["videos"] / f"{camera.camera_id}_rtmw_2d_overlay.mp4"
-        overlay_writers.append(cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps / args.stride, (width, height)))
+        overlay_writers.append(cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps / max(args.stride, 1), (width, height)))
 
     triangulated = []
     try:
@@ -131,7 +132,7 @@ def main() -> None:
         },
         output_paths["json"] / "rtmw_session_3d.json",
     )
-    write_3d_skeleton_video(arrays["keypoints_3d_world"], output_paths["videos"] / "rtmw_skeleton_3d_world.mp4", fps=fps / args.stride)
+    write_3d_skeleton_video(arrays["keypoints_3d_world"], output_paths["videos"] / "rtmw_skeleton_3d_world.mp4", fps=fps / max(args.stride, 1))
 
     print(f"saved: {output_paths['videos'] / 'rtmw_skeleton_3d_world.mp4'}")
     print(f"keypoints_3d_world shape: {arrays['keypoints_3d_world'].shape}")
@@ -176,3 +177,4 @@ def _rotation_y(angle_rad: float) -> np.ndarray:
 
 if __name__ == "__main__":
     main()
+
