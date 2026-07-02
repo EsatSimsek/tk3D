@@ -53,6 +53,32 @@ Gerçek video/model dosyaları geldiğinde önce strict preflight çalıştırı
 python scripts\preflight_session.py --session data\session_001\session.yaml --require-videos --require-calibration-videos --require-model-files
 ```
 
+## AIST Video Testi
+
+AIST Dance Video DB videoları, poomsae videosu gelmeden çok kameralı görüntü akışını test etmek için kullanılabilir. AIST++ annotation dosyaları COCO 17 eklem formatındadır; bu nihai COCO-WholeBody 133 hedefini değiştirmez. Videolar bizim RTMW-x-l adapter yoluna girdiğinde hedef yine 133 eklemdir. AIST++ 17 eklem verisi sadece calibration, projection, triangulation ve hata ölçümü için opsiyonel doğrulama verisidir.
+
+Yerel test klasörlerini hazırlamak:
+
+```powershell
+python scripts\setup_aist_test.py --sequence gBR_sBM_cAll_d04_mBR0_ch01 --cameras c01 c02
+```
+
+Bu komut şunları hazırlar:
+
+- `data/aist_test/videos/`
+- `data/aist_test/annotations/`
+- `data/aist_test/session.yaml`
+- `data/aist_test/aist_test_manifest.json`
+
+Beklenen ilk video dosyaları:
+
+```text
+data/aist_test/videos/gBR_sBM_c01_d04_mBR0_ch01.mp4
+data/aist_test/videos/gBR_sBM_c02_d04_mBR0_ch01.mp4
+```
+
+AIST++ API bu projede `external/aistplusplus_api` altına kurulur ve Git'e eklenmez. Büyük video ve annotation dosyaları da Git'e eklenmez.
+
 ## Kalibrasyon
 
 ```powershell

@@ -4,8 +4,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+external/
 
 # Local data and generated outputs
+data/aist_test/annotations/
+data/aist_test/downloader.py
 data/**/videos/*.mp4
 data/**/videos/*.mov
 data/**/videos/*.avi
