@@ -152,3 +152,26 @@ Bekleyenler:
 - Gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
 - Phase/step detection ve scoring motoru
+
+## RTMW Gerçek Video Testi
+
+RTMW/MMPose gerçek video inference için Python 3.11 ortamı kullanılır. Ayrıntılı Windows sürüm notu: `docs/rtmw_windows_setup.md`.
+
+```powershell
+cd C:\Users\WWWW\Desktop\tk3d
+.\.venv311\Scripts\Activate.ps1
+python scripts\check_models.py --session data\aist_test\session_front_back.yaml
+python scripts\run_pose2d_overlays.py --session data\aist_test\session_front_back.yaml --camera c01 --max-frames 30 --stride 10
+python scripts\run_rtmw_multiview_3d.py --session data\aist_test\session_front_back.yaml --max-frames 30 --stride 10
+```
+
+Ana çıktılar:
+
+- `outputs/aist_test/videos/c01_rtmw_2d_overlay.mp4`
+- `outputs/aist_test/videos/c05_rtmw_2d_overlay.mp4`
+- `outputs/aist_test/videos/rtmw_skeleton_3d_world.mp4`
+- `outputs/aist_test/json/rtmw_session_3d.json`
+- `outputs/aist_test/csv/rtmw_keypoints_3d_world_flat.csv`
+
+Not: AIST camera calibration dosyaları indirilmediği için `run_rtmw_multiview_3d.py` şu an test amaçlı yaklaşık kalibrasyon kullanır. Metrik olarak doğru 3D için AIST++ camera parameters veya checkerboard calibration gerekir.
+

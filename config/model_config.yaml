@@ -1,8 +1,8 @@
 pose2d:
-  model_name: RTMW-x-l
+  model_name: RTMW-x
   backend: mmpose
-  config_path: models/rtmw/rtmw-x-l.py
-  checkpoint_path: weights/rtmw-x-l.pth
+  config_path: models/mmpose_configs/wholebody_2d_keypoint/rtmpose/cocktail14/rtmw-x_8xb320-270e_cocktail14-384x288.py
+  checkpoint_path: weights/rtmw-x_simcc-cocktail14_pt-ucoco_270e-384x288-f840f204_20231122.pth
   device: cuda:0
   input_size: [384, 288]
   keypoint_count: 133

@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_2d
+from .mmpose_compat import install_mmcv_ops_stub
 from .model_runtime import ModelRuntimeError
 
 
@@ -20,7 +21,7 @@ class Pose2DConfig:
 
 
 class RTMW2DEstimator:
-    """RTMW-x-l adapter. The MMPose initialization is intentionally isolated here."""
+    """RTMW adapter. The MMPose initialization is intentionally isolated here."""
 
     def __init__(self, config: Pose2DConfig, dry_run: bool = False) -> None:
         self.config = config
@@ -47,19 +48,21 @@ class RTMW2DEstimator:
 
     def _build_model(self) -> Any:
         if not self.config.config_path.exists():
-            raise FileNotFoundError(f"RTMW-x-l config not found: {self.config.config_path}")
+            raise FileNotFoundError(f"RTMW config not found: {self.config.config_path}")
         if not self.config.checkpoint_path.exists():
-            raise FileNotFoundError(f"RTMW-x-l checkpoint not found: {self.config.checkpoint_path}")
+            raise FileNotFoundError(f"RTMW checkpoint not found: {self.config.checkpoint_path}")
+        install_mmcv_ops_stub()
         try:
-            from mmpose.apis import MMPoseInferencer
+            from mmpose.apis.inferencers import Pose2DInferencer
         except ModuleNotFoundError as exc:
             raise ModelRuntimeError(
                 "MMPose is not installed. Install the RTMW-compatible MMPose environment before live inference."
             ) from exc
-        return MMPoseInferencer(
-            pose2d=str(self.config.config_path),
-            pose2d_weights=str(self.config.checkpoint_path),
+        return Pose2DInferencer(
+            model=str(self.config.config_path),
+            weights=str(self.config.checkpoint_path),
             device=self.config.device,
+            det_model="whole_image",
         )
 
 
@@ -103,3 +106,4 @@ def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
         padded_scores[: scores.shape[0]] = scores
         return padded_xy, padded_scores
     return keypoints[:COCO_WHOLEBODY_KEYPOINTS, :2], scores[:COCO_WHOLEBODY_KEYPOINTS]
+

@@ -36,3 +36,4 @@ weights/
 !data/
 !data/**/
 !data/**/.gitkeep
+.venv311/
