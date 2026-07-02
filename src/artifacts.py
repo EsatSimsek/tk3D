@@ -23,6 +23,7 @@ EXPECTED_OUTPUTS = [
     "json/session_3d.json",
     "json/preflight_report.json",
     "json/video_probe_report.json",
+    "json/model_runtime_report.json",
     "json/quality_summary.json",
     "session_3d_analysis.xlsx",
 ]

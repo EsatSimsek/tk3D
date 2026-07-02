@@ -39,6 +39,7 @@ RTMW-x-l ve RTMW3D-x entegrasyonu için MMPose/MMPRETRAIN ortamı ayrıca kurulm
 python scripts\inspect_session.py --session data\session_001\session.yaml
 python scripts\preflight_session.py --session data\session_001\session.yaml
 python scripts\probe_videos.py --session data\session_001\session.yaml
+python scripts\check_models.py --session data\session_001\session.yaml
 python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
 python -m pytest -q
 ```
@@ -74,6 +75,7 @@ Beklenen ana çıktılar:
 - `outputs/session_001/json/session_3d.json`
 - `outputs/session_001/json/preflight_report.json`
 - `outputs/session_001/json/video_probe_report.json`
+- `outputs/session_001/json/model_runtime_report.json`
 - `outputs/session_001/json/quality_summary.json`
 - `outputs/session_001/json/artifact_manifest.json`
 - `outputs/session_001/csv/keypoints_3d_world_flat.csv`
@@ -112,6 +114,7 @@ Hazır olanlar:
 - JSON/CSV/Excel/PNG/MP4 output üretimi
 - Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
 - Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
+- Model runtime raporu: RTMW-x-l / RTMW3D-x config, checkpoint ve MMPose ortam hazır mı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Triangulation, smoothing, validation ve pipeline testleri

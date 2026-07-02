@@ -23,6 +23,7 @@ from src.exporter import (
     export_session_json,
     export_validation_csv,
 )
+from src.model_runtime import check_model_runtime, save_model_runtime_report
 from src.preflight import has_errors, run_preflight, save_preflight_report
 from src.smoothing_3d import moving_average_nan
 from src.synthetic_data import build_synthetic_triangulation_result
@@ -62,6 +63,13 @@ def main() -> None:
     save_preflight_report(issues, output_paths["json"] / "preflight_report.json")
     with (output_paths["json"] / "video_probe_report.json").open("w", encoding="utf-8") as file:
         json.dump(video_probe_summary(probe_session_videos(session)), file, indent=2)
+    save_model_runtime_report(
+        {
+            "pose2d": check_model_runtime(model_config.get("pose2d", {}), ROOT),
+            "pose3d_single_view": check_model_runtime(model_config.get("pose3d_single_view", {}), ROOT),
+        },
+        output_paths["json"] / "model_runtime_report.json",
+    )
 
     if args.dry_run:
         result = build_synthetic_triangulation_result(args.dry_run_frames)
@@ -170,5 +178,7 @@ def _mean_3d_error(predicted: np.ndarray, target: np.ndarray) -> float:
     if not np.any(valid):
         return float("nan")
     return float(np.mean(np.linalg.norm(predicted[valid] - target[valid], axis=-1)))
+
+
 if __name__ == "__main__":
     main()

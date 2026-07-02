@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_2d
+from .model_runtime import ModelRuntimeError
 
 
 @dataclass(slots=True)
@@ -34,8 +35,14 @@ class RTMW2DEstimator:
         if self._model is None:
             raise RuntimeError("RTMW2DEstimator model is not initialized")
 
-        raise NotImplementedError(
-            "Connect MMPose inference here after RTMW-x-l config and checkpoint are available."
+        result = self._model(frame)
+        keypoints_xy, scores = _extract_mmpose_wholebody(result)
+        return pose2d_from_arrays(
+            camera_id=camera_id,
+            frame_idx=frame_idx,
+            keypoints_xy=keypoints_xy,
+            scores=scores,
+            score_threshold=self.config.score_threshold,
         )
 
     def _build_model(self) -> Any:
@@ -43,7 +50,17 @@ class RTMW2DEstimator:
             raise FileNotFoundError(f"RTMW-x-l config not found: {self.config.config_path}")
         if not self.config.checkpoint_path.exists():
             raise FileNotFoundError(f"RTMW-x-l checkpoint not found: {self.config.checkpoint_path}")
-        raise NotImplementedError("MMPose RTMW-x-l initialization will be added after model files are present.")
+        try:
+            from mmpose.apis import MMPoseInferencer
+        except ModuleNotFoundError as exc:
+            raise ModelRuntimeError(
+                "MMPose is not installed. Install the RTMW-compatible MMPose environment before live inference."
+            ) from exc
+        return MMPoseInferencer(
+            pose2d=str(self.config.config_path),
+            pose2d_weights=str(self.config.checkpoint_path),
+            device=self.config.device,
+        )
 
 
 def pose2d_from_arrays(
@@ -63,3 +80,26 @@ def pose2d_from_arrays(
         scores=scores,
         valid_mask=valid_mask,
     )
+
+
+def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
+    if not isinstance(result, dict):
+        result = next(result)
+    predictions = result.get("predictions", [])
+    if predictions and isinstance(predictions[0], list):
+        predictions = predictions[0]
+    if not predictions:
+        return (
+            np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float),
+            np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float),
+        )
+    best = max(predictions, key=lambda item: float(np.nanmean(item.get("keypoint_scores", [0.0]))))
+    keypoints = np.asarray(best["keypoints"], dtype=float)
+    scores = np.asarray(best.get("keypoint_scores", np.ones(keypoints.shape[0])), dtype=float)
+    if keypoints.shape[0] < COCO_WHOLEBODY_KEYPOINTS:
+        padded_xy = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
+        padded_scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
+        padded_xy[: keypoints.shape[0]] = keypoints[:, :2]
+        padded_scores[: scores.shape[0]] = scores
+        return padded_xy, padded_scores
+    return keypoints[:COCO_WHOLEBODY_KEYPOINTS, :2], scores[:COCO_WHOLEBODY_KEYPOINTS]

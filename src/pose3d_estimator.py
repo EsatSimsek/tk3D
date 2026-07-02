@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, PersonPose3D
+from .model_runtime import ModelRuntimeError
 
 
 @dataclass(slots=True)
@@ -40,8 +41,9 @@ class RTMW3DEstimator:
             )
         if self._model is None:
             raise RuntimeError("RTMW3DEstimator model is not initialized")
-        raise NotImplementedError(
-            "Connect RTMW3D-x inference here after config and checkpoint are available."
+        raise ModelRuntimeError(
+            "RTMW3D-x live inference adapter is staged, but output parsing must be matched to the installed "
+            "RTMW3D package version. Multi-view triangulation remains the final 3D source."
         )
 
     def _build_model(self) -> Any:
@@ -49,4 +51,14 @@ class RTMW3DEstimator:
             raise FileNotFoundError(f"RTMW3D-x config not found: {self.config.config_path}")
         if not self.config.checkpoint_path.exists():
             raise FileNotFoundError(f"RTMW3D-x checkpoint not found: {self.config.checkpoint_path}")
-        raise NotImplementedError("MMPose RTMW3D-x initialization will be added after model files are present.")
+        try:
+            from mmpose.apis import MMPoseInferencer
+        except ModuleNotFoundError as exc:
+            raise ModelRuntimeError(
+                "MMPose is not installed. Install the RTMW3D-compatible MMPose environment before live inference."
+            ) from exc
+        return MMPoseInferencer(
+            pose3d=str(self.config.config_path),
+            pose3d_weights=str(self.config.checkpoint_path),
+            device=self.config.device,
+        )
