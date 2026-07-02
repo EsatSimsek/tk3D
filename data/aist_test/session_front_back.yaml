@@ -1,0 +1,19 @@
+session_id: aist_test
+task_name: gBR_sBM_cAll_d04_mBR0_ch01
+fps: 60.0
+cameras:
+- camera_id: c01
+  video_path: videos/gBR_sBM_c01_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c05
+  video_path: videos/gBR_sBM_c05_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+sync:
+  method: frame_index
+  offsets:
+    c01: 0
+    c05: 0
+aist:
+  sequence: gBR_sBM_cAll_d04_mBR0_ch01
+  annotations_dir: annotations
+  camera_source: AIST++ cameras/*.json + mapping.txt

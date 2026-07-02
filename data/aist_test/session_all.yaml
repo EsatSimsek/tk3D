@@ -1,0 +1,47 @@
+session_id: aist_test
+task_name: gBR_sBM_cAll_d04_mBR0_ch01
+fps: 60.0
+cameras:
+- camera_id: c01
+  video_path: videos/gBR_sBM_c01_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c02
+  video_path: videos/gBR_sBM_c02_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c03
+  video_path: videos/gBR_sBM_c03_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c04
+  video_path: videos/gBR_sBM_c04_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c05
+  video_path: videos/gBR_sBM_c05_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c06
+  video_path: videos/gBR_sBM_c06_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c07
+  video_path: videos/gBR_sBM_c07_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c08
+  video_path: videos/gBR_sBM_c08_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+- camera_id: c09
+  video_path: videos/gBR_sBM_c09_d04_mBR0_ch01.mp4
+  calibration_video_path: null
+sync:
+  method: frame_index
+  offsets:
+    c01: 0
+    c02: 0
+    c03: 0
+    c04: 0
+    c05: 0
+    c06: 0
+    c07: 0
+    c08: 0
+    c09: 0
+aist:
+  sequence: gBR_sBM_cAll_d04_mBR0_ch01
+  annotations_dir: annotations
+  camera_source: AIST++ cameras/*.json + mapping.txt

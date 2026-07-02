@@ -2,7 +2,14 @@
   "sequence": "gBR_sBM_cAll_d04_mBR0_ch01",
   "cameras": [
     "c01",
-    "c02"
+    "c02",
+    "c03",
+    "c04",
+    "c05",
+    "c06",
+    "c07",
+    "c08",
+    "c09"
   ],
   "downloader_url": "https://raw.githubusercontent.com/google/aistplusplus_api/main/downloader.py",
   "folders": {
@@ -11,7 +18,14 @@
   },
   "expected_videos": [
     "gBR_sBM_c01_d04_mBR0_ch01.mp4",
-    "gBR_sBM_c02_d04_mBR0_ch01.mp4"
+    "gBR_sBM_c02_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c03_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c04_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c05_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c06_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c07_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c08_d04_mBR0_ch01.mp4",
+    "gBR_sBM_c09_d04_mBR0_ch01.mp4"
   ],
   "annotation_targets": [
     "annotations/cameras/",
