@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -27,8 +28,9 @@ from src.smoothing_3d import moving_average_nan
 from src.synthetic_data import build_synthetic_triangulation_result
 from src.validation_3d import quality_summary, validate_triangulation
 from src.video_io import ensure_output_tree, load_session
+from src.video_probe import probe_session_videos, video_probe_summary
 from src.visualization_2d import write_placeholder_overlay_video
-from src.visualization_3d import save_heatmap, save_reprojection_timeline, write_placeholder_3d_video
+from src.visualization_3d import save_heatmap, save_reprojection_timeline, write_3d_skeleton_video
 
 
 def main() -> None:
@@ -58,6 +60,8 @@ def main() -> None:
         model_files_required=not args.dry_run or args.strict_preflight,
     )
     save_preflight_report(issues, output_paths["json"] / "preflight_report.json")
+    with (output_paths["json"] / "video_probe_report.json").open("w", encoding="utf-8") as file:
+        json.dump(video_probe_summary(probe_session_videos(session)), file, indent=2)
 
     if args.dry_run:
         result = build_synthetic_triangulation_result(args.dry_run_frames)
@@ -90,9 +94,14 @@ def main() -> None:
 
     for camera in session.cameras:
         write_placeholder_overlay_video(output_paths["videos"] / f"{camera.camera_id}_2d_overlay.mp4")
-    write_placeholder_3d_video(output_paths["videos"] / "skeleton_3d_world.mp4")
+    write_3d_skeleton_video(keypoints_3d_world, output_paths["videos"] / "skeleton_3d_world.mp4")
     if "calibrations" in result:
         save_calibrations(list(result["calibrations"].values()), output_paths["calibration"] / "cameras.json")
+    if "synthetic_ground_truth_3d_world" in result:
+        summary["synthetic_mean_3d_error_m"] = _mean_3d_error(
+            keypoints_3d_world,
+            result["synthetic_ground_truth_3d_world"],
+        )
 
     save_reprojection_timeline(
         result["reprojection_error"],
@@ -152,5 +161,14 @@ def main() -> None:
     print(f"saved outputs under: {output_paths['root']}")
     print(f"keypoints_3d_world shape: {keypoints_3d_world.shape}")
     print(f"mean reprojection error px: {summary['mean_reprojection_error_px']:.6f}")
+    if "synthetic_mean_3d_error_m" in summary:
+        print(f"synthetic mean 3d error m: {summary['synthetic_mean_3d_error_m']:.9f}")
+
+
+def _mean_3d_error(predicted: np.ndarray, target: np.ndarray) -> float:
+    valid = np.all(np.isfinite(predicted), axis=-1) & np.all(np.isfinite(target), axis=-1)
+    if not np.any(valid):
+        return float("nan")
+    return float(np.mean(np.linalg.norm(predicted[valid] - target[valid], axis=-1)))
 if __name__ == "__main__":
     main()

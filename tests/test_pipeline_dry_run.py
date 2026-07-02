@@ -32,6 +32,9 @@ def test_run_multiview_3d_dry_run_outputs_expected_files(tmp_path) -> None:
     assert (output_root / "session_001" / "csv" / "keypoints_2d_flat.csv").exists()
     assert (output_root / "session_001" / "csv" / "validation_joints.csv").exists()
     assert (output_root / "session_001" / "calibration" / "cameras.json").exists()
+    skeleton_video = output_root / "session_001" / "videos" / "skeleton_3d_world.mp4"
+    assert skeleton_video.exists()
+    assert skeleton_video.stat().st_size > 0
 
     quality = json.loads((output_root / "session_001" / "json" / "quality_summary.json").read_text(encoding="utf-8"))
     assert quality["frame_count"] == 4

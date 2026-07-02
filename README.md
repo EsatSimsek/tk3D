@@ -38,11 +38,13 @@ RTMW-x-l ve RTMW3D-x entegrasyonu için MMPose/MMPRETRAIN ortamı ayrıca kurulm
 ```powershell
 python scripts\inspect_session.py --session data\session_001\session.yaml
 python scripts\preflight_session.py --session data\session_001\session.yaml
+python scripts\probe_videos.py --session data\session_001\session.yaml
 python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
 python -m pytest -q
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
+Bu komut gerçek bir `outputs/session_001/videos/skeleton_3d_world.mp4` dosyası üretir. Video, sentetik 3D dünya iskeletinin frame frame render edilmiş halidir; siyah placeholder değildir.
 
 Gerçek video/model dosyaları geldiğinde önce strict preflight çalıştırılır:
 
@@ -71,6 +73,7 @@ Beklenen ana çıktılar:
 
 - `outputs/session_001/json/session_3d.json`
 - `outputs/session_001/json/preflight_report.json`
+- `outputs/session_001/json/video_probe_report.json`
 - `outputs/session_001/json/quality_summary.json`
 - `outputs/session_001/json/artifact_manifest.json`
 - `outputs/session_001/csv/keypoints_3d_world_flat.csv`
@@ -108,6 +111,7 @@ Hazır olanlar:
 - Sentetik 3 kamera dry-run pipeline
 - JSON/CSV/Excel/PNG/MP4 output üretimi
 - Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
+- Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Triangulation, smoothing, validation ve pipeline testleri
