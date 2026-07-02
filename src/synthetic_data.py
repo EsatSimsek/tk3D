@@ -91,6 +91,8 @@ def build_synthetic_triangulation_result(frame_count: int) -> dict[str, np.ndarr
         "reprojection_error": np.stack([pose.reprojection_error for pose in triangulated], axis=0),
         "used_cameras": np.stack([pose.used_cameras for pose in triangulated], axis=0),
         "poses_2d_by_frame": projected,
+        "calibrations": calibrations,
+        "synthetic_ground_truth_3d_world": world,
     }
 
 

@@ -30,3 +30,40 @@ def validate_triangulation(
         mean_reprojection_error_px=mean_error,
         warnings=warnings,
     )
+
+
+def quality_summary(
+    keypoints_3d_world: np.ndarray,
+    triangulation_score: np.ndarray,
+    reprojection_error: np.ndarray,
+    used_cameras: np.ndarray,
+    validation: Validation,
+) -> dict[str, float | int | list[str]]:
+    valid_xyz = np.all(np.isfinite(keypoints_3d_world), axis=-1)
+    valid_joint_count = int(np.sum(np.any(valid_xyz, axis=0)))
+    valid_frame_count = int(np.sum(np.any(valid_xyz, axis=1)))
+    return {
+        "frame_count": int(keypoints_3d_world.shape[0]),
+        "keypoint_count": int(keypoints_3d_world.shape[1]),
+        "valid_frame_count": valid_frame_count,
+        "valid_joint_count": valid_joint_count,
+        "mean_frame_valid_ratio": _safe_nanmean(validation.frame_valid_ratio),
+        "mean_joint_valid_ratio": _safe_nanmean(validation.joint_valid_ratio),
+        "mean_triangulation_score": _safe_nanmean(triangulation_score[triangulation_score > 0]),
+        "mean_reprojection_error_px": _safe_nanmean(reprojection_error),
+        "max_reprojection_error_px": _safe_nanmax(reprojection_error),
+        "mean_used_cameras": _safe_nanmean(used_cameras[used_cameras > 0]),
+        "warnings": validation.warnings,
+    }
+
+
+def _safe_nanmean(values: np.ndarray) -> float:
+    if values.size == 0 or not np.any(np.isfinite(values)):
+        return float("nan")
+    return float(np.nanmean(values))
+
+
+def _safe_nanmax(values: np.ndarray) -> float:
+    if values.size == 0 or not np.any(np.isfinite(values)):
+        return float("nan")
+    return float(np.nanmax(values))

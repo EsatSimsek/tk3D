@@ -10,7 +10,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.data_structures import COCO_WHOLEBODY_KEYPOINTS
+from src.artifacts import save_artifact_manifest
+from src.camera_calibration import save_calibrations
 from src.exporter import (
     export_excel,
     export_joint_validation_csv,
@@ -21,9 +22,10 @@ from src.exporter import (
     export_session_json,
     export_validation_csv,
 )
+from src.preflight import has_errors, run_preflight, save_preflight_report
 from src.smoothing_3d import moving_average_nan
 from src.synthetic_data import build_synthetic_triangulation_result
-from src.validation_3d import validate_triangulation
+from src.validation_3d import quality_summary, validate_triangulation
 from src.video_io import ensure_output_tree, load_session
 from src.visualization_2d import write_placeholder_overlay_video
 from src.visualization_3d import save_heatmap, save_reprojection_timeline, write_placeholder_3d_video
@@ -36,6 +38,11 @@ def main() -> None:
     parser.add_argument("--output-root", default="outputs", help="Output root directory")
     parser.add_argument("--dry-run", action="store_true", help="Create expected outputs without model/video inference")
     parser.add_argument("--dry-run-frames", type=int, default=30)
+    parser.add_argument(
+        "--strict-preflight",
+        action="store_true",
+        help="Fail dry-run when configured videos or model files are missing.",
+    )
     args = parser.parse_args()
 
     session = load_session(args.session)
@@ -43,13 +50,25 @@ def main() -> None:
         model_config = yaml.safe_load(file)
 
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
+    issues = run_preflight(
+        session=session,
+        model_config=model_config,
+        videos_required=not args.dry_run or args.strict_preflight,
+        calibration_videos_required=not args.dry_run or args.strict_preflight,
+        model_files_required=not args.dry_run or args.strict_preflight,
+    )
+    save_preflight_report(issues, output_paths["json"] / "preflight_report.json")
 
     if args.dry_run:
         result = build_synthetic_triangulation_result(args.dry_run_frames)
     else:
-        raise NotImplementedError(
-            "Live RTMW inference will be enabled after model files and calibration videos are available. "
-            "Use --dry-run to validate the project outputs now."
+        if has_errors(issues):
+            raise SystemExit(
+                "Preflight failed. Inspect outputs/<session_id>/json/preflight_report.json before running live mode."
+            )
+        raise SystemExit(
+            "Live mode is ready for integration points but RTMW model inference is not connected yet. "
+            "Use --dry-run until model configs/checkpoints are installed."
         )
 
     keypoints_3d_world = moving_average_nan(
@@ -61,10 +80,19 @@ def main() -> None:
         reprojection_error=result["reprojection_error"],
         max_reprojection_error_px=float(model_config["triangulation"]["max_reprojection_error_px"]),
     )
+    summary = quality_summary(
+        keypoints_3d_world=keypoints_3d_world,
+        triangulation_score=result["triangulation_score"],
+        reprojection_error=result["reprojection_error"],
+        used_cameras=result["used_cameras"],
+        validation=validation,
+    )
 
     for camera in session.cameras:
         write_placeholder_overlay_video(output_paths["videos"] / f"{camera.camera_id}_2d_overlay.mp4")
     write_placeholder_3d_video(output_paths["videos"] / "skeleton_3d_world.mp4")
+    if "calibrations" in result:
+        save_calibrations(list(result["calibrations"].values()), output_paths["calibration"] / "cameras.json")
 
     save_reprojection_timeline(
         result["reprojection_error"],
@@ -99,17 +127,18 @@ def main() -> None:
         "validation": validation,
     }
     export_session_json(payload, output_paths["json"] / "session_3d.json")
+    export_session_json(summary, output_paths["json"] / "quality_summary.json")
 
-    summary = {
+    excel_summary = {
         "session_id": session.session_id,
         "task_name": session.task_name,
         "frame_count": keypoints_3d_world.shape[0],
         "keypoint_count": keypoints_3d_world.shape[1],
-        "mean_frame_valid_ratio": float(np.nanmean(validation.frame_valid_ratio)),
-        "mean_reprojection_error_px": float(np.nanmean(result["reprojection_error"])),
+        "mean_frame_valid_ratio": summary["mean_frame_valid_ratio"],
+        "mean_reprojection_error_px": summary["mean_reprojection_error_px"],
     }
     export_excel(
-        summary,
+        excel_summary,
         {
             "keypoints_2d": keypoints2d_csv,
             "keypoints_3d": keypoints3d_csv,
@@ -118,8 +147,10 @@ def main() -> None:
         },
         output_paths["root"] / "session_3d_analysis.xlsx",
     )
+    save_artifact_manifest(output_paths["root"], output_paths["json"] / "artifact_manifest.json")
 
     print(f"saved outputs under: {output_paths['root']}")
     print(f"keypoints_3d_world shape: {keypoints_3d_world.shape}")
+    print(f"mean reprojection error px: {summary['mean_reprojection_error_px']:.6f}")
 if __name__ == "__main__":
     main()
