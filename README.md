@@ -176,6 +176,21 @@ Ana çıktılar:
 - `outputs/aist_test/csv/rtmw_keypoints_3d_world_flat.csv`
 
 Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken RTMW multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için yine checkerboard calibration gerekir.
+## SMPL Mesh İnsan Modeli
 
+Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. AIST++ motion dosyaları indirildi; ancak lisanslı SMPL body model dosyası repoda tutulmaz. Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
 
+SMPL model dosyasını koyduktan sonra:
+
+```powershell
+cd C:\Users\WWWW\Desktop\tk3d
+.\.venv311\Scripts\Activate.ps1
+python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
+```
+
+Beklenen mesh çıktıları:
+
+- `outputs/aist_test/videos/aist_smpl_mesh.mp4`
+- `outputs/aist_test/figures/aist_smpl_mesh_frame0.obj`
+- `outputs/aist_test/json/aist_smpl_mesh_report.json`
 
