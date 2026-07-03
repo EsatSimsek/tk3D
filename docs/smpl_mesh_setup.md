@@ -48,3 +48,11 @@ python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_al
 
 Mouse ile modeli dondurebilirsin; Space durdur/devam, N sonraki kare, B onceki kare, R basa al, Q kapat.
 
+
+## Tarayici Three.js Viewer
+
+```powershell
+python scripts\export_aist_smpl_threejs_viewer.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1
+```
+
+Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`. Chrome veya Edge ile acip mouse ile modeli dondurebilir, oynatabilir, durdurabilir ve frame slider ile kare gezebilirsin.
