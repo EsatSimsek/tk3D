@@ -194,3 +194,10 @@ Beklenen mesh çıktıları:
 - `outputs/aist_test/figures/aist_smpl_mesh_frame0.obj`
 - `outputs/aist_test/json/aist_smpl_mesh_report.json`
 
+
+Mouse ile döndürülebilen oynayan Open3D viewer:
+
+`powershell
+python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1
+` 
+
