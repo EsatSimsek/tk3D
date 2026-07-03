@@ -73,6 +73,9 @@ def _normalize_for_viewer(vertices: np.ndarray) -> np.ndarray:
     maxs = np.nanpercentile(finite, 99, axis=0)
     scale = float(np.max(np.maximum(maxs - mins, 1e-6)))
     normalized = vertices / scale * 2.1
+    normalized[:, :, 0] -= float(np.nanmedian(normalized[:, :, 0]))
+    normalized[:, :, 2] -= float(np.nanmedian(normalized[:, :, 2]))
+    normalized[:, :, 1] -= float(np.nanmin(normalized[:, :, 1]))
     return normalized.astype(np.float32)
 
 
@@ -140,7 +143,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf6f7f9);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 100);
-camera.position.set(0.15, -4.2, 1.35);
+camera.position.set(0.15, -4.4, 1.45);
 
 const renderer = new THREE.WebGLRenderer({{ antialias: true }});
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -149,7 +152,7 @@ stage.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.target.set(0, 0, 0.05);
+controls.target.set(0, 0, 1.05);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0xb5bfd2, 2.5));
 const key = new THREE.DirectionalLight(0xffffff, 2.0);
@@ -161,7 +164,7 @@ scene.add(fill);
 
 const grid = new THREE.GridHelper(3.2, 16, 0xcbd2df, 0xe4e8ef);
 grid.rotation.x = Math.PI / 2;
-grid.position.z = -1.04;
+grid.position.z = 0;
 scene.add(grid);
 
 const geometry = new THREE.BufferGeometry();
@@ -213,7 +216,7 @@ prevButton.addEventListener('click', () => {{ setPlaying(false); setFrame(frame 
 nextButton.addEventListener('click', () => {{ setPlaying(false); setFrame(frame + 1); }});
 frameSlider.addEventListener('input', () => {{ setPlaying(false); setFrame(Number(frameSlider.value)); }});
 wireButton.addEventListener('click', () => {{ material.wireframe = !material.wireframe; wireButton.classList.toggle('active', material.wireframe); }});
-resetButton.addEventListener('click', () => {{ camera.position.set(0.15, -4.2, 1.35); controls.target.set(0, 0, 0.05); controls.update(); }});
+resetButton.addEventListener('click', () => {{ camera.position.set(0.15, -4.4, 1.45); controls.target.set(0, 0, 1.05); controls.update(); }});
 
 window.addEventListener('keydown', (event) => {{
   if (event.code === 'Space') {{ event.preventDefault(); setPlaying(!playing); }}
@@ -249,5 +252,6 @@ animate(performance.now());
 
 if __name__ == "__main__":
     main()
+
 
 
