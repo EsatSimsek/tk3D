@@ -122,9 +122,17 @@ def build_html(vertices: np.ndarray, faces: np.ndarray, fps: float, sequence: st
   <button id=\"reset\" title=\"Reset camera\">⌂</button>
 </div>
 <script id=\"tk3d-data\" type=\"application/json\">{data_json}</script>
+<script type=\"importmap\">
+{{
+  "imports": {{
+    "three": "https://unpkg.com/three@0.164.1/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.164.1/examples/jsm/"
+  }}
+}}
+</script>
 <script type=\"module\">
-import * as THREE from 'https://unpkg.com/three@0.164.1/build/three.module.js';
-import {{ OrbitControls }} from 'https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js';
+import * as THREE from 'three';
+import {{ OrbitControls }} from 'three/addons/controls/OrbitControls.js';
 
 const data = JSON.parse(document.getElementById('tk3d-data').textContent);
 const stage = document.getElementById('stage');
@@ -241,3 +249,4 @@ animate(performance.now());
 
 if __name__ == "__main__":
     main()
+
