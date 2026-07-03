@@ -115,7 +115,7 @@ def _motion_to_vertices(smpl, motion, indices: list[int], device: torch.device) 
     scale = float(motion.scaling[0]) if motion.scaling.size else 1.0
     global_orient = torch.from_numpy(global_orient_np).float().to(device)
     body_pose = torch.from_numpy(body_pose_np).float().to(device)
-    transl = torch.from_numpy(motion.translation[indices] * scale).float().to(device)
+    transl = torch.from_numpy(motion.translation[indices]).float().to(device)
     with torch.no_grad():
         output = smpl(
             global_orient=global_orient,
@@ -132,34 +132,32 @@ def render_mesh_video(vertices: np.ndarray, faces: np.ndarray, path: Path, fps: 
     import matplotlib.pyplot as plt
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    display_vertices = _center_vertices_per_frame(vertices)
     render_faces = faces[::2] if faces.shape[0] > 7000 else faces
-    limits = _mesh_axis_limits(vertices)
+    limits = _mesh_axis_limits(display_vertices)
     frames = []
     width, height = size
     dpi = 100
-    for frame_idx, frame_vertices in enumerate(vertices):
+    for frame_idx, frame_vertices in enumerate(display_vertices):
         fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
-        ax.set_facecolor("#f7f7f7")
+        ax.set_facecolor("#fbfbfb")
         fig.patch.set_facecolor("#ffffff")
-        mesh = Poly3DCollection(frame_vertices[render_faces], alpha=0.88)
-        mesh.set_facecolor("#b9c7ff")
-        mesh.set_edgecolor("#52628f")
-        mesh.set_linewidth(0.05)
+        mesh = Poly3DCollection(frame_vertices[render_faces], alpha=0.96, antialiased=True)
+        mesh.set_facecolor("#8fb3ff")
+        mesh.set_edgecolor("#1f2d4d")
+        mesh.set_linewidth(0.025)
         ax.add_collection3d(mesh)
         ax.set_xlim(*limits["x"])
         ax.set_ylim(*limits["y"])
         ax.set_zlim(*limits["z"])
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_title(f"TK3D SMPL human mesh - frame {frame_idx}")
-        ax.view_init(elev=12, azim=-75)
-        ax.grid(True, alpha=0.18)
-        fig.tight_layout()
+        ax.set_box_aspect((1, 1, 1))
+        ax.view_init(elev=8, azim=-82)
+        ax.set_axis_off()
+        fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
         fig.canvas.draw()
         rgba = np.asarray(fig.canvas.buffer_rgba())
-        frames.append(cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR))
+        frames.append(_zoom_frame(cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR), zoom=1.85))
         plt.close(fig)
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -170,6 +168,21 @@ def render_mesh_video(vertices: np.ndarray, faces: np.ndarray, path: Path, fps: 
     finally:
         writer.release()
 
+
+def _zoom_frame(frame: np.ndarray, zoom: float) -> np.ndarray:
+    if zoom <= 1.0:
+        return frame
+    height, width = frame.shape[:2]
+    crop_width = max(1, int(width / zoom))
+    crop_height = max(1, int(height / zoom))
+    x0 = max(0, (width - crop_width) // 2)
+    y0 = max(0, (height - crop_height) // 2)
+    crop = frame[y0 : y0 + crop_height, x0 : x0 + crop_width]
+    return cv2.resize(crop, (width, height), interpolation=cv2.INTER_CUBIC)
+
+def _center_vertices_per_frame(vertices: np.ndarray) -> np.ndarray:
+    centers = np.nanmedian(vertices, axis=1, keepdims=True)
+    return vertices - centers
 
 def _mesh_axis_limits(vertices: np.ndarray) -> dict[str, tuple[float, float]]:
     finite = vertices[np.all(np.isfinite(vertices), axis=-1)]
@@ -195,6 +208,9 @@ def export_obj(vertices: np.ndarray, faces: np.ndarray, path: Path) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
 
 
 
