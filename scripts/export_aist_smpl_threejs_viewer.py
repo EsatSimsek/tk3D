@@ -177,7 +177,7 @@ const material = new THREE.MeshStandardMaterial({{
   side: THREE.DoubleSide,
 }});
 const mesh = new THREE.Mesh(geometry, material);
-mesh.rotation.x = -Math.PI / 2;
+mesh.rotation.x = Math.PI / 2;
 scene.add(mesh);
 
 const playButton = document.getElementById('play');
@@ -249,4 +249,5 @@ animate(performance.now());
 
 if __name__ == "__main__":
     main()
+
 
