@@ -18,7 +18,7 @@ data/aist_test/annotations/motions/gBR_sBM_cAll_d04_mBR0_ch01.pkl
 Install/runtime packages used in `.venv311`:
 
 ```powershell
-python -m pip install smplx trimesh
+python -m pip install smplx trimesh chumpy --no-build-isolation
 ```
 
 Render command after placing `SMPL_MALE.pkl`:
@@ -38,3 +38,4 @@ outputs/aist_test/json/aist_smpl_mesh_report.json
 ```
 
 If the SMPL model file is missing, the script stops before rendering and prints the exact expected path. This is intentional: the licensed SMPL model cannot be redistributed or auto-downloaded by the project.
+

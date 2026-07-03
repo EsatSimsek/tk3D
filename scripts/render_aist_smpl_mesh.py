@@ -86,9 +86,28 @@ def main() -> None:
 
 
 def _load_smpl(smpl_dir: Path, gender: str, batch_size: int, device: torch.device):
+    _patch_legacy_smpl_runtime()
     from smplx import SMPL
 
     return SMPL(model_path=str(smpl_dir), gender=gender.upper(), batch_size=batch_size).to(device)
+
+
+def _patch_legacy_smpl_runtime() -> None:
+    import inspect
+
+    if not hasattr(inspect, "getargspec"):
+        inspect.getargspec = inspect.getfullargspec  # type: ignore[attr-defined]
+    for alias, value in {
+        "bool": bool,
+        "int": int,
+        "float": float,
+        "complex": complex,
+        "object": object,
+        "str": str,
+        "unicode": str,
+    }.items():
+        if alias not in np.__dict__:
+            setattr(np, alias, value)
 
 
 def _motion_to_vertices(smpl, motion, indices: list[int], device: torch.device) -> tuple[np.ndarray, np.ndarray]:
@@ -176,5 +195,7 @@ def export_obj(vertices: np.ndarray, faces: np.ndarray, path: Path) -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 

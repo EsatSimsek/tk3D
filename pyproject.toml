@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2"]
-smpl = ["smplx>=0.1.28", "trimesh>=4.0"]
+smpl = ["smplx>=0.1.28", "trimesh>=4.0", "chumpy>=0.70"]
 
 [tool.setuptools]
 packages = ["src"]
@@ -28,4 +28,5 @@ packages = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
 
