@@ -209,3 +209,31 @@ python scripts\export_aist_smpl_threejs_viewer.py --session data\aist_test\sessi
 ```
 
 Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
+
+## Puanlama Hazirlik Analizi
+
+Puanlama motoruna gecmeden once 3D ciktiyi kalite, smoothing, biomekanik acilar ve hareket segment adaylari ile hazirlamak icin:
+
+```powershell
+cd C:\Users\WWWW\Desktop\tk3d
+.\.venv311\Scripts\Activate.ps1
+python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5
+```
+
+Ana ciktilar:
+
+- `outputs/aist_test/json/scoring_readiness_report.json`
+- `outputs/aist_test/json/rtmw_session_3d_smoothed.json`
+- `outputs/aist_test/csv/pose_quality_frames.csv`
+- `outputs/aist_test/csv/pose_quality_joints.csv`
+- `outputs/aist_test/csv/biomechanics_timeseries.csv`
+- `outputs/aist_test/csv/movement_segments.csv`
+- `outputs/aist_test/scoring_readiness_analysis.xlsx`
+
+Bu asama henuz puan vermez; puanlama motorunun kullanacagi guvenilir frame, guvenilir eklem, smoothing, diz/kalca/omuz/dirsek acilari ve hareket segment adaylarini hazirlar. Gercek poomsae videosu geldiginde scoring motoru bu dosyalarin uzerine kurulur.
+
+Tek kamera 2D cubuk overlay gerekiyorsa zaten mevcut komut kullanilir:
+
+```powershell
+python scripts\run_pose2d_overlays.py --session data\aist_test\session_all.yaml --camera c01 --max-frames 120 --stride 1
+```
