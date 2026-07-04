@@ -36,6 +36,8 @@ def main() -> None:
     if len(session.cameras) < 2:
         raise SystemExit("Need at least two cameras.")
     cameras = session.cameras[: args.max_cameras] if args.max_cameras else session.cameras
+    if len(cameras) < 2:
+        raise SystemExit("Need at least two selected cameras. Increase --max-cameras or update the session.")
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
 
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
@@ -57,13 +59,15 @@ def main() -> None:
         if all(camera.camera_id in calibrations for camera in cameras):
             calibration_mode = "loaded"
         else:
+            cameras = cameras[:2]
             calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
             calibration_mode = "approximate_test_calibration"
-            print("WARNING: calibration/cameras.json does not match session cameras. Using approximate test calibration.")
+            print("WARNING: calibration/cameras.json does not match selected cameras. Using the first two cameras with approximate test calibration.")
     else:
+        cameras = cameras[:2]
         calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
         calibration_mode = "approximate_test_calibration"
-        print("WARNING: calibration/cameras.json not found. Using approximate test calibration, not metric 3D.")
+        print("WARNING: calibration/cameras.json not found. Using the first two cameras with approximate test calibration, not metric 3D.")
 
     captures = [cv2.VideoCapture(str(camera.video_path)) for camera in cameras]
     if not all(capture.isOpened() for capture in captures):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from src.biomechanics_3d import center_of_mass_proxy
 from src.scoring_readiness import biomechanics_timeseries, build_scoring_readiness, movement_segments
 
 
@@ -55,3 +56,11 @@ def test_movement_segments_returns_candidates() -> None:
 
     assert rows[0]["label"] in {"motion_candidate", "pending_motion"}
     assert "status" in rows[0]
+
+
+def test_center_of_mass_proxy_handles_all_nan_selection() -> None:
+    keypoints = np.full((133, 3), np.nan, dtype=float)
+
+    center = center_of_mass_proxy(keypoints, [5, 6, 11, 12])
+
+    assert np.isnan(center).all()

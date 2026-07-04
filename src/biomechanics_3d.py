@@ -21,6 +21,8 @@ def segment_length(a: np.ndarray, b: np.ndarray) -> float:
 
 def center_of_mass_proxy(keypoints_3d: np.ndarray, joint_indices: list[int]) -> np.ndarray:
     selected = keypoints_3d[joint_indices]
-    if selected.size == 0:
+    if selected.size == 0 or not np.any(np.isfinite(selected)):
         return np.array([np.nan, np.nan, np.nan], dtype=float)
-    return np.nanmean(selected, axis=0)
+    sums = np.nansum(selected, axis=0)
+    counts = np.sum(np.isfinite(selected), axis=0)
+    return np.divide(sums, counts, out=np.full(3, np.nan, dtype=float), where=counts > 0)
