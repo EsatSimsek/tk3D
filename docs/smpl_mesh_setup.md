@@ -42,9 +42,9 @@ If the SMPL model file is missing, the script stops before rendering and prints 
 
 ## Oynayan 3D Open3D Viewer
 
-`powershell
+```powershell
 python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1
-` 
+```
 
 Mouse ile modeli dondurebilirsin; Space durdur/devam, N sonraki kare, B onceki kare, R basa al, Q kapat.
 

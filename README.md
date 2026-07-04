@@ -197,9 +197,9 @@ Beklenen mesh çıktıları:
 
 Mouse ile döndürülebilen oynayan Open3D viewer:
 
-`powershell
+```powershell
 python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1
-` 
+```
 
 
 Tarayicida acilan interaktif Three.js viewer uretmek icin:
