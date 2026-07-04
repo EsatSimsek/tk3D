@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -30,6 +31,7 @@ def main() -> None:
     parser.add_argument("--max-frames", type=int, default=30)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--max-cameras", type=int, default=None, help="Optional limit for faster tests; default uses all session cameras.")
+    parser.add_argument("--progress-every", type=int, default=1, help="Print progress every N written frames.")
     args = parser.parse_args()
 
     session = load_session(args.session)
@@ -43,6 +45,7 @@ def main() -> None:
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
         model_config = yaml.safe_load(file)
     pose2d_config = model_config["pose2d"]
+    print(f"Loading RTMW model: {pose2d_config['model_name']} on {pose2d_config.get('device', 'cuda:0')}", flush=True)
     estimator = RTMW2DEstimator(
         Pose2DConfig(
             model_name=pose2d_config["model_name"],
@@ -74,6 +77,10 @@ def main() -> None:
         raise SystemExit("Could not open all selected videos.")
 
     fps = captures[0].get(cv2.CAP_PROP_FPS) or 30.0
+    print(
+        f"Processing {len(cameras)} cameras, target_frames={args.max_frames}, stride={max(args.stride, 1)}, calibration_mode={calibration_mode}",
+        flush=True,
+    )
     overlay_writers = []
     for camera, capture in zip(cameras, captures):
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -82,6 +89,7 @@ def main() -> None:
         overlay_writers.append(cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), fps / max(args.stride, 1), (width, height)))
 
     triangulated = []
+    start_time = time.perf_counter()
     try:
         frame_idx = 0
         written = 0
@@ -113,12 +121,16 @@ def main() -> None:
                 )
             )
             written += 1
+            if written == 1 or written == args.max_frames or written % max(args.progress_every, 1) == 0:
+                _print_progress(written, args.max_frames, frame_idx, start_time)
             frame_idx += 1
     finally:
         for capture in captures:
             capture.release()
         for writer in overlay_writers:
             writer.release()
+        if triangulated:
+            print()
 
     arrays = stack_triangulated(triangulated)
     arrays["keypoints_3d_world"] = moving_average_nan(arrays["keypoints_3d_world"], window_size=5)
@@ -141,6 +153,20 @@ def main() -> None:
     print(f"saved: {output_paths['videos'] / 'rtmw_skeleton_3d_world.mp4'}")
     print(f"keypoints_3d_world shape: {arrays['keypoints_3d_world'].shape}")
     print(f"calibration_mode: {calibration_mode}")
+
+
+def _print_progress(written: int, target: int, frame_idx: int, start_time: float) -> None:
+    elapsed = max(time.perf_counter() - start_time, 1e-9)
+    fps = written / elapsed
+    percent = (written / target * 100.0) if target > 0 else 100.0
+    remaining = max(target - written, 0)
+    eta = remaining / fps if fps > 0 else 0.0
+    print(
+        f"\rRTMW multi-view progress: {written}/{target} frames ({percent:5.1f}%) | "
+        f"source_frame={frame_idx} | {fps:4.2f} fps | eta={eta:5.1f}s",
+        end="",
+        flush=True,
+    )
 
 
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
