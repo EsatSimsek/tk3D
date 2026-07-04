@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.aist_calibration import find_aist_camera_setting, load_aist_camera_calibrations
+import numpy as np
 
+from src.aist_calibration import find_aist_camera_setting, load_aist_camera_calibrations
+from src.camera_calibration import calibration_report
+from src.data_structures import CameraCalibration
 
 def test_load_aist_camera_calibrations(tmp_path: Path) -> None:
     cameras_dir = tmp_path / "cameras"
@@ -38,3 +41,20 @@ def test_load_aist_camera_calibrations(tmp_path: Path) -> None:
     assert calibrations[0].image_size == (1920, 1080)
     assert calibrations[0].projection_matrix.shape == (3, 4)
     assert calibrations[0].translation_vector.tolist() == [4.0, 5.0, 6.0]
+
+def test_calibration_report_ignores_missing_reprojection_errors() -> None:
+    calibration = CameraCalibration(
+        camera_id="c01",
+        image_size=(1920, 1080),
+        intrinsic_matrix=np.eye(3),
+        distortion_coefficients=np.zeros(5),
+        rotation_vector=np.zeros(3),
+        translation_vector=np.zeros(3),
+        projection_matrix=np.zeros((3, 4)),
+        reprojection_error_px=None,
+    )
+
+    report = calibration_report([calibration])
+
+    assert report["camera_count"] == 1
+    assert report["mean_reprojection_error_px"] is None

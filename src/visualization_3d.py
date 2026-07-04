@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 COCO_BODY_EDGES = [
     (5, 6),
     (5, 7),
@@ -24,9 +23,8 @@ COCO_BODY_EDGES = [
     (2, 4),
 ]
 
-
 def save_reprojection_timeline(reprojection_error: np.ndarray, output_path: str | Path) -> None:
-    mean_error = np.nanmean(reprojection_error, axis=1) if reprojection_error.size else np.array([])
+    mean_error = _safe_nanmean_axis1(reprojection_error) if reprojection_error.size else np.array([])
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -44,7 +42,6 @@ def save_reprojection_timeline(reprojection_error: np.ndarray, output_path: str 
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
-
 
 def save_heatmap(data: np.ndarray, output_path: str | Path, title: str, ylabel: str = "Frame") -> None:
     path = Path(output_path)
@@ -64,7 +61,6 @@ def save_heatmap(data: np.ndarray, output_path: str | Path, title: str, ylabel: 
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
-
 
 def write_3d_skeleton_video(
     keypoints_3d_world: np.ndarray,
@@ -86,10 +82,14 @@ def write_3d_skeleton_video(
 
     _write_frames_to_video(frames, target, fps=fps, size=size)
 
-
 def write_placeholder_3d_video(path: str | Path) -> None:
     _write_blank_video(Path(path))
 
+def _safe_nanmean_axis1(values: np.ndarray) -> np.ndarray:
+    finite = np.isfinite(values)
+    counts = np.sum(finite, axis=1)
+    sums = np.nansum(values, axis=1)
+    return np.divide(sums, counts, out=np.full(values.shape[0], np.nan, dtype=float), where=counts > 0)
 
 def _write_blank_video(path: Path, size: tuple[int, int] = (1280, 720), fps: float = 30.0) -> None:
     import cv2
@@ -100,7 +100,6 @@ def _write_blank_video(path: Path, size: tuple[int, int] = (1280, 720), fps: flo
     frame = np.zeros((size[1], size[0], 3), dtype=np.uint8)
     writer.write(frame)
     writer.release()
-
 
 def _write_frames_to_video(frames: list[np.ndarray], path: Path, fps: float, size: tuple[int, int]) -> None:
     import cv2
@@ -114,7 +113,6 @@ def _write_frames_to_video(frames: list[np.ndarray], path: Path, fps: float, siz
             writer.write(frame)
     finally:
         writer.release()
-
 
 def _render_matplotlib_frames(
     keypoints_3d_world: np.ndarray,
@@ -152,7 +150,6 @@ def _render_matplotlib_frames(
         plt.close(fig)
     return frames
 
-
 def _draw_3d_pose(ax: object, keypoints: np.ndarray, edges: list[tuple[int, int]]) -> None:
     valid = np.all(np.isfinite(keypoints), axis=1)
     if np.any(valid):
@@ -165,7 +162,6 @@ def _draw_3d_pose(ax: object, keypoints: np.ndarray, edges: list[tuple[int, int]
             continue
         segment = keypoints[[start, end]]
         ax.plot(segment[:, 0], segment[:, 1], segment[:, 2], color="#1d4ed8", linewidth=2)
-
 
 def _render_fallback_frames(
     keypoints_3d_world: np.ndarray,
@@ -191,7 +187,6 @@ def _render_fallback_frames(
         cv2.putText(frame, f"TK3D world skeleton frame {frame_idx}", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (30, 30, 30), 2)
         frames.append(frame)
     return frames
-
 
 def _center_body_for_render(keypoints_3d_world: np.ndarray) -> np.ndarray:
     """Return a human-centered copy for visualization only.
@@ -240,7 +235,6 @@ def _axis_limits(keypoints_3d_world: np.ndarray) -> dict[str, tuple[float, float
         "z": (float(centers[2] - spans[2] / 2), float(centers[2] + spans[2] / 2)),
     }
 
-
 def _normalize_points_for_image(keypoints_3d_world: np.ndarray, size: tuple[int, int]) -> np.ndarray:
     width, height = size
     xy = keypoints_3d_world[..., [0, 1]].copy()
@@ -256,7 +250,6 @@ def _normalize_points_for_image(keypoints_3d_world: np.ndarray, size: tuple[int,
     output[..., 0] = 80 + normalized[..., 0] * (width - 160)
     output[..., 1] = height - (80 + normalized[..., 1] * (height - 160))
     return output
-
 
 def _save_fallback_png(path: Path, data: np.ndarray, scale_to_255: bool) -> None:
     import cv2

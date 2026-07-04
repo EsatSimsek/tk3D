@@ -10,14 +10,12 @@ import numpy as np
 from .data_structures import CameraCalibration
 from .video_io import iter_video_frames
 
-
 def checkerboard_object_points(pattern_size: tuple[int, int], square_size_m: float) -> np.ndarray:
     cols, rows = pattern_size
     points = np.zeros((rows * cols, 3), np.float32)
     points[:, :2] = np.mgrid[0:cols, 0:rows].T.reshape(-1, 2)
     points *= float(square_size_m)
     return points
-
 
 def collect_checkerboard_points(
     video_path: str | Path,
@@ -44,7 +42,6 @@ def collect_checkerboard_points(
     if image_size is None:
         raise FileNotFoundError(f"No frames found in calibration video: {video_path}")
     return object_points, image_points, image_size
-
 
 def calibrate_single_camera(
     camera_id: str,
@@ -85,14 +82,12 @@ def calibrate_single_camera(
         reprojection_error_px=float(rms),
     )
 
-
 def save_calibrations(calibrations: list[CameraCalibration], output_path: str | Path) -> None:
     payload = {"cameras": [camera.to_json_dict() for camera in calibrations]}
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2)
-
 
 def load_calibrations(path: str | Path) -> dict[str, CameraCalibration]:
     with Path(path).open("r", encoding="utf-8") as file:
@@ -102,15 +97,15 @@ def load_calibrations(path: str | Path) -> dict[str, CameraCalibration]:
         for item in raw.get("cameras", [])
     }
 
-
 def calibration_report(calibrations: list[CameraCalibration]) -> dict[str, Any]:
+    errors = np.asarray(
+        [cam.reprojection_error_px for cam in calibrations if cam.reprojection_error_px is not None],
+        dtype=float,
+    )
+    mean_error = float(np.nanmean(errors)) if errors.size and np.any(np.isfinite(errors)) else None
     return {
         "camera_count": len(calibrations),
-        "mean_reprojection_error_px": float(
-            np.nanmean([cam.reprojection_error_px for cam in calibrations])
-        )
-        if calibrations
-        else None,
+        "mean_reprojection_error_px": mean_error,
         "cameras": [
             {
                 "camera_id": cam.camera_id,

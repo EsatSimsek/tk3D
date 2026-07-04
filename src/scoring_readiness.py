@@ -6,7 +6,6 @@ from typing import Any
 import numpy as np
 
 from .biomechanics_3d import angle_deg, segment_length
-from .validation_3d import _safe_nanmean
 
 COCO_BODY_JOINTS: dict[str, int] = {
     "nose": 0,
@@ -52,7 +51,6 @@ BONE_SPECS: dict[str, tuple[str, str]] = {
     "right_shin": ("right_knee", "right_ankle"),
 }
 
-
 @dataclass(slots=True)
 class ReadinessResult:
     frame_quality_rows: list[dict[str, Any]]
@@ -60,7 +58,6 @@ class ReadinessResult:
     biomechanics_rows: list[dict[str, Any]]
     segment_rows: list[dict[str, Any]]
     report: dict[str, Any]
-
 
 def build_scoring_readiness(
     keypoints_3d: np.ndarray,
@@ -77,7 +74,6 @@ def build_scoring_readiness(
     segment_rows = movement_segments(keypoints_3d, fps=fps)
     report = readiness_report(frame_quality_rows, joint_quality_rows, biomechanics_rows, segment_rows)
     return ReadinessResult(frame_quality_rows, joint_quality_rows, biomechanics_rows, segment_rows, report)
-
 
 def frame_quality(
     keypoints_3d: np.ndarray,
@@ -105,7 +101,6 @@ def frame_quality(
         rows.append(row)
     return rows
 
-
 def joint_quality(
     keypoints_3d: np.ndarray,
     triangulation_score: np.ndarray | None,
@@ -131,7 +126,6 @@ def joint_quality(
         rows.append(row)
     return rows
 
-
 def biomechanics_timeseries(keypoints_3d: np.ndarray, fps: float) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     velocities = joint_speed(keypoints_3d, fps=fps)
@@ -149,7 +143,6 @@ def biomechanics_timeseries(keypoints_3d: np.ndarray, fps: float) -> list[dict[s
         row["body_motion_energy"] = _safe_nanmean_1d(velocities[frame_idx]) if frame_idx < velocities.shape[0] else float("nan")
         rows.append(row)
     return rows
-
 
 def movement_segments(keypoints_3d: np.ndarray, fps: float, min_segment_frames: int = 3) -> list[dict[str, Any]]:
     speeds = joint_speed(keypoints_3d, fps=fps)
@@ -183,7 +176,6 @@ def movement_segments(keypoints_3d: np.ndarray, fps: float, min_segment_frames: 
         rows.append({"segment_id": 0, "label": "pending_motion", "start_frame": 0, "end_frame": int(energy.size - 1), "status": "no_stable_segment_found"})
     return rows
 
-
 def readiness_report(
     frame_rows: list[dict[str, Any]],
     joint_rows: list[dict[str, Any]],
@@ -210,7 +202,6 @@ def readiness_report(
         "next_step": "Use real poomsae videos to label movement segments before numeric scoring." if not warnings else "Inspect quality CSVs, smoothing output, and motion segments before enabling scoring.",
     }
 
-
 def joint_speed(keypoints_3d: np.ndarray, fps: float) -> np.ndarray:
     if keypoints_3d.shape[0] == 0:
         return np.empty((0, keypoints_3d.shape[1]), dtype=float)
@@ -220,7 +211,6 @@ def joint_speed(keypoints_3d: np.ndarray, fps: float) -> np.ndarray:
     diffs = np.linalg.norm(np.diff(keypoints_3d, axis=0), axis=-1) * max(fps, 0.0)
     speed[1:] = diffs
     return speed
-
 
 def torso_lean_deg(frame: np.ndarray) -> float:
     shoulder_center = _mean_points(frame, ["left_shoulder", "right_shoulder"])
@@ -234,9 +224,6 @@ def torso_lean_deg(frame: np.ndarray) -> float:
     vertical = np.array([0.0, 0.0, 1.0], dtype=float)
     cosine = np.clip(np.dot(torso, vertical) / denom, -1.0, 1.0)
     return float(np.degrees(np.arccos(abs(cosine))))
-
-
-
 
 def _safe_nanmean_1d(values: np.ndarray) -> float:
     values = np.asarray(values, dtype=float)
@@ -254,10 +241,8 @@ def _nanmean_axis1(values: np.ndarray) -> np.ndarray:
 def _body17_ratio(valid_mask: np.ndarray) -> float:
     return float(np.mean(valid_mask[:17])) if valid_mask.size >= 17 else 0.0
 
-
 def _idx(name: str) -> int:
     return COCO_BODY_JOINTS[name]
-
 
 def _joint_name(joint_idx: int) -> str:
     for name, idx in COCO_BODY_JOINTS.items():
@@ -265,13 +250,11 @@ def _joint_name(joint_idx: int) -> str:
             return name
     return f"wholebody_{joint_idx}"
 
-
 def _mean_points(frame: np.ndarray, names: list[str]) -> np.ndarray:
     points = np.asarray([frame[_idx(name)] for name in names], dtype=float)
     if not np.any(np.isfinite(points)):
         return np.array([np.nan, np.nan, np.nan], dtype=float)
     return np.nanmean(points, axis=0)
-
 
 def _row_nanmean(values: np.ndarray | None, row_idx: int, positive_only: bool = False) -> float:
     if values is None:
@@ -281,7 +264,6 @@ def _row_nanmean(values: np.ndarray | None, row_idx: int, positive_only: bool = 
         row = row[row > 0]
     return _safe_nanmean_1d(row)
 
-
 def _col_nanmean(values: np.ndarray | None, col_idx: int, positive_only: bool = False) -> float:
     if values is None:
         return float("nan")
@@ -290,10 +272,8 @@ def _col_nanmean(values: np.ndarray | None, col_idx: int, positive_only: bool = 
         col = col[col > 0]
     return _safe_nanmean_1d(col)
 
-
 def _joint_speed_value(speed: np.ndarray, frame_idx: int, joint_idx: int) -> float:
     if frame_idx >= speed.shape[0] or joint_idx >= speed.shape[1]:
         return float("nan")
     return float(speed[frame_idx, joint_idx])
-
 

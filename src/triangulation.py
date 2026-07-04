@@ -5,7 +5,6 @@ import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, CameraCalibration, PersonPose2D, TriangulatedPose3D
 
-
 def triangulate_frame(
     frame_idx: int,
     poses_by_camera: dict[str, PersonPose2D],
@@ -56,7 +55,6 @@ def triangulate_frame(
         used_cameras=used_cameras,
     )
 
-
 def undistort_point(point: np.ndarray, calibration: CameraCalibration) -> np.ndarray:
     distortion = np.asarray(calibration.distortion_coefficients, dtype=float).reshape(-1)
     if distortion.size == 0 or not np.any(np.abs(distortion) > 1e-12):
@@ -91,7 +89,6 @@ def triangulate_n_view(points_2d: list[np.ndarray], projection_mats: list[np.nda
         return None
     return (homogeneous[:3] / homogeneous[3]).astype(float)
 
-
 def mean_reprojection_error(
     point_3d: np.ndarray,
     points_2d: list[np.ndarray],
@@ -107,13 +104,18 @@ def mean_reprojection_error(
         errors.append(float(np.linalg.norm(xy - observed)))
     return float(np.mean(errors)) if errors else float("nan")
 
-
 def stack_triangulated(poses: list[TriangulatedPose3D]) -> dict[str, np.ndarray]:
+    if not poses:
+        return {
+            "keypoints_3d_world": np.empty((0, COCO_WHOLEBODY_KEYPOINTS, 3), dtype=float),
+            "triangulation_score": np.empty((0, COCO_WHOLEBODY_KEYPOINTS), dtype=float),
+            "reprojection_error": np.empty((0, COCO_WHOLEBODY_KEYPOINTS), dtype=float),
+            "used_cameras": np.empty((0, COCO_WHOLEBODY_KEYPOINTS), dtype=int),
+        }
     return {
         "keypoints_3d_world": np.stack([pose.keypoints_3d_world for pose in poses], axis=0),
         "triangulation_score": np.stack([pose.triangulation_score for pose in poses], axis=0),
         "reprojection_error": np.stack([pose.reprojection_error for pose in poses], axis=0),
         "used_cameras": np.stack([pose.used_cameras for pose in poses], axis=0),
     }
-
 

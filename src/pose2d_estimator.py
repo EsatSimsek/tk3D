@@ -10,7 +10,6 @@ from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_
 from .mmpose_compat import install_mmcv_ops_stub
 from .model_runtime import ModelRuntimeError
 
-
 @dataclass(slots=True)
 class Pose2DConfig:
     model_name: str
@@ -18,7 +17,6 @@ class Pose2DConfig:
     checkpoint_path: Path
     device: str = "cuda:0"
     score_threshold: float = 0.30
-
 
 class RTMW2DEstimator:
     """RTMW adapter. The MMPose initialization is intentionally isolated here."""
@@ -65,7 +63,6 @@ class RTMW2DEstimator:
             det_model="whole_image",
         )
 
-
 def pose2d_from_arrays(
     camera_id: str,
     frame_idx: int,
@@ -84,6 +81,12 @@ def pose2d_from_arrays(
         valid_mask=valid_mask,
     )
 
+def _prediction_score(item: dict[str, Any]) -> float:
+    scores = np.asarray(item.get("keypoint_scores", [0.0]), dtype=float)
+    finite = scores[np.isfinite(scores)]
+    if finite.size == 0:
+        return 0.0
+    return float(np.mean(finite))
 
 def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
     if not isinstance(result, dict):
@@ -96,7 +99,7 @@ def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
             np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float),
             np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float),
         )
-    best = max(predictions, key=lambda item: float(np.nanmean(item.get("keypoint_scores", [0.0]))))
+    best = max(predictions, key=_prediction_score)
     keypoints = np.asarray(best["keypoints"], dtype=float)
     scores = np.asarray(best.get("keypoint_scores", np.ones(keypoints.shape[0])), dtype=float)
     if keypoints.shape[0] < COCO_WHOLEBODY_KEYPOINTS:
