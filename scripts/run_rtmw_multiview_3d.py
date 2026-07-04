@@ -45,7 +45,12 @@ def main() -> None:
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
         model_config = yaml.safe_load(file)
     pose2d_config = model_config["pose2d"]
-    print(f"Loading RTMW model: {pose2d_config['model_name']} on {pose2d_config.get('device', 'cuda:0')}", flush=True)
+    print("=" * 72, flush=True)
+    print("TK3D RTMW MULTI-VIEW 3D", flush=True)
+    print("=" * 72, flush=True)
+    print(f"[1/4] Loading RTMW model", flush=True)
+    print(f"      model : {pose2d_config['model_name']}", flush=True)
+    print(f"      device: {pose2d_config.get('device', 'cuda:0')}", flush=True)
     estimator = RTMW2DEstimator(
         Pose2DConfig(
             model_name=pose2d_config["model_name"],
@@ -78,7 +83,12 @@ def main() -> None:
 
     fps = captures[0].get(cv2.CAP_PROP_FPS) or 30.0
     print(
-        f"Processing {len(cameras)} cameras, target_frames={args.max_frames}, stride={max(args.stride, 1)}, calibration_mode={calibration_mode}",
+        "[2/4] Preparing videos and calibration\n"
+        f"      cameras         : {len(cameras)}\n"
+        f"      target frames   : {args.max_frames}\n"
+        f"      stride          : {max(args.stride, 1)}\n"
+        f"      calibration     : {calibration_mode}\n"
+        "[3/4] Running 2D pose + 3D triangulation",
         flush=True,
     )
     overlay_writers = []
@@ -131,6 +141,7 @@ def main() -> None:
             writer.release()
         if triangulated:
             print()
+            print("[4/4] Saving 3D outputs", flush=True)
 
     arrays = stack_triangulated(triangulated)
     arrays["keypoints_3d_world"] = moving_average_nan(arrays["keypoints_3d_world"], window_size=5)
@@ -161,12 +172,30 @@ def _print_progress(written: int, target: int, frame_idx: int, start_time: float
     percent = (written / target * 100.0) if target > 0 else 100.0
     remaining = max(target - written, 0)
     eta = remaining / fps if fps > 0 else 0.0
+    bar_width = 28
+    filled = int(round(bar_width * min(max(percent, 0.0), 100.0) / 100.0))
+    bar = "#" * filled + "-" * (bar_width - filled)
     print(
-        f"\rRTMW multi-view progress: {written}/{target} frames ({percent:5.1f}%) | "
-        f"source_frame={frame_idx} | {fps:4.2f} fps | eta={eta:5.1f}s",
+        f"\r      [{bar}] {percent:5.1f}%  "
+        f"frames {written:>4}/{target:<4}  "
+        f"src {frame_idx:<5}  "
+        f"speed {fps:4.2f} fps  "
+        f"elapsed {_format_seconds(elapsed)}  "
+        f"eta {_format_seconds(eta)}",
         end="",
         flush=True,
     )
+
+
+def _format_seconds(seconds: float) -> str:
+    total = int(round(max(seconds, 0.0)))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:d}h{minutes:02d}m{secs:02d}s"
+    if minutes:
+        return f"{minutes:d}m{secs:02d}s"
+    return f"{secs:d}s"
 
 
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
