@@ -79,8 +79,8 @@ def main() -> None:
                 "Preflight failed. Inspect outputs/<session_id>/json/preflight_report.json before running live mode."
             )
         raise SystemExit(
-            "Live mode is ready for integration points but ViTPose model inference is not connected in this dry-run driver. "
-            "Use --dry-run until model configs/checkpoints are installed."
+            "Live ViTPose inference is handled by scripts/run_vitpose_multiview_3d.py. "
+            "Use this script with --dry-run for synthetic pipeline validation."
         )
 
     keypoints_3d_world = moving_average_nan(

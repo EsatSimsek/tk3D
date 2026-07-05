@@ -153,29 +153,33 @@ def main() -> None:
 
     arrays = stack_triangulated(triangulated)
     arrays["keypoints_3d_world"] = moving_average_nan(arrays["keypoints_3d_world"], window_size=5)
-    export_keypoints3d_csv(arrays["keypoints_3d_world"], output_paths["csv"] / "vitpose_keypoints_3d_world_flat.csv")
+    video_arrays = _repeat_arrays_for_video(arrays, output_repeats)
+    export_keypoints3d_csv(video_arrays["keypoints_3d_world"], output_paths["csv"] / "vitpose_keypoints_3d_world_flat.csv")
     export_session_json(
         {
             "session_id": session.session_id,
             "source": "vitpose_multiview",
             "calibration_mode": calibration_mode,
-            "shape": {"keypoints_3d_world": list(arrays["keypoints_3d_world"].shape)},
-            "keypoints_3d_world": arrays["keypoints_3d_world"],
-            "triangulation_score": arrays["triangulation_score"],
-            "reprojection_error": arrays["reprojection_error"],
-            "used_cameras": arrays["used_cameras"],
+            "inference_stride": max(args.stride, 1),
+            "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
+            "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
+            "shape": {"keypoints_3d_world": list(video_arrays["keypoints_3d_world"].shape)},
+            "keypoints_3d_world": video_arrays["keypoints_3d_world"],
+            "triangulation_score": video_arrays["triangulation_score"],
+            "reprojection_error": video_arrays["reprojection_error"],
+            "used_cameras": video_arrays["used_cameras"],
         },
         output_paths["json"] / "vitpose_session_3d.json",
     )
-    video_keypoints_3d = _repeat_keypoints_for_video(arrays["keypoints_3d_world"], output_repeats)
     write_3d_skeleton_video(
-        video_keypoints_3d,
+        video_arrays["keypoints_3d_world"],
         output_paths["videos"] / "vitpose_skeleton_3d_world.mp4",
         fps=max(float(args.output_fps or fps), 1.0),
     )
 
     print(f"saved: {output_paths['videos'] / 'vitpose_skeleton_3d_world.mp4'}")
-    print(f"keypoints_3d_world shape: {arrays['keypoints_3d_world'].shape}")
+    print(f"keypoints_3d_world shape: {video_arrays['keypoints_3d_world'].shape}")
+    print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
 
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
@@ -236,12 +240,21 @@ def _repeat_count(frame_idx: int, source_frames: int, stride: int) -> int:
     return max(min(step, source_frames - frame_idx), 1)
 
 
-def _repeat_keypoints_for_video(keypoints_3d: np.ndarray, repeats: list[int]) -> np.ndarray:
-    if keypoints_3d.size == 0 or not repeats:
-        return keypoints_3d
-    safe_repeats = np.asarray(repeats[: keypoints_3d.shape[0]], dtype=int)
+def _repeat_arrays_for_video(arrays: dict[str, np.ndarray], repeats: list[int]) -> dict[str, np.ndarray]:
+    return {
+        key: _repeat_array_for_video(value, repeats)
+        if key in {"keypoints_3d_world", "triangulation_score", "reprojection_error", "used_cameras"}
+        else value
+        for key, value in arrays.items()
+    }
+
+
+def _repeat_array_for_video(values: np.ndarray, repeats: list[int]) -> np.ndarray:
+    if values.size == 0 or not repeats:
+        return values
+    safe_repeats = np.asarray(repeats[: values.shape[0]], dtype=int)
     safe_repeats = np.maximum(safe_repeats, 1)
-    return np.repeat(keypoints_3d[: safe_repeats.shape[0]], safe_repeats, axis=0)
+    return np.repeat(values[: safe_repeats.shape[0]], safe_repeats, axis=0)
 
 
 if __name__ == "__main__":
