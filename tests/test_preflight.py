@@ -7,7 +7,10 @@ from src.video_io import load_session
 def test_preflight_warns_when_demo_files_are_missing() -> None:
     session = load_session("data/session_001/session.yaml")
     model_config = {
-        "pose2d": {"config_path": "models/rtmw/rtmw-x-l.py", "checkpoint_path": "weights/rtmw-x-l.pth"},
+        "pose2d": {
+            "config_path": "models/vitpose/ViTPose_huge_wholebody_256x192.py",
+            "checkpoint_path": "weights/vitpose_huge_wholebody_256x192.pth",
+        },
         "pose3d_single_view": {
             "enabled": True,
             "config_path": "models/rtmw3d/rtmw3d-x.py",

@@ -14,7 +14,7 @@ from src.video_io import ensure_output_tree, load_session
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Check TK3D RTMW model runtime readiness.")
+    parser = argparse.ArgumentParser(description="Check TK3D ViTPose model runtime readiness.")
     parser.add_argument("--session", required=True, help="Path to session.yaml")
     parser.add_argument("--model-config", default="config/model_config.yaml", help="Model config path")
     parser.add_argument("--output-root", default="outputs", help="Output root directory")

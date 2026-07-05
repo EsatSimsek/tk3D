@@ -5,6 +5,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 external/
+*.egg-info/
 
 # Local data and generated outputs
 data/aist_test/annotations/

@@ -7,8 +7,9 @@ from typing import Any
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_2d
-from .mmpose_compat import install_mmcv_ops_stub
+from .mmpose_compat import install_mmpose_runtime_compat
 from .model_runtime import ModelRuntimeError
+from .vitpose_plus_runtime import ViTPosePlusWholeBodyInferencer
 
 @dataclass(slots=True)
 class Pose2DConfig:
@@ -49,7 +50,7 @@ class RTMW2DEstimator:
             raise FileNotFoundError(f"RTMW config not found: {self.config.config_path}")
         if not self.config.checkpoint_path.exists():
             raise FileNotFoundError(f"RTMW checkpoint not found: {self.config.checkpoint_path}")
-        install_mmcv_ops_stub()
+        install_mmpose_runtime_compat()
         try:
             from mmpose.apis.inferencers import Pose2DInferencer
         except ModuleNotFoundError as exc:
@@ -61,6 +62,47 @@ class RTMW2DEstimator:
             weights=str(self.config.checkpoint_path),
             device=self.config.device,
             det_model="whole_image",
+        )
+
+class ViTPose2DEstimator:
+    # """RTMW adapter. The MMPose initialization is intentionally isolated here."""
+    """ViTPose-Huge whole-body adapter. The MMPose initialization is intentionally isolated here."""
+
+    def __init__(self, config: Pose2DConfig, dry_run: bool = False) -> None:
+        self.config = config
+        self.dry_run = dry_run
+        self._model: Any | None = None
+        if not dry_run:
+            self._model = self._build_model()
+
+    def predict(self, frame: np.ndarray, camera_id: str, frame_idx: int) -> PersonPose2D:
+        if self.dry_run:
+            return empty_pose_2d(camera_id, frame_idx)
+        if self._model is None:
+            # raise RuntimeError("RTMW2DEstimator model is not initialized")
+            raise RuntimeError("ViTPose2DEstimator model is not initialized")
+
+        result = self._model(frame)
+        keypoints_xy, scores = _extract_mmpose_wholebody(result, allow_padding=False)
+        return pose2d_from_arrays(
+            camera_id=camera_id,
+            frame_idx=frame_idx,
+            keypoints_xy=keypoints_xy,
+            scores=scores,
+            score_threshold=self.config.score_threshold,
+        )
+
+    def _build_model(self) -> Any:
+        if not self.config.config_path.exists():
+            # raise FileNotFoundError(f"RTMW config not found: {self.config.config_path}")
+            raise FileNotFoundError(f"ViTPose config not found: {self.config.config_path}")
+        if not self.config.checkpoint_path.exists():
+            # raise FileNotFoundError(f"RTMW checkpoint not found: {self.config.checkpoint_path}")
+            raise FileNotFoundError(f"ViTPose checkpoint not found: {self.config.checkpoint_path}")
+        install_mmpose_runtime_compat()
+        return ViTPosePlusWholeBodyInferencer(
+            checkpoint_path=self.config.checkpoint_path,
+            device=self.config.device,
         )
 
 def pose2d_from_arrays(
@@ -88,7 +130,7 @@ def _prediction_score(item: dict[str, Any]) -> float:
         return 0.0
     return float(np.mean(finite))
 
-def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
+def _extract_mmpose_wholebody(result: Any, allow_padding: bool = True) -> tuple[np.ndarray, np.ndarray]:
     if not isinstance(result, dict):
         result = next(result)
     predictions = result.get("predictions", [])
@@ -103,6 +145,12 @@ def _extract_mmpose_wholebody(result: Any) -> tuple[np.ndarray, np.ndarray]:
     keypoints = np.asarray(best["keypoints"], dtype=float)
     scores = np.asarray(best.get("keypoint_scores", np.ones(keypoints.shape[0])), dtype=float)
     if keypoints.shape[0] < COCO_WHOLEBODY_KEYPOINTS:
+        if not allow_padding:
+            raise ModelRuntimeError(
+                f"Expected ViTPose whole-body output with {COCO_WHOLEBODY_KEYPOINTS} keypoints, "
+                f"got {keypoints.shape[0]}. Check that the configured model is a whole-body "
+                "ViTPose-Huge checkpoint, not a COCO body-only checkpoint."
+            )
         padded_xy = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
         padded_scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
         padded_xy[: keypoints.shape[0]] = keypoints[:, :2]

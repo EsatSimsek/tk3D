@@ -15,17 +15,17 @@ AIST++ motion annotations are expected under:
 data/aist_test/annotations/motions/gBR_sBM_cAll_d04_mBR0_ch01.pkl
 ```
 
-Install/runtime packages used in `.venv311`:
+Install/runtime packages used in `.venv` for video render and browser HTML export:
 
 ```powershell
-python -m pip install smplx trimesh chumpy open3d --no-build-isolation
+python -m pip install smplx trimesh chumpy --no-build-isolation
 ```
 
 Render command after placing `SMPL_MALE.pkl`:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv311\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
 ```
 
@@ -41,6 +41,8 @@ If the SMPL model file is missing, the script stops before rendering and prints 
 
 
 ## Oynayan 3D Open3D Viewer
+
+Open3D viewer opsiyoneldir. Python 3.13 icin Open3D wheel bulunmayabilir; bu durumda tarayici Three.js viewer ayni 3D mesh'i acmak icin kullanilir.
 
 ```powershell
 python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1

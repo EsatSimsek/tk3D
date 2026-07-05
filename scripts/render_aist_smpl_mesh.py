@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.smpl_mesh import find_smpl_model_file, load_aist_smpl_motion, selected_frame_indices, split_smpl_pose
+from src.progress import ProgressBar, print_step
 from src.video_io import ensure_output_tree, load_session
 
 
@@ -31,6 +32,10 @@ def main() -> None:
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
 
+    print("=" * 72, flush=True)
+    print("TK3D SMPL MESH VIDEO", flush=True)
+    print("=" * 72, flush=True)
+    print_step(1, 5, "Loading session and SMPL inputs")
     session_path = (ROOT / args.session).resolve()
     session = load_session(session_path)
     with session_path.open("r", encoding="utf-8") as file:
@@ -55,8 +60,10 @@ def main() -> None:
     if not indices:
         raise SystemExit("No SMPL frames selected.")
 
+    print_step(2, 5, f"Loading SMPL model and preparing {len(indices)} frames")
     device = torch.device(args.device if torch.cuda.is_available() and args.device.startswith("cuda") else "cpu")
     smpl = _load_smpl(ROOT / args.smpl_dir, args.gender, batch_size=len(indices), device=device)
+    print_step(3, 5, "Converting SMPL motion to mesh vertices")
     vertices, faces = _motion_to_vertices(smpl, motion, indices, device=device)
 
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
@@ -64,7 +71,9 @@ def main() -> None:
     obj_path = output_paths["figures"] / "aist_smpl_mesh_frame0.obj"
     report_path = output_paths["json"] / "aist_smpl_mesh_report.json"
 
+    print_step(4, 5, "Rendering mesh video")
     render_mesh_video(vertices, faces, video_path, fps=args.fps, size=(1280, 720))
+    print_step(5, 5, "Saving OBJ and report")
     export_obj(vertices[0], faces, obj_path)
     report = {
         "source": "AIST++ SMPL motion",
@@ -138,6 +147,7 @@ def render_mesh_video(vertices: np.ndarray, faces: np.ndarray, path: Path, fps: 
     frames = []
     width, height = size
     dpi = 100
+    progress = ProgressBar("render frames", len(display_vertices))
     for frame_idx, frame_vertices in enumerate(display_vertices):
         fig = plt.figure(figsize=(width / dpi, height / dpi), dpi=dpi)
         ax = fig.add_subplot(111, projection="3d")
@@ -159,14 +169,19 @@ def render_mesh_video(vertices: np.ndarray, faces: np.ndarray, path: Path, fps: 
         rgba = np.asarray(fig.canvas.buffer_rgba())
         frames.append(_zoom_frame(cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGR), zoom=1.85))
         plt.close(fig)
+        progress.print(frame_idx + 1)
+    progress.done()
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+    write_progress = ProgressBar("write video", len(frames))
     try:
-        for frame in frames:
+        for frame_idx, frame in enumerate(frames):
             writer.write(frame)
+            write_progress.print(frame_idx + 1)
     finally:
         writer.release()
+        write_progress.done()
 
 
 def _zoom_frame(frame: np.ndarray, zoom: float) -> np.ndarray:

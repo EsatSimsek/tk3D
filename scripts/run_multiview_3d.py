@@ -79,7 +79,7 @@ def main() -> None:
                 "Preflight failed. Inspect outputs/<session_id>/json/preflight_report.json before running live mode."
             )
         raise SystemExit(
-            "Live mode is ready for integration points but RTMW model inference is not connected yet. "
+            "Live mode is ready for integration points but ViTPose model inference is not connected in this dry-run driver. "
             "Use --dry-run until model configs/checkpoints are installed."
         )
 

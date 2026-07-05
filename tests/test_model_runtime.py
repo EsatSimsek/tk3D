@@ -7,9 +7,9 @@ def test_model_runtime_reports_missing_files_and_backend(tmp_path) -> None:
     status = check_model_runtime(
         {
             "backend": "definitely_missing_backend_for_tk3d_tests",
-            "model_name": "RTMW-x-l",
-            "config_path": "models/missing.py",
-            "checkpoint_path": "weights/missing.pth",
+            "model_name": "ViTPose-Huge-WholeBody",
+            "config_path": "models/vitpose_missing.py",
+            "checkpoint_path": "weights/vitpose_missing.pth",
         },
         tmp_path,
     )
@@ -18,4 +18,6 @@ def test_model_runtime_reports_missing_files_and_backend(tmp_path) -> None:
     assert status.backend_available is False
     assert status.config_exists is False
     assert status.checkpoint_exists is False
+    assert status.checkpoint_valid is False
+    assert status.checkpoint_compatible is False
     assert "config file is missing" in status.message

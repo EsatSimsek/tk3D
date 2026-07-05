@@ -22,7 +22,7 @@ from src.video_io import ensure_output_tree, load_session
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create scoring-readiness quality, smoothing, biomechanics and segment reports from 3D pose output.")
     parser.add_argument("--session", required=True)
-    parser.add_argument("--input-json", default=None, help="Defaults to outputs/<session_id>/json/rtmw_session_3d.json")
+    parser.add_argument("--input-json", default=None, help="Defaults to outputs/<session_id>/json/vitpose_session_3d.json")
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--smoothing-window", type=int, default=5)
     parser.add_argument("--fps", type=float, default=None)
@@ -31,7 +31,7 @@ def main() -> None:
 
     session = load_session(args.session)
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
-    input_path = Path(args.input_json) if args.input_json else output_paths["json"] / "rtmw_session_3d.json"
+    input_path = Path(args.input_json) if args.input_json else output_paths["json"] / "vitpose_session_3d.json"
     if not input_path.is_absolute():
         input_path = (ROOT / input_path).resolve()
     if not input_path.exists():
@@ -62,9 +62,9 @@ def main() -> None:
         max_reprojection_error_px=args.max_reprojection_error_px,
     )
 
-    smoothed_json = output_paths["json"] / "rtmw_session_3d_smoothed.json"
+    smoothed_json = output_paths["json"] / "vitpose_session_3d_smoothed.json"
     readiness_json = output_paths["json"] / "scoring_readiness_report.json"
-    smoothed_csv = output_paths["csv"] / "rtmw_keypoints_3d_world_smoothed_flat.csv"
+    smoothed_csv = output_paths["csv"] / "vitpose_keypoints_3d_world_smoothed_flat.csv"
     frame_quality_csv = output_paths["csv"] / "pose_quality_frames.csv"
     joint_quality_csv = output_paths["csv"] / "pose_quality_joints.csv"
     biomechanics_csv = output_paths["csv"] / "biomechanics_timeseries.csv"

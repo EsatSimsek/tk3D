@@ -1,10 +1,10 @@
 pose2d:
-  model_name: RTMW-x
+  model_name: ViTPose-Huge-WholeBody
   backend: mmpose
-  config_path: models/mmpose_configs/wholebody_2d_keypoint/rtmpose/cocktail14/rtmw-x_8xb320-270e_cocktail14-384x288.py
-  checkpoint_path: weights/rtmw-x_simcc-cocktail14_pt-ucoco_270e-384x288-f840f204_20231122.pth
+  config_path: config/mmpose_configs/wholebody_2d_keypoint/vitpose/coco-wholebody/td-hm_ViTPose-huge_8xb64-210e_coco-wholebody-256x192.py
+  checkpoint_path: weights/vitpose_huge_wholebody_256x192.pth
   device: cuda:0
-  input_size: [384, 288]
+  input_size: [256, 192]
   keypoint_count: 133
   score_threshold: 0.30
 

@@ -1,17 +1,31 @@
 # TK3D
 
-TK3D, tekvando poomsae videolarından kalibrasyonlu çok kameralı 3D iskelet üretmek için hazırlanmış Python proje iskeletidir.
+TK3D'nin asıl amacı, tekvando poomsae videolarını teknik olarak analiz edip puanlayabilen bir 3D poomsae scoring sistemi geliştirmektir.
 
-Ana hedef veri:
+Bu repository şu anda nihai puanlama motoruna giden ara katmanı kurar: çok kameralı poomsae videolarından kalibrasyonlu 3D insan pozu/iskeleti üretmek, bu çıktıyı kalite kontrolünden geçirmek, hareket segmentlerine hazırlamak ve puanlama algoritmasının kullanacağı veri sözleşmesini oluşturmak.
+
+## AI Aracı İçin Hızlı Bağlam
+
+Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
+
+- Nihai ürün, poomsae performansını otomatik veya yarı otomatik puanlayan bir analiz sistemidir.
+- 3D iskelet üretimi projenin asıl amacı değil, puanlama için gerekli ara çıktıdır.
+- Ana ara veri sözleşmesi `keypoints_3d_world[t, 133, 3]` formatındaki COCO-WholeBody tabanlı 3D dünya koordinatlarıdır.
+- Şu an odak, video -> 2D pose -> multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları zincirini sağlamlaştırmaktır.
+- Puanlama motoru henüz tamamlanmadı; sıradaki büyük iş phase/step detection, teknik hata metrikleri ve skor üretimidir.
+- AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
+- Kendi poomsae videoları geldiğinde checkerboard calibration, kişi takibi/eşleme, poomsae adım segmentasyonu ve kural tabanlı/öğrenmeli scoring katmanı eklenecek.
+
+Ana ara hedef veri:
 
 ```python
 keypoints_3d_world[t, 133, 3]
 ```
 
-Bu ilk sürüm şu bileşenleri içerir:
+Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 
 - Checkerboard tabanlı kamera kalibrasyonu için giriş noktası
-- RTMW-x-l 2D wholebody tahmin sınıfı için entegrasyon arayüzü
+- ViTPose-Huge 2D wholebody tahmin sınıfı için entegrasyon arayüzü
 - RTMW3D-x single-view 3D yardımcı tahmin sınıfı için entegrasyon arayüzü
 - Kalibrasyonlu multi-view triangulation
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
@@ -31,7 +45,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-RTMW-x-l ve RTMW3D-x entegrasyonu için MMPose/MMPRETRAIN ortamı ayrıca kurulmalıdır. Bu repository temel pipeline ve veri sözleşmesini hazırlar; model ağırlıkları `models/` veya `weights/` altında tutulur ve Git'e eklenmez.
+ViTPose-Huge WholeBody canlı 2D inference için ağırlık dosyası `weights/vitpose_huge_wholebody_256x192.pth` altında tutulur ve Git'e eklenmez. Resmi ViTPose kodu `external/vitpose` altında yerel runtime olarak kullanılır. RTMW3D-x ayrı ve opsiyonel single-view 3D yardımcı modüldür; varsayılan 2D akış artık ViTPose'tur.
 
 ## İlk kontrol
 
@@ -55,7 +69,7 @@ python scripts\preflight_session.py --session data\session_001\session.yaml --re
 
 ## AIST Video Testi
 
-AIST Dance Video DB videoları, poomsae videosu gelmeden çok kameralı görüntü akışını test etmek için kullanılabilir. AIST++ annotation dosyaları COCO 17 eklem formatındadır; bu nihai COCO-WholeBody 133 hedefini değiştirmez. Videolar bizim RTMW-x-l adapter yoluna girdiğinde hedef yine 133 eklemdir. AIST++ 17 eklem verisi sadece calibration, projection, triangulation ve hata ölçümü için opsiyonel doğrulama verisidir.
+AIST Dance Video DB videoları, poomsae videosu gelmeden çok kameralı görüntü akışını test etmek için kullanılabilir. AIST++ annotation dosyaları COCO 17 eklem formatındadır; bu nihai COCO-WholeBody 133 hedefini değiştirmez. Videolar bizim ViTPose-Huge WholeBody adapter yoluna girdiğinde hedef yine 133 eklemdir. AIST++ 17 eklem verisi sadece calibration, projection, triangulation ve hata ölçümü için opsiyonel doğrulama verisidir.
 
 Yerel test klasörlerini hazırlamak:
 
@@ -93,7 +107,8 @@ Kalibrasyon çıktıları:
 ## Çok Kameralı 3D Pipeline
 
 ```powershell
-python scripts\run_multiview_3d.py --session data\session_001\session.yaml
+python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
+python scripts\run_vitpose_multiview_3d.py --session data\session_001\session.yaml
 ```
 
 Beklenen ana çıktılar:
@@ -125,7 +140,9 @@ Session
 -> Scoring
 ```
 
-Puanlama motoru bu ilk sürümde uygulanmaz. Veri yapıları `Episode -> Task -> Phase -> Step -> Metric -> Error -> Score` hiyerarşisine hazır olacak şekilde tanımlanmıştır.
+Nihai scoring hiyerarşisi `Episode -> Task -> Phase -> Step -> Metric -> Error -> Score` şeklinde düşünülür.
+
+Bu ilk sürümde gerçek puanlama motoru henüz uygulanmaz. Mevcut kod, scoring motorunun ihtiyaç duyacağı 3D poz, kalite, smoothing, biomekanik açı ve hareket segment adayı verilerini üretmeye odaklanır.
 
 ## Güncel Durum
 
@@ -140,42 +157,45 @@ Hazır olanlar:
 - JSON/CSV/Excel/PNG/MP4 output üretimi
 - Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
 - Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
-- Model runtime raporu: RTMW-x / RTMW3D-x config, checkpoint ve MMPose ortam hazır mı
+- Model runtime raporu: ViTPose-Huge WholeBody config/checkpoint hazır mı; opsiyonel RTMW3D-x yardımcı model dosyaları var mı
 - AIST++ camera data importer: mapping.txt + setting_*.json dosyalarından gerçek 9 kamera intrinsic/extrinsic üretimi
-- RTMW-x gerçek MMPose inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
+- ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Triangulation, smoothing, validation ve pipeline testleri
 
-Bekleyenler:
+Bekleyenler / sıradaki büyük işler:
 
 - RTMW3D-x gerçek inference bağlantısı
 - Kendi poomsae kameraları için gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
-- Phase/step detection ve scoring motoru
+- Poomsae phase/step detection: hareketleri poomsae adımlarına bölme
+- Teknik hata metrikleri: denge, açı, hizalama, yükseklik, zamanlama, simetri ve duruş kararlılığı gibi ölçümler
+- Scoring motoru: kural tabanlı ve/veya öğrenmeli puan üretimi
+- Hakem/koç tarafından anlaşılabilir rapor: hangi adımda hangi teknik hata var, puan neden kırıldı
 
-## RTMW Gerçek Video Testi
+## ViTPose Gerçek Video Testi
 
-RTMW/MMPose gerçek video inference için Python 3.11 ortamı kullanılır. Ayrıntılı Windows sürüm notu: `docs/rtmw_windows_setup.md`.
+ViTPose gerçek video inference mevcut `.venv` ortamında çalışır. Ayrıntılı Windows sürüm notu: `docs/vitpose_windows_setup.md`.
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv311\Scripts\Activate.ps1
-python scripts\check_models.py --session data\aist_test\session_front_back.yaml
-python scripts\import_aist_cameras.py --session data\aist_test\session_all.yaml
-python scripts\run_pose2d_overlays.py --session data\aist_test\session_front_back.yaml --camera c01 --max-frames 30 --stride 10
-python scripts\run_rtmw_multiview_3d.py --session data\aist_test\session_front_back.yaml --max-frames 30 --stride 10
+.\.venv\Scripts\Activate.ps1
+python scripts\check_models.py --session data\aist_test\session.yaml
+python scripts\run_pose2d_overlays.py --session data\aist_test\session.yaml --camera c01 --stride 10
+python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10
 ```
+
+Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video ile aynı süreli çıktı istiyorsan `--max-frames` verme. `--stride` modelin kaç karede bir çalışacağını belirler; çıktı videosunun süresi korunur.
 
 Ana çıktılar:
 
-- `outputs/aist_test/videos/c01_rtmw_2d_overlay.mp4`
-- `outputs/aist_test/videos/c05_rtmw_2d_overlay.mp4`
-- `outputs/aist_test/videos/rtmw_skeleton_3d_world.mp4`
-- `outputs/aist_test/json/rtmw_session_3d.json`
-- `outputs/aist_test/csv/rtmw_keypoints_3d_world_flat.csv`
+- `outputs/aist_test/videos/c01_vitpose_2d_overlay.mp4`
+- `outputs/aist_test/videos/vitpose_skeleton_3d_world.mp4`
+- `outputs/aist_test/json/vitpose_session_3d.json`
+- `outputs/aist_test/csv/vitpose_keypoints_3d_world_flat.csv`
 
-Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken RTMW multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için yine checkerboard calibration gerekir.
+Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken ViTPose multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için yine checkerboard calibration gerekir.
 ## SMPL Mesh İnsan Modeli
 
 Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. AIST++ motion dosyaları indirildi; ancak lisanslı SMPL body model dosyası repoda tutulmaz. Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
@@ -184,7 +204,7 @@ SMPL model dosyasını koyduktan sonra:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv311\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
 ```
 
@@ -195,7 +215,7 @@ Beklenen mesh çıktıları:
 - `outputs/aist_test/json/aist_smpl_mesh_report.json`
 
 
-Mouse ile döndürülebilen oynayan Open3D viewer:
+Mouse ile döndürülebilen oynayan Open3D viewer opsiyoneldir. Python 3.13 ortamında Open3D paketi bulunmayabilir; bu durumda tarayıcıdaki Three.js viewer kullanılmalıdır.
 
 ```powershell
 python scripts\view_aist_smpl_mesh_open3d.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 240 --stride 1
@@ -216,14 +236,14 @@ Puanlama motoruna gecmeden once 3D ciktiyi kalite, smoothing, biomekanik acilar 
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv311\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5
 ```
 
 Ana ciktilar:
 
 - `outputs/aist_test/json/scoring_readiness_report.json`
-- `outputs/aist_test/json/rtmw_session_3d_smoothed.json`
+- `outputs/aist_test/json/vitpose_session_3d_smoothed.json`
 - `outputs/aist_test/csv/pose_quality_frames.csv`
 - `outputs/aist_test/csv/pose_quality_joints.csv`
 - `outputs/aist_test/csv/biomechanics_timeseries.csv`
@@ -235,5 +255,5 @@ Bu asama henuz puan vermez; puanlama motorunun kullanacagi guvenilir frame, guve
 Tek kamera 2D cubuk overlay gerekiyorsa zaten mevcut komut kullanilir:
 
 ```powershell
-python scripts\run_pose2d_overlays.py --session data\aist_test\session_all.yaml --camera c01 --max-frames 120 --stride 1
+python scripts\run_pose2d_overlays.py --session data\aist_test\session_all.yaml --camera c01 --stride 1
 ```

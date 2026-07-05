@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.render_aist_smpl_mesh import _center_vertices_per_frame, _load_smpl, _motion_to_vertices
+from src.progress import ProgressBar, print_step
 from src.smpl_mesh import find_smpl_model_file, load_aist_smpl_motion, selected_frame_indices
 from src.video_io import ensure_output_tree, load_session
 
@@ -31,6 +32,10 @@ def main() -> None:
     parser.add_argument("--world", action="store_true", help="Use original world coordinates instead of centering the body for viewing.")
     args = parser.parse_args()
 
+    print("=" * 72, flush=True)
+    print("TK3D SMPL THREE.JS VIEWER EXPORT", flush=True)
+    print("=" * 72, flush=True)
+    print_step(1, 5, "Loading session and SMPL inputs")
     session_path = (ROOT / args.session).resolve()
     session = load_session(session_path)
     with session_path.open("r", encoding="utf-8") as file:
@@ -45,11 +50,14 @@ def main() -> None:
     if not indices:
         raise SystemExit("No SMPL frames selected.")
 
+    print_step(2, 5, f"Loading SMPL model and preparing {len(indices)} frames")
     device = torch.device(args.device if torch.cuda.is_available() and args.device.startswith("cuda") else "cpu")
     smpl = _load_smpl(ROOT / args.smpl_dir, args.gender, batch_size=len(indices), device=device)
+    print_step(3, 5, "Converting SMPL motion to mesh vertices")
     vertices, faces = _motion_to_vertices(smpl, motion, indices, device=device)
     if not args.world:
         vertices = _center_vertices_per_frame(vertices)
+    print_step(4, 5, "Normalizing mesh for browser viewing")
     vertices = _normalize_for_viewer(vertices)
 
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
@@ -57,10 +65,8 @@ def main() -> None:
     viewer_dir.mkdir(parents=True, exist_ok=True)
     html_path = viewer_dir / "aist_smpl_viewer.html"
 
-    html_path.write_text(
-        build_html(vertices, faces, fps=args.fps, sequence=sequence),
-        encoding="utf-8",
-    )
+    print_step(5, 5, "Writing interactive HTML viewer")
+    html_path.write_text(build_html(vertices, faces, fps=args.fps, sequence=sequence), encoding="utf-8")
     print(f"saved: {html_path}")
     print(f"frames: {vertices.shape[0]}")
     print(f"vertices: {vertices.shape[1]}")
@@ -80,8 +86,14 @@ def _normalize_for_viewer(vertices: np.ndarray) -> np.ndarray:
 
 
 def _round_nested(values: np.ndarray, decimals: int = 4) -> list[list[float]]:
-    rounded = np.round(values.reshape(values.shape[0], -1), decimals=decimals)
-    return rounded.tolist()
+    flattened = values.reshape(values.shape[0], -1)
+    progress = ProgressBar("encode frames", flattened.shape[0])
+    rows = []
+    for frame_idx, frame in enumerate(flattened):
+        rows.append(np.round(frame, decimals=decimals).tolist())
+        progress.print(frame_idx + 1)
+    progress.done()
+    return rows
 
 
 def build_html(vertices: np.ndarray, faces: np.ndarray, fps: float, sequence: str) -> str:
