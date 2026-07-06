@@ -45,14 +45,16 @@ def run_preflight(
         )
 
     for camera in session.cameras:
-        _check_path(
+        _check_media_path(
             issues,
-            exists=camera.video_path.exists(),
+            path=camera.video_path,
             required=videos_required,
             code="video_missing",
+            unreadable_code="video_unreadable",
             message="Camera video is missing.",
+            unreadable_message="Camera video exists but cannot be opened.",
             camera_id=camera.camera_id,
-            path=camera.video_path,
+            probe_video=True,
         )
         if camera.calibration_video_path is None:
             issues.append(
@@ -64,14 +66,16 @@ def run_preflight(
                 )
             )
         else:
-            _check_path(
+            _check_media_path(
                 issues,
-                exists=camera.calibration_video_path.exists(),
+                path=camera.calibration_video_path,
                 required=calibration_videos_required,
                 code="calibration_video_missing",
+                unreadable_code="calibration_video_unreadable",
                 message="Calibration video is missing.",
+                unreadable_message="Calibration video exists but cannot be opened.",
                 camera_id=camera.camera_id,
-                path=camera.calibration_video_path,
+                probe_video=True,
             )
 
     for section_name, path_keys in {
@@ -149,3 +153,54 @@ def _check_path(
             path=str(path) if path else None,
         )
     )
+
+
+def _check_media_path(
+    issues: list[PreflightIssue],
+    path: Path,
+    required: bool,
+    code: str,
+    unreadable_code: str,
+    message: str,
+    unreadable_message: str,
+    camera_id: str | None = None,
+    probe_video: bool = False,
+) -> None:
+    if not path.exists():
+        _check_path(
+            issues,
+            exists=False,
+            required=required,
+            code=code,
+            message=message,
+            camera_id=camera_id,
+            path=path,
+        )
+        return
+    if probe_video and not _video_is_openable(path):
+        issues.append(
+            PreflightIssue(
+                severity="error" if required else "warning",
+                code=unreadable_code,
+                message=unreadable_message,
+                camera_id=camera_id,
+                path=str(path),
+            )
+        )
+
+
+def _video_is_openable(path: Path) -> bool:
+    try:
+        import cv2
+    except ModuleNotFoundError:
+        return False
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            return False
+        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+        return frame_count != 0 and width > 0 and height > 0
+    finally:
+        capture.release()

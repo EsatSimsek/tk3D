@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.camera_calibration import calibrate_single_camera, calibration_report, save_calibrations
+from src.camera_calibration import calibrate_multiview_cameras, calibrate_single_camera, calibration_report, save_calibrations
 from src.video_io import ensure_output_tree, load_session
 
 
@@ -34,26 +34,65 @@ def main() -> None:
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
     calibrations = []
     errors = []
-    for camera in session.cameras:
-        try:
-            if camera.calibration_video_path is None:
-                raise FileNotFoundError("calibration_video_path is missing")
-            calibration = calibrate_single_camera(
-                camera_id=camera.camera_id,
-                video_path=camera.calibration_video_path,
-                pattern_size=pattern_size,
-                square_size_m=square_size_m,
-                frame_stride=frame_stride,
-                min_valid_frames=min_valid_frames,
+    calibration_mode = "multiview_common_reference"
+    try:
+        camera_videos = {
+            camera.camera_id: camera.calibration_video_path
+            for camera in session.cameras
+            if camera.calibration_video_path is not None
+        }
+        missing_calibration = [camera.camera_id for camera in session.cameras if camera.calibration_video_path is None]
+        if missing_calibration:
+            raise FileNotFoundError(f"calibration_video_path is missing for: {', '.join(missing_calibration)}")
+        calibrations = calibrate_multiview_cameras(
+            camera_videos=camera_videos,
+            frame_offsets={camera.camera_id: camera.frame_offset for camera in session.cameras},
+            pattern_size=pattern_size,
+            square_size_m=square_size_m,
+            frame_stride=frame_stride,
+            min_valid_frames=min_valid_frames,
+            min_common_frames=int(checker.get("min_common_frames", 3)),
+            reference_camera_id=checker.get("reference_camera_id"),
+        )
+    except Exception as exc:
+        calibration_mode = "single_camera_fallback"
+        errors.append(
+            {
+                "camera_id": None,
+                "error": f"multiview common-reference calibration failed: {exc}",
+            }
+        )
+        for camera in session.cameras:
+            try:
+                if camera.calibration_video_path is None:
+                    raise FileNotFoundError("calibration_video_path is missing")
+                calibration = calibrate_single_camera(
+                    camera_id=camera.camera_id,
+                    video_path=camera.calibration_video_path,
+                    pattern_size=pattern_size,
+                    square_size_m=square_size_m,
+                    frame_stride=frame_stride,
+                    min_valid_frames=min_valid_frames,
+                )
+                calibrations.append(calibration)
+            except Exception as camera_exc:
+                errors.append({"camera_id": camera.camera_id, "error": str(camera_exc)})
+        if len(calibrations) > 1:
+            errors.append(
+                {
+                    "camera_id": None,
+                    "error": (
+                        "single-camera fallback calibrations do not share a guaranteed world coordinate frame; "
+                        "capture synchronized checkerboard detections across cameras for metric multi-view 3D."
+                    ),
+                }
             )
-            calibrations.append(calibration)
-        except Exception as exc:
-            errors.append({"camera_id": camera.camera_id, "error": str(exc)})
 
     cameras_path = output_paths["calibration"] / "cameras.json"
     report_path = output_paths["calibration"] / "calibration_report.json"
     save_calibrations(calibrations, cameras_path)
     report = calibration_report(calibrations)
+    report["calibration_mode"] = calibration_mode
     report["errors"] = errors
     with report_path.open("w", encoding="utf-8") as file:
         json.dump(report, file, indent=2)

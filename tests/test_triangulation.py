@@ -20,6 +20,8 @@ def test_triangulate_frame_recovers_synthetic_world_points() -> None:
     np.testing.assert_allclose(pose.keypoints_3d_world[:10], world[0, :10], atol=1e-6)
     assert np.all(pose.used_cameras[:10] == 3)
     assert np.nanmax(pose.reprojection_error[:10]) < 1e-6
+    assert np.nanmax(pose.triangulation_score[:10]) <= 0.95
+    assert np.nanmin(pose.triangulation_score[:10]) > 0.0
 
 def test_stack_triangulated_handles_empty_input() -> None:
     arrays = stack_triangulated([])

@@ -7,6 +7,7 @@ from scripts.run_vitpose_multiview_3d import (
     _repeat_count,
     _target_sample_count,
 )
+from src.multiview_sync import global_frame_range, local_frame_for_global
 
 
 def test_stride_sampling_preserves_output_frame_count() -> None:
@@ -30,3 +31,14 @@ def test_repeated_arrays_match_video_timeline_length() -> None:
     np.testing.assert_array_equal(repeated[1], sampled[0])
     np.testing.assert_array_equal(repeated[2], sampled[1])
     np.testing.assert_array_equal(repeated[4], sampled[2])
+
+
+def test_frame_offsets_define_common_global_timeline() -> None:
+    frame_counts = {"cam_a": 5, "cam_b": 6}
+    offsets = {"cam_a": 0, "cam_b": 2}
+
+    synced = list(global_frame_range(frame_counts, offsets))
+
+    assert synced == [2, 3, 4]
+    assert local_frame_for_global("cam_a", 2, offsets) == 2
+    assert local_frame_for_global("cam_b", 2, offsets) == 0

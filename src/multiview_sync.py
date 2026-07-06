@@ -19,3 +19,15 @@ def common_frame_count(frame_counts: dict[str, int], frame_offsets: dict[str, in
     starts = [int(frame_offsets.get(camera_id, 0)) for camera_id in frame_counts]
     ends = [int(frame_offsets.get(camera_id, 0)) + count for camera_id, count in frame_counts.items()]
     return max(0, min(ends) - max(starts))
+
+
+def global_frame_range(frame_counts: dict[str, int], frame_offsets: dict[str, int]) -> range:
+    if not frame_counts:
+        return range(0)
+    starts = [int(frame_offsets.get(camera_id, 0)) for camera_id in frame_counts]
+    ends = [int(frame_offsets.get(camera_id, 0)) + count for camera_id, count in frame_counts.items()]
+    return range(max(starts), min(ends))
+
+
+def local_frame_for_global(camera_id: str, global_frame_idx: int, frame_offsets: dict[str, int]) -> int:
+    return int(global_frame_idx) - int(frame_offsets.get(camera_id, 0))

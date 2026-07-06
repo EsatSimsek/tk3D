@@ -6,26 +6,7 @@ from typing import Any
 import numpy as np
 
 from .biomechanics_3d import angle_deg, segment_length
-
-COCO_BODY_JOINTS: dict[str, int] = {
-    "nose": 0,
-    "left_eye": 1,
-    "right_eye": 2,
-    "left_ear": 3,
-    "right_ear": 4,
-    "left_shoulder": 5,
-    "right_shoulder": 6,
-    "left_elbow": 7,
-    "right_elbow": 8,
-    "left_wrist": 9,
-    "right_wrist": 10,
-    "left_hip": 11,
-    "right_hip": 12,
-    "left_knee": 13,
-    "right_knee": 14,
-    "left_ankle": 15,
-    "right_ankle": 16,
-}
+from .data_structures import COCO_BODY_JOINT_INDICES, COCO_BODY_JOINTS
 
 ANGLE_SPECS: dict[str, tuple[str, str, str]] = {
     "left_elbow_deg": ("left_shoulder", "left_elbow", "left_wrist"),
@@ -146,10 +127,11 @@ def biomechanics_timeseries(keypoints_3d: np.ndarray, fps: float) -> list[dict[s
 
 def movement_segments(keypoints_3d: np.ndarray, fps: float, min_segment_frames: int = 3) -> list[dict[str, Any]]:
     speeds = joint_speed(keypoints_3d, fps=fps)
-    energy = _nanmean_axis1(speeds[:, :17]) if speeds.size else np.array([])
+    body_indices = [idx for idx in COCO_BODY_JOINT_INDICES if idx < speeds.shape[1]]
+    energy = _nanmean_axis1(speeds[:, body_indices]) if speeds.size and body_indices else np.array([])
     if energy.size == 0 or not np.any(np.isfinite(energy)):
         return [{"segment_id": 0, "label": "pending_motion", "start_frame": 0, "end_frame": 0, "status": "not_enough_motion_data"}]
-    threshold = float(np.nanpercentile(energy, 60))
+    threshold = adaptive_motion_threshold(energy)
     active = np.isfinite(energy) & (energy >= threshold) & (energy > 0)
     rows: list[dict[str, Any]] = []
     start: int | None = None
@@ -183,7 +165,8 @@ def readiness_report(
     segment_rows: list[dict[str, Any]],
 ) -> dict[str, Any]:
     ready_frames = [row for row in frame_rows if row["ready_for_scoring"]]
-    ready_joints = [row for row in joint_rows[:17] if row["ready_for_scoring"]]
+    body_indices = set(COCO_BODY_JOINT_INDICES)
+    ready_joints = [row for row in joint_rows if row["joint_idx"] in body_indices and row["ready_for_scoring"]]
     warnings: list[str] = []
     if frame_rows and len(ready_frames) / len(frame_rows) < 0.70:
         warnings.append("too_few_scoring_ready_frames")
@@ -203,14 +186,25 @@ def readiness_report(
     }
 
 def joint_speed(keypoints_3d: np.ndarray, fps: float) -> np.ndarray:
-    if keypoints_3d.shape[0] == 0:
-        return np.empty((0, keypoints_3d.shape[1]), dtype=float)
-    speed = np.full(keypoints_3d.shape[:2], np.nan, dtype=float)
-    if keypoints_3d.shape[0] == 1:
-        return speed
-    diffs = np.linalg.norm(np.diff(keypoints_3d, axis=0), axis=-1) * max(fps, 0.0)
-    speed[1:] = diffs
-    return speed
+    from .biomechanics_3d import joint_speed as _joint_speed
+
+    return _joint_speed(keypoints_3d, fps=fps)
+
+
+def adaptive_motion_threshold(energy: np.ndarray) -> float:
+    finite = np.asarray(energy, dtype=float)
+    finite = finite[np.isfinite(finite) & (finite >= 0)]
+    if finite.size == 0:
+        return float("inf")
+    median = float(np.median(finite))
+    mad = float(np.median(np.abs(finite - median)))
+    if mad > 1e-12:
+        return max(median + 2.5 * 1.4826 * mad, float(np.percentile(finite, 25)))
+    mean = float(np.mean(finite))
+    std = float(np.std(finite))
+    if std > 1e-12:
+        return max(mean + 0.5 * std, 0.0)
+    return median if median > 0.0 else float("inf")
 
 def torso_lean_deg(frame: np.ndarray) -> float:
     shoulder_center = _mean_points(frame, ["left_shoulder", "right_shoulder"])
@@ -221,9 +215,7 @@ def torso_lean_deg(frame: np.ndarray) -> float:
     denom = np.linalg.norm(torso)
     if denom == 0 or not np.isfinite(denom):
         return float("nan")
-    vertical = np.array([0.0, 0.0, 1.0], dtype=float)
-    cosine = np.clip(np.dot(torso, vertical) / denom, -1.0, 1.0)
-    return float(np.degrees(np.arccos(abs(cosine))))
+    return float(np.degrees(np.arctan2(torso[1], torso[2])))
 
 def _safe_nanmean_1d(values: np.ndarray) -> float:
     values = np.asarray(values, dtype=float)
@@ -239,7 +231,8 @@ def _nanmean_axis1(values: np.ndarray) -> np.ndarray:
     return np.divide(sums, counts, out=np.full(values.shape[0], np.nan, dtype=float), where=counts > 0)
 
 def _body17_ratio(valid_mask: np.ndarray) -> float:
-    return float(np.mean(valid_mask[:17])) if valid_mask.size >= 17 else 0.0
+    indices = [idx for idx in COCO_BODY_JOINT_INDICES if idx < valid_mask.size]
+    return float(np.mean(valid_mask[indices])) if indices else 0.0
 
 def _idx(name: str) -> int:
     return COCO_BODY_JOINTS[name]

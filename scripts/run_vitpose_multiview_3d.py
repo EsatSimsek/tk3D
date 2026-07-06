@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from src.camera_calibration import load_calibrations
 from src.data_structures import CameraCalibration
 from src.exporter import export_keypoints3d_csv, export_session_json
+from src.multiview_sync import global_frame_range, local_frame_for_global
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.progress import ProgressBar
 from src.smoothing_3d import moving_average_nan
@@ -100,30 +101,50 @@ def main() -> None:
         overlay_writers.append(cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), max(float(args.output_fps or fps), 1.0), (width, height)))
 
     triangulated = []
-    source_frame_count = _min_source_frame_count(captures)
+    frame_counts = {
+        camera.camera_id: int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        for camera, capture in zip(cameras, captures)
+    }
+    frame_offsets = {camera.camera_id: int(camera.frame_offset) for camera in cameras}
+    synced_frames = list(global_frame_range(frame_counts, frame_offsets))
+    source_frame_count = len(synced_frames)
     target_frames = _target_sample_count(source_frame_count, args.max_frames, args.stride)
     output_repeats: list[int] = []
     progress = ProgressBar("2D + 3D", target_frames)
     try:
-        frame_idx = 0
         written = 0
-        while args.max_frames is None or written < args.max_frames:
-            frames = []
-            ok = True
-            for capture in captures:
-                ret, frame = capture.read()
-                ok = ok and ret
-                frames.append(frame)
-            if not ok:
+        next_local_frame_by_camera = {camera.camera_id: 0 for camera in cameras}
+        for overlap_idx, global_frame_idx in enumerate(synced_frames):
+            if args.max_frames is not None and written >= args.max_frames:
                 break
-            if frame_idx % args.stride != 0:
-                frame_idx += 1
+            if overlap_idx % args.stride != 0:
                 continue
 
             poses_by_camera = {}
-            repeat_count = _repeat_count(frame_idx, source_frame_count, args.stride)
-            for camera, frame, writer in zip(cameras, frames, overlay_writers):
-                pose = estimator.predict(frame, camera.camera_id, frame_idx)
+            repeat_count = _repeat_count(overlap_idx, source_frame_count, args.stride)
+            frames: list[np.ndarray] = []
+            for camera, capture in zip(cameras, captures):
+                local_frame_idx = local_frame_for_global(camera.camera_id, global_frame_idx, frame_offsets)
+                frame = _read_frame_sequential(
+                    capture=capture,
+                    camera_id=camera.camera_id,
+                    target_frame_idx=local_frame_idx,
+                    next_frame_by_camera=next_local_frame_by_camera,
+                )
+                if frame is None:
+                    frames = []
+                    break
+                frames.append(frame)
+            if not frames:
+                break
+
+            camera_ids = [camera.camera_id for camera in cameras]
+            local_frame_indices = [
+                local_frame_for_global(camera.camera_id, global_frame_idx, frame_offsets)
+                for camera in cameras
+            ]
+            poses = estimator.predict_many(frames, camera_ids, local_frame_indices)
+            for camera, frame, writer, pose in zip(cameras, frames, overlay_writers, poses):
                 poses_by_camera[camera.camera_id] = pose
                 overlay = draw_pose2d(frame, pose)
                 for _ in range(repeat_count):
@@ -131,7 +152,7 @@ def main() -> None:
 
             triangulated.append(
                 triangulate_frame(
-                    frame_idx=frame_idx,
+                    frame_idx=global_frame_idx,
                     poses_by_camera=poses_by_camera,
                     calibrations=calibrations,
                     min_views=2,
@@ -140,8 +161,7 @@ def main() -> None:
             output_repeats.append(repeat_count)
             written += 1
             if written == 1 or written == target_frames or written % max(args.progress_every, 1) == 0:
-                progress.print(written, extra=f"src frame {frame_idx}")
-            frame_idx += 1
+                progress.print(written, extra=f"global frame {global_frame_idx}")
     finally:
         for capture in captures:
             capture.release()
@@ -222,6 +242,28 @@ def _min_source_frame_count(captures: list[cv2.VideoCapture]) -> int:
     counts = [int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0) for capture in captures]
     counts = [count for count in counts if count > 0]
     return min(counts) if counts else 0
+
+
+def _read_frame_sequential(
+    capture: cv2.VideoCapture,
+    camera_id: str,
+    target_frame_idx: int,
+    next_frame_by_camera: dict[str, int],
+) -> np.ndarray | None:
+    if target_frame_idx < 0:
+        return None
+    next_frame_idx = int(next_frame_by_camera.get(camera_id, 0))
+    if target_frame_idx < next_frame_idx:
+        capture.set(cv2.CAP_PROP_POS_FRAMES, int(target_frame_idx))
+        next_frame_idx = target_frame_idx
+    frame = None
+    while next_frame_idx <= target_frame_idx:
+        ok, frame = capture.read()
+        if not ok:
+            return None
+        next_frame_idx += 1
+    next_frame_by_camera[camera_id] = next_frame_idx
+    return frame
 
 
 def _target_sample_count(source_frames: int, max_frames: int | None, stride: int) -> int:

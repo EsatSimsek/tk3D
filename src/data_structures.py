@@ -8,6 +8,27 @@ import numpy as np
 
 
 COCO_WHOLEBODY_KEYPOINTS = 133
+COCO_BODY_JOINT_NAMES: tuple[str, ...] = (
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
+)
+COCO_BODY_JOINTS: dict[str, int] = {name: idx for idx, name in enumerate(COCO_BODY_JOINT_NAMES)}
+COCO_BODY_JOINT_INDICES: tuple[int, ...] = tuple(COCO_BODY_JOINTS.values())
 
 
 @dataclass(slots=True)

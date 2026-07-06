@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, CameraCalibration, PersonPose2D, TriangulatedPose3D
@@ -17,9 +16,10 @@ def triangulate_frame(
     used_cameras = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=int)
 
     for joint_idx in range(COCO_WHOLEBODY_KEYPOINTS):
-        camera_ids: list[str] = []
-        points_2d: list[np.ndarray] = []
-        projection_mats: list[np.ndarray] = []
+        pixel_points_2d: list[np.ndarray] = []
+        normalized_points_2d: list[np.ndarray] = []
+        pixel_projection_mats: list[np.ndarray] = []
+        normalized_projection_mats: list[np.ndarray] = []
         scores: list[float] = []
 
         for camera_id, pose in poses_by_camera.items():
@@ -29,23 +29,31 @@ def triangulate_frame(
             if not np.all(np.isfinite(point)):
                 continue
             calibration = calibrations[camera_id]
-            point = undistort_point(point, calibration)
-            camera_ids.append(camera_id)
-            points_2d.append(point.astype(float))
-            projection_mats.append(calibration.projection_matrix.astype(float))
+            pixel_point = undistort_point(point, calibration, pixel_coordinates=True)
+            normalized_point = undistort_point(point, calibration, pixel_coordinates=False)
+            pixel_points_2d.append(pixel_point.astype(float))
+            normalized_points_2d.append(normalized_point.astype(float))
+            pixel_projection_mats.append(calibration.projection_matrix.astype(float))
+            normalized_projection_mats.append(normalized_projection_matrix(calibration))
             scores.append(float(pose.scores[joint_idx]))
 
-        if len(points_2d) < min_views:
+        if len(normalized_points_2d) < min_views:
             continue
 
-        point_3d = triangulate_n_view(points_2d, projection_mats)
-        if point_3d is None:
+        result = triangulate_n_view(normalized_points_2d, normalized_projection_mats)
+        if result is None:
             continue
+        point_3d, conditioning_score = result
 
         keypoints_3d[joint_idx] = point_3d
-        triangulation_score[joint_idx] = float(np.mean(scores))
-        used_cameras[joint_idx] = len(points_2d)
-        reprojection_error[joint_idx] = mean_reprojection_error(point_3d, points_2d, projection_mats)
+        used_cameras[joint_idx] = len(normalized_points_2d)
+        reprojection_error[joint_idx] = mean_reprojection_error(point_3d, pixel_points_2d, pixel_projection_mats)
+        triangulation_score[joint_idx] = triangulation_quality_score(
+            scores=scores,
+            reprojection_error_px=reprojection_error[joint_idx],
+            used_views=len(normalized_points_2d),
+            conditioning_score=conditioning_score,
+        )
 
     return TriangulatedPose3D(
         frame_idx=frame_idx,
@@ -55,39 +63,82 @@ def triangulate_frame(
         used_cameras=used_cameras,
     )
 
-def undistort_point(point: np.ndarray, calibration: CameraCalibration) -> np.ndarray:
+def undistort_point(point: np.ndarray, calibration: CameraCalibration, pixel_coordinates: bool = True) -> np.ndarray:
     distortion = np.asarray(calibration.distortion_coefficients, dtype=float).reshape(-1)
+    intrinsic = calibration.intrinsic_matrix.astype(float)
     if distortion.size == 0 or not np.any(np.abs(distortion) > 1e-12):
-        return np.asarray(point, dtype=float)
+        if pixel_coordinates:
+            return np.asarray(point, dtype=float)
+        homogeneous = np.array([point[0], point[1], 1.0], dtype=float)
+        normalized = np.linalg.solve(intrinsic, homogeneous)
+        if abs(normalized[2]) < 1e-12:
+            return np.array([np.nan, np.nan], dtype=float)
+        return (normalized[:2] / normalized[2]).astype(float)
+    import cv2
+
     src = np.asarray(point, dtype=float).reshape(1, 1, 2)
-    corrected = cv2.undistortPoints(
-        src,
-        calibration.intrinsic_matrix.astype(float),
-        distortion,
-        P=calibration.intrinsic_matrix.astype(float),
-    )
+    if pixel_coordinates:
+        corrected = cv2.undistortPoints(src, intrinsic, distortion, P=intrinsic)
+        return corrected.reshape(2)
+    corrected = cv2.undistortPoints(src, intrinsic, distortion, P=None)
     return corrected.reshape(2)
 
-def triangulate_n_view(points_2d: list[np.ndarray], projection_mats: list[np.ndarray]) -> np.ndarray | None:
-    if len(points_2d) == 2:
-        point_a = np.asarray(points_2d[0], dtype=float).reshape(2, 1)
-        point_b = np.asarray(points_2d[1], dtype=float).reshape(2, 1)
-        homogeneous = cv2.triangulatePoints(projection_mats[0], projection_mats[1], point_a, point_b)
-        if abs(homogeneous[3, 0]) < 1e-12:
-            return None
-        return (homogeneous[:3, 0] / homogeneous[3, 0]).astype(float)
 
+def normalized_projection_matrix(calibration: CameraCalibration) -> np.ndarray:
+    intrinsic = calibration.intrinsic_matrix.astype(float)
+    projection = calibration.projection_matrix.astype(float)
+    return np.linalg.solve(intrinsic, projection)
+
+
+def triangulate_n_view(points_2d: list[np.ndarray], projection_mats: list[np.ndarray]) -> tuple[np.ndarray, float] | None:
     rows = []
     for point, projection in zip(points_2d, projection_mats):
         x, y = point
+        if not np.isfinite(x) or not np.isfinite(y):
+            continue
         rows.append(x * projection[2, :] - projection[0, :])
         rows.append(y * projection[2, :] - projection[1, :])
+    if len(rows) < 4:
+        return None
     design = np.asarray(rows, dtype=float)
-    _, _, vt = np.linalg.svd(design)
+    row_norms = np.linalg.norm(design, axis=1)
+    valid_rows = row_norms > 1e-12
+    if np.count_nonzero(valid_rows) < 4:
+        return None
+    design = design[valid_rows] / row_norms[valid_rows, None]
+    try:
+        _, singular_values, vt = np.linalg.svd(design)
+    except np.linalg.LinAlgError:
+        return None
     homogeneous = vt[-1]
     if abs(homogeneous[3]) < 1e-12:
         return None
-    return (homogeneous[:3] / homogeneous[3]).astype(float)
+    conditioning_score = _conditioning_score(singular_values)
+    return (homogeneous[:3] / homogeneous[3]).astype(float), conditioning_score
+
+
+def triangulation_quality_score(
+    scores: list[float],
+    reprojection_error_px: float,
+    used_views: int,
+    conditioning_score: float,
+    reprojection_tolerance_px: float = 12.0,
+) -> float:
+    finite_scores = np.asarray([score for score in scores if np.isfinite(score)], dtype=float)
+    confidence = float(np.mean(np.clip(finite_scores, 0.0, 1.0))) if finite_scores.size else 0.0
+    if np.isfinite(reprojection_error_px):
+        reprojection_quality = float(np.exp(-max(reprojection_error_px, 0.0) / max(reprojection_tolerance_px, 1e-6)))
+    else:
+        reprojection_quality = 0.0
+    view_quality = min(max((used_views - 1) / 2.0, 0.0), 1.0)
+    return float(np.clip(confidence * reprojection_quality * view_quality * conditioning_score, 0.0, 1.0))
+
+
+def _conditioning_score(singular_values: np.ndarray) -> float:
+    if singular_values.size < 2 or singular_values[-2] <= 1e-12:
+        return 0.0
+    residual_ratio = float(np.clip(singular_values[-1] / singular_values[-2], 0.0, 1.0))
+    return float(1.0 - residual_ratio)
 
 def mean_reprojection_error(
     point_3d: np.ndarray,

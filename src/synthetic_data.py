@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import cv2
 import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, CameraCalibration, PersonPose2D
@@ -113,7 +112,7 @@ def _calibration_from_rt(
     translation: np.ndarray,
 ) -> CameraCalibration:
     projection = intrinsic @ np.hstack([rotation, translation.reshape(3, 1)])
-    rotation_vector, _ = cv2.Rodrigues(rotation)
+    rotation_vector = _rotation_matrix_to_vector(rotation)
     return CameraCalibration(
         camera_id=camera_id,
         image_size=(1280, 720),
@@ -137,3 +136,27 @@ def _rotation_y(angle_rad: float) -> np.ndarray:
         ],
         dtype=float,
     )
+
+
+def _rotation_matrix_to_vector(rotation: np.ndarray) -> np.ndarray:
+    try:
+        import cv2
+
+        rotation_vector, _ = cv2.Rodrigues(rotation)
+        return rotation_vector.reshape(-1)
+    except ModuleNotFoundError:
+        angle = float(np.arccos(np.clip((np.trace(rotation) - 1.0) / 2.0, -1.0, 1.0)))
+        if abs(angle) < 1e-12:
+            return np.zeros(3, dtype=float)
+        axis = np.array(
+            [
+                rotation[2, 1] - rotation[1, 2],
+                rotation[0, 2] - rotation[2, 0],
+                rotation[1, 0] - rotation[0, 1],
+            ],
+            dtype=float,
+        )
+        axis_norm = np.linalg.norm(axis)
+        if axis_norm < 1e-12:
+            return np.zeros(3, dtype=float)
+        return axis / axis_norm * angle

@@ -108,7 +108,7 @@ def export_excel(summary: dict[str, Any], csv_paths: dict[str, Path], output_pat
 def _write_csv(rows: list[dict[str, Any]], output_path: str | Path) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(rows).to_csv(path, index=False)
+    pd.DataFrame(_csv_ready(rows)).to_csv(path, index=False, na_rep="")
 
 
 def _json_ready(value: Any) -> Any:
@@ -126,4 +126,16 @@ def _json_ready(value: Any) -> Any:
         return {str(key): _json_ready(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_json_ready(item) for item in value]
+    return value
+
+
+def _csv_ready(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: _csv_cell_ready(value) for key, value in row.items()} for row in rows]
+
+
+def _csv_cell_ready(value: Any) -> Any:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
     return value

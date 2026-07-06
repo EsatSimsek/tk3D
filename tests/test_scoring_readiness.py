@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.biomechanics_3d import center_of_mass_proxy
-from src.scoring_readiness import biomechanics_timeseries, build_scoring_readiness, movement_segments
+from src.scoring_readiness import biomechanics_timeseries, build_scoring_readiness, movement_segments, torso_lean_deg
 
 
 def _body_frame(offset: float = 0.0) -> np.ndarray:
@@ -64,3 +64,22 @@ def test_center_of_mass_proxy_handles_all_nan_selection() -> None:
     center = center_of_mass_proxy(keypoints, [5, 6, 11, 12])
 
     assert np.isnan(center).all()
+
+
+def test_torso_lean_preserves_forward_backward_direction() -> None:
+    frame = _body_frame()
+    frame[5:7, 1] = 0.3
+    forward = torso_lean_deg(frame)
+    frame[5:7, 1] = -0.3
+    backward = torso_lean_deg(frame)
+
+    assert forward > 0
+    assert backward < 0
+
+
+def test_center_of_mass_proxy_uses_anatomical_weights() -> None:
+    keypoints = _body_frame()
+    weighted = center_of_mass_proxy(keypoints, [5, 6, 11, 12])
+    unweighted = np.mean(keypoints[[5, 6, 11, 12]], axis=0)
+
+    assert weighted[2] != unweighted[2]

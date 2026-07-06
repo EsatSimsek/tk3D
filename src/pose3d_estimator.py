@@ -41,9 +41,15 @@ class RTMW3DEstimator:
             )
         if self._model is None:
             raise RuntimeError("RTMW3DEstimator model is not initialized")
-        raise ModelRuntimeError(
-            "RTMW3D-x live inference adapter is staged, but output parsing must be matched to the installed "
-            "RTMW3D package version. Multi-view triangulation remains the final 3D source."
+        if frame is None:
+            raise ValueError("RTMW3DEstimator live inference requires the source frame.")
+        result = self._model(frame)
+        keypoints, scores = _extract_mmpose_3d(result)
+        return PersonPose3D(
+            camera_id=pose2d.camera_id,
+            frame_idx=pose2d.frame_idx,
+            keypoints_camera=keypoints,
+            scores=scores,
         )
 
     def _build_model(self) -> Any:
@@ -62,3 +68,41 @@ class RTMW3DEstimator:
             pose3d_weights=str(self.config.checkpoint_path),
             device=self.config.device,
         )
+
+
+def _extract_mmpose_3d(result: Any) -> tuple[np.ndarray, np.ndarray]:
+    if not isinstance(result, dict):
+        result = next(result)
+    predictions = result.get("predictions", [])
+    if predictions and isinstance(predictions[0], list):
+        predictions = predictions[0]
+    if not predictions:
+        return (
+            np.full((COCO_WHOLEBODY_KEYPOINTS, 3), np.nan, dtype=float),
+            np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float),
+        )
+    best = max(predictions, key=_prediction_score)
+    raw_keypoints = best.get("keypoints_3d", best.get("keypoints", []))
+    keypoints = np.asarray(raw_keypoints, dtype=float)
+    if keypoints.ndim == 3:
+        keypoints = keypoints[0]
+    if keypoints.ndim != 2 or keypoints.shape[1] < 3:
+        raise ModelRuntimeError(f"RTMW3D output has unsupported keypoint shape: {keypoints.shape}")
+    raw_scores = best.get("keypoint_scores", best.get("keypoint_scores_3d", np.ones(keypoints.shape[0])))
+    scores = np.asarray(raw_scores, dtype=float)
+    if scores.ndim > 1:
+        scores = scores.reshape(-1)
+    output_keypoints = np.full((COCO_WHOLEBODY_KEYPOINTS, 3), np.nan, dtype=float)
+    output_scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
+    count = min(COCO_WHOLEBODY_KEYPOINTS, keypoints.shape[0])
+    output_keypoints[:count] = keypoints[:count, :3]
+    output_scores[: min(count, scores.shape[0])] = scores[: min(count, scores.shape[0])]
+    return output_keypoints, output_scores
+
+
+def _prediction_score(item: dict[str, Any]) -> float:
+    scores = np.asarray(item.get("keypoint_scores", item.get("keypoint_scores_3d", [0.0])), dtype=float)
+    finite = scores[np.isfinite(scores)]
+    if finite.size == 0:
+        return 0.0
+    return float(np.mean(finite))

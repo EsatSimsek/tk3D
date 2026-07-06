@@ -9,7 +9,6 @@ import numpy as np
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_2d
 from .mmpose_compat import install_mmpose_runtime_compat
 from .model_runtime import ModelRuntimeError
-from .vitpose_plus_runtime import ViTPosePlusWholeBodyInferencer
 
 @dataclass(slots=True)
 class Pose2DConfig:
@@ -45,6 +44,60 @@ class RTMW2DEstimator:
             score_threshold=self.config.score_threshold,
         )
 
+    def predict_batch(self, frames: list[np.ndarray], camera_id: str, frame_indices: list[int]) -> list[PersonPose2D]:
+        if len(frames) != len(frame_indices):
+            raise ValueError("frames and frame_indices must have the same length")
+        if self.dry_run:
+            return [empty_pose_2d(camera_id, frame_idx) for frame_idx in frame_indices]
+        if self._model is None:
+            raise RuntimeError("RTMW2DEstimator model is not initialized")
+        try:
+            results = self._model(frames)
+            if not isinstance(results, list):
+                results = list(results)
+        except Exception:
+            return [self.predict(frame, camera_id, frame_idx) for frame, frame_idx in zip(frames, frame_indices)]
+        poses = []
+        for result, frame_idx in zip(results, frame_indices):
+            keypoints_xy, scores = _extract_mmpose_wholebody(result)
+            poses.append(
+                pose2d_from_arrays(
+                    camera_id=camera_id,
+                    frame_idx=frame_idx,
+                    keypoints_xy=keypoints_xy,
+                    scores=scores,
+                    score_threshold=self.config.score_threshold,
+                )
+            )
+        return poses
+
+    def predict_many(self, frames: list[np.ndarray], camera_ids: list[str], frame_indices: list[int]) -> list[PersonPose2D]:
+        if len(frames) != len(camera_ids) or len(frames) != len(frame_indices):
+            raise ValueError("frames, camera_ids, and frame_indices must have the same length")
+        if self.dry_run:
+            return [empty_pose_2d(camera_id, frame_idx) for camera_id, frame_idx in zip(camera_ids, frame_indices)]
+        if self._model is None:
+            raise RuntimeError("RTMW2DEstimator model is not initialized")
+        try:
+            results = self._model(frames)
+            if not isinstance(results, list):
+                results = list(results)
+        except Exception:
+            return [self.predict(frame, camera_id, frame_idx) for frame, camera_id, frame_idx in zip(frames, camera_ids, frame_indices)]
+        poses = []
+        for result, camera_id, frame_idx in zip(results, camera_ids, frame_indices):
+            keypoints_xy, scores = _extract_mmpose_wholebody(result)
+            poses.append(
+                pose2d_from_arrays(
+                    camera_id=camera_id,
+                    frame_idx=frame_idx,
+                    keypoints_xy=keypoints_xy,
+                    scores=scores,
+                    score_threshold=self.config.score_threshold,
+                )
+            )
+        return poses
+
     def _build_model(self) -> Any:
         if not self.config.config_path.exists():
             raise FileNotFoundError(f"RTMW config not found: {self.config.config_path}")
@@ -65,7 +118,6 @@ class RTMW2DEstimator:
         )
 
 class ViTPose2DEstimator:
-    # """RTMW adapter. The MMPose initialization is intentionally isolated here."""
     """ViTPose-Huge whole-body adapter. The MMPose initialization is intentionally isolated here."""
 
     def __init__(self, config: Pose2DConfig, dry_run: bool = False) -> None:
@@ -79,7 +131,6 @@ class ViTPose2DEstimator:
         if self.dry_run:
             return empty_pose_2d(camera_id, frame_idx)
         if self._model is None:
-            # raise RuntimeError("RTMW2DEstimator model is not initialized")
             raise RuntimeError("ViTPose2DEstimator model is not initialized")
 
         result = self._model(frame)
@@ -92,14 +143,68 @@ class ViTPose2DEstimator:
             score_threshold=self.config.score_threshold,
         )
 
+    def predict_batch(self, frames: list[np.ndarray], camera_id: str, frame_indices: list[int]) -> list[PersonPose2D]:
+        if len(frames) != len(frame_indices):
+            raise ValueError("frames and frame_indices must have the same length")
+        if self.dry_run:
+            return [empty_pose_2d(camera_id, frame_idx) for frame_idx in frame_indices]
+        if self._model is None:
+            raise RuntimeError("ViTPose2DEstimator model is not initialized")
+        try:
+            results = self._model(frames)
+            if not isinstance(results, list):
+                results = list(results)
+        except Exception:
+            return [self.predict(frame, camera_id, frame_idx) for frame, frame_idx in zip(frames, frame_indices)]
+        poses = []
+        for result, frame_idx in zip(results, frame_indices):
+            keypoints_xy, scores = _extract_mmpose_wholebody(result, allow_padding=False)
+            poses.append(
+                pose2d_from_arrays(
+                    camera_id=camera_id,
+                    frame_idx=frame_idx,
+                    keypoints_xy=keypoints_xy,
+                    scores=scores,
+                    score_threshold=self.config.score_threshold,
+                )
+            )
+        return poses
+
+    def predict_many(self, frames: list[np.ndarray], camera_ids: list[str], frame_indices: list[int]) -> list[PersonPose2D]:
+        if len(frames) != len(camera_ids) or len(frames) != len(frame_indices):
+            raise ValueError("frames, camera_ids, and frame_indices must have the same length")
+        if self.dry_run:
+            return [empty_pose_2d(camera_id, frame_idx) for camera_id, frame_idx in zip(camera_ids, frame_indices)]
+        if self._model is None:
+            raise RuntimeError("ViTPose2DEstimator model is not initialized")
+        try:
+            results = self._model(frames)
+            if not isinstance(results, list):
+                results = list(results)
+        except Exception:
+            return [self.predict(frame, camera_id, frame_idx) for frame, camera_id, frame_idx in zip(frames, camera_ids, frame_indices)]
+        poses = []
+        for result, camera_id, frame_idx in zip(results, camera_ids, frame_indices):
+            keypoints_xy, scores = _extract_mmpose_wholebody(result, allow_padding=False)
+            poses.append(
+                pose2d_from_arrays(
+                    camera_id=camera_id,
+                    frame_idx=frame_idx,
+                    keypoints_xy=keypoints_xy,
+                    scores=scores,
+                    score_threshold=self.config.score_threshold,
+                )
+            )
+        return poses
+
     def _build_model(self) -> Any:
         if not self.config.config_path.exists():
-            # raise FileNotFoundError(f"RTMW config not found: {self.config.config_path}")
             raise FileNotFoundError(f"ViTPose config not found: {self.config.config_path}")
         if not self.config.checkpoint_path.exists():
-            # raise FileNotFoundError(f"RTMW checkpoint not found: {self.config.checkpoint_path}")
             raise FileNotFoundError(f"ViTPose checkpoint not found: {self.config.checkpoint_path}")
         install_mmpose_runtime_compat()
+        from .vitpose_plus_runtime import ViTPosePlusWholeBodyInferencer
+
         return ViTPosePlusWholeBodyInferencer(
             checkpoint_path=self.config.checkpoint_path,
             device=self.config.device,
