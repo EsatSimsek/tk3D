@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import yaml
+
 from src.model_runtime import check_model_runtime
 
 
@@ -21,3 +23,10 @@ def test_model_runtime_reports_missing_files_and_backend(tmp_path) -> None:
     assert status.checkpoint_valid is False
     assert status.checkpoint_compatible is False
     assert "config file is missing" in status.message
+
+
+def test_default_config_disables_optional_single_view_rtmw3d() -> None:
+    with open("config/model_config.yaml", "r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+
+    assert config["pose3d_single_view"]["enabled"] is False

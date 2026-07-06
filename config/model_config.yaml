@@ -15,7 +15,7 @@ pose3d_single_view:
   checkpoint_path: weights/rtmw3d-x.pth
   device: cuda:0
   keypoint_count: 133
-  enabled: true
+  enabled: false
 
 triangulation:
   min_views: 2
