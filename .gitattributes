@@ -1,0 +1,17 @@
+# Normalize all text files to LF on commit
+* text=auto eol=lf
+
+# Binary files
+*.mp4 binary
+*.avi binary
+*.mov binary
+*.pth binary
+*.pt binary
+*.onnx binary
+*.engine binary
+*.pkl binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.obj binary
+*.xlsx binary

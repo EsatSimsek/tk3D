@@ -216,7 +216,7 @@ def _center_body_for_render(keypoints_3d_world: np.ndarray) -> np.ndarray:
             if not valid_body.size:
                 continue
             center = np.nanmedian(valid_body, axis=0)
-        centered[frame_idx, :body_count] = points[frame_idx, :body_count] - center
+        centered[frame_idx] = points[frame_idx] - center
 
     return centered
 

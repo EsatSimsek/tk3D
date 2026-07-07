@@ -78,6 +78,7 @@ def run_preflight(
                 probe_video=True,
             )
 
+    project_root = _find_project_root(session.root_dir)
     for section_name, path_keys in {
         "pose2d": ["config_path", "checkpoint_path"],
         "pose3d_single_view": ["config_path", "checkpoint_path"],
@@ -98,7 +99,7 @@ def run_preflight(
                 continue
             path = Path(raw_path)
             if not path.is_absolute():
-                path = session.root_dir.parents[1] / path
+                path = project_root / path
             _check_path(
                 issues,
                 exists=path.exists(),
@@ -204,3 +205,13 @@ def _video_is_openable(path: Path) -> bool:
         return frame_count != 0 and width > 0 and height > 0
     finally:
         capture.release()
+
+
+def _find_project_root(start: Path) -> Path:
+    """Walk up from *start* until a directory containing ``pyproject.toml`` is found."""
+    current = start.resolve()
+    for parent in (current, *current.parents):
+        if (parent / "pyproject.toml").exists():
+            return parent
+    # Fallback: assume session dir is two levels below project root (data/<name>/).
+    return start.parents[1] if len(start.parents) > 1 else start

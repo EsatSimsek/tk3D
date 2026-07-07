@@ -1,1 +1,28 @@
 """TK3D core package."""
+
+__all__ = [
+    "data_structures",
+    "triangulation",
+    "smoothing_3d",
+    "validation_3d",
+    "synthetic_data",
+    "camera_calibration",
+    "multiview_sync",
+    "exporter",
+    "artifacts",
+    "preflight",
+    "video_probe",
+    "video_io",
+    "progress",
+    "pose2d_estimator",
+    "pose3d_estimator",
+    "model_runtime",
+    "mmpose_compat",
+    "vitpose_plus_runtime",
+    "visualization_2d",
+    "visualization_3d",
+    "aist_calibration",
+    "smpl_mesh",
+    "biomechanics_3d",
+    "scoring_readiness",
+]
