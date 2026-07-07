@@ -26,7 +26,6 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 
 - Checkerboard tabanlı kamera kalibrasyonu için giriş noktası
 - ViTPose-Huge 2D wholebody tahmin sınıfı için entegrasyon arayüzü
-- RTMW3D-x single-view 3D yardımcı tahmin sınıfı için entegrasyon arayüzü
 - Kalibrasyonlu multi-view triangulation
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
 - 3D temporal smoothing
@@ -45,7 +44,7 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-ViTPose-Huge WholeBody canlı 2D inference için ağırlık dosyası `weights/vitpose_huge_wholebody_256x192.pth` altında tutulur ve Git'e eklenmez. Resmi ViTPose kodu `external/vitpose` altında yerel runtime olarak kullanılır. RTMW3D-x ayrı ve opsiyonel single-view 3D yardımcı modüldür; varsayılan 2D akış artık ViTPose'tur.
+ViTPose-Huge WholeBody canlı 2D inference için ağırlık dosyası `weights/vitpose_huge_wholebody_256x192.pth` altında tutulur ve Git'e eklenmez. Resmi ViTPose kodu `external/vitpose` altında yerel runtime olarak kullanılır.
 
 ## İlk kontrol
 
@@ -157,7 +156,7 @@ Hazır olanlar:
 - JSON/CSV/Excel/PNG/MP4 output üretimi
 - Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
 - Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
-- Model runtime raporu: ViTPose-Huge WholeBody config/checkpoint hazır mı; opsiyonel RTMW3D-x yardımcı model dosyaları var mı
+- Model runtime raporu: ViTPose-Huge WholeBody config/checkpoint hazır mı kontrolü
 - AIST++ camera data importer: mapping.txt + setting_*.json dosyalarından gerçek 9 kamera intrinsic/extrinsic üretimi
 - ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
@@ -166,7 +165,6 @@ Hazır olanlar:
 
 Bekleyenler / sıradaki büyük işler:
 
-- RTMW3D-x gerçek inference bağlantısı
 - Kendi poomsae kameraları için gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
 - Poomsae phase/step detection: hareketleri poomsae adımlarına bölme
