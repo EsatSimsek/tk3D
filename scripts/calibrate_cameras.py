@@ -30,6 +30,7 @@ def main() -> None:
     square_size_m = float(checker["square_size_m"])
     frame_stride = int(checker["frame_stride"])
     min_valid_frames = int(checker["min_valid_frames"])
+    reference_camera_id = checker.get("reference_camera_id") or config.get("extrinsics", {}).get("world_origin_camera")
 
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
     calibrations = []
@@ -52,7 +53,7 @@ def main() -> None:
             frame_stride=frame_stride,
             min_valid_frames=min_valid_frames,
             min_common_frames=int(checker.get("min_common_frames", 3)),
-            reference_camera_id=checker.get("reference_camera_id"),
+            reference_camera_id=reference_camera_id,
         )
     except Exception as exc:
         calibration_mode = "single_camera_fallback"

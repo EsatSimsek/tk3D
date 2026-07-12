@@ -27,9 +27,11 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - Checkerboard tabanlı kamera kalibrasyonu için giriş noktası
 - ViTPose-Huge 2D wholebody tahmin sınıfı için entegrasyon arayüzü
 - Kalibrasyonlu multi-view triangulation
+- Kamera `frame_offset` değerlerini dikkate alan global frame senkronizasyonu
+- Normalize DLT triangulation, reprojection-error tabanlı triangulation quality score
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
 - 3D temporal smoothing
-- 3D validation ve kalite ölçümleri
+- 3D validation, kalite ölçümleri ve scoring-readiness analizi
 - JSON, CSV, Excel ve figür export iskeleti
 - Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
@@ -55,6 +57,18 @@ python scripts\probe_videos.py --session data\session_001\session.yaml
 python scripts\check_models.py --session data\session_001\session.yaml
 python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
 python -m pytest -q
+```
+
+Codex/sandbox ortamında pytest cache veya temp izinleri sorun çıkarırsa şu form kullanılabilir:
+
+```powershell
+python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
+```
+
+Son doğrulama sonucu:
+
+```text
+31 passed
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
@@ -98,6 +112,14 @@ AIST++ API bu projede `external/aistplusplus_api` altına kurulur ve Git'e eklen
 python scripts\calibrate_cameras.py --session data\session_001\session.yaml
 ```
 
+Kalibrasyon scripti önce senkron checkerboard tespitleriyle tüm kameraları ortak bir referans kamera koordinat sistemine bağlayan `multiview_common_reference` modunu dener. Bu mod için:
+
+- Her kamerada checkerboard aynı fiziksel anda görünmelidir.
+- `session.yaml` içindeki `sync.offsets` değerleri kalibrasyon frame eşlemesine uygulanır.
+- `config/calibration_config.yaml` içinde opsiyonel `checkerboard.min_common_frames` ve referans kamera için `extrinsics.world_origin_camera` veya `checkerboard.reference_camera_id` kullanılabilir.
+
+Ortak frame bulunamazsa script `single_camera_fallback` moduna düşer ve rapora açık uyarı yazar. Bu fallback intrinsic üretmek için yararlıdır, ancak kameraların ortak dünya koordinatında metrik 3D verdiğini garanti etmez.
+
 Kalibrasyon çıktıları:
 
 - `outputs/session_001/calibration/cameras.json`
@@ -109,6 +131,13 @@ Kalibrasyon çıktıları:
 python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
 python scripts\run_vitpose_multiview_3d.py --session data\session_001\session.yaml
 ```
+
+ViTPose multi-view pipeline:
+
+- `session.yaml` içindeki kamera `frame_offset` değerlerini global frame zaman çizelgesine uygular.
+- Aynı fiziksel ana denk gelen yerel kamera karelerini batch inference ile işler.
+- Kalibrasyon yoksa yalnızca test amaçlı yaklaşık iki kamera kalibrasyonuna düşer ve `calibration_mode: approximate_test_calibration` yazar.
+- Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
 
 Beklenen ana çıktılar:
 
@@ -149,23 +178,27 @@ Hazır olanlar:
 
 - Proje iskeleti ve Git ignore kuralları
 - `keypoints_3d_world[t, 133, 3]` veri sözleşmesi
-- Kamera kalibrasyonu için checkerboard tabanlı script
-- 2D/3D model adapter sınıfları
-- Multi-view triangulation çekirdeği
+- Checkerboard tabanlı multiview ortak referans kalibrasyonu ve single-camera fallback raporlaması
+- Kamera frame offset senkronizasyonu
+- ViTPose 2D ve RTMW3D adapter sınıfları
+- Batch/multi-camera 2D inference arayüzü
+- Hartley-style normalize edilmiş multi-view triangulation çekirdeği
+- Reprojection error, görüş sayısı ve SVD conditioning kullanan triangulation quality score
 - Sentetik 3 kamera dry-run pipeline
-- JSON/CSV/Excel/PNG/MP4 output üretimi
-- Preflight raporu: eksik video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
+- JSON/CSV/Excel/PNG/MP4 output üretimi; CSV export eksik sayıları `NaN` stringi yerine boş hücre yazar
+- Preflight raporu: eksik/açılamayan video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
 - Video probe raporu: her kamera videosu için açılabilirlik, FPS, çözünürlük, frame count, duration
 - Model runtime raporu: ViTPose-Huge WholeBody config/checkpoint hazır mı kontrolü
 - AIST++ camera data importer: mapping.txt + setting_*.json dosyalarından gerçek 9 kamera intrinsic/extrinsic üretimi
 - ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
-- Triangulation, smoothing, validation ve pipeline testleri
+- Yönlü torso lean, smoothing sonrası hız, ağırlıklı center-of-mass proxy, adaptif hareket segmentasyonu
+- Triangulation, smoothing, validation, scoring-readiness ve pipeline testleri
 
 Bekleyenler / sıradaki büyük işler:
 
-- Kendi poomsae kameraları için gerçek checkerboard calibration videoları ile intrinsic/extrinsic üretimi
+- Kendi poomsae kameraları için senkron checkerboard calibration videoları ile ortak referans intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
 - Poomsae phase/step detection: hareketleri poomsae adımlarına bölme
 - Teknik hata metrikleri: denge, açı, hizalama, yükseklik, zamanlama, simetri ve duruş kararlılığı gibi ölçümler
@@ -184,7 +217,7 @@ python scripts\run_pose2d_overlays.py --session data\aist_test\session.yaml --ca
 python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10
 ```
 
-Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video ile aynı süreli çıktı istiyorsan `--max-frames` verme. `--stride` modelin kaç karede bir çalışacağını belirler; çıktı videosunun süresi korunur.
+Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video ile aynı süreli çıktı istiyorsan `--max-frames` verme. `--stride` modelin kaç karede bir çalışacağını belirler; çıktı videosunun süresi korunur. Kameralar arası zaman farkları `session.yaml` içindeki `sync.offsets` alanından okunur.
 
 Ana çıktılar:
 
@@ -193,7 +226,7 @@ Ana çıktılar:
 - `outputs/aist_test/json/vitpose_session_3d.json`
 - `outputs/aist_test/csv/vitpose_keypoints_3d_world_flat.csv`
 
-Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken ViTPose multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için yine checkerboard calibration gerekir.
+Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken ViTPose multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için senkron checkerboard calibration gerekir.
 ## SMPL Mesh İnsan Modeli
 
 Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. AIST++ motion dosyaları indirildi; ancak lisanslı SMPL body model dosyası repoda tutulmaz. Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
