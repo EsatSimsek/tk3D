@@ -155,6 +155,7 @@ MADS ana güvenilirlik benchmark'ıdır. Proje veri setini yeniden dağıtmaz; r
 
 - https://visal.cs.cityu.edu.hk/downloads/
 - Sayfada `Human Pose Datasets -> MADS -> download here`
+- Doğrudan MADS Google Drive klasörü: https://drive.google.com/drive/folders/0B0AquUC4V8cFU2otR3l3WWRUVVk?resourcekey=0-KC-rxBAHiIIpylFRCTESNQ
 
 Aynı ortamı tamamen yeniden üretmek için `MADS_multiview` ve `MADS_depth` arşivlerini indirin. Yalnız mevcut F2 RGB
 benchmark'ını çalıştırmak için multi-view parçaları yeterlidir. Split ZIP'in tüm `.z01`, `.z02`, ... ve `.zip`
