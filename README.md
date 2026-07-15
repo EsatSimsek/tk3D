@@ -299,34 +299,99 @@ python scripts\export_aist_smpl_threejs_viewer.py --session data\aist_test\sessi
 
 Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 
-## Puanlama Hazırlık ve Teknik Ön Skor Analizi
+## Puanlama Altyapısı: Güvenli Geliştirme Akışı
 
-3B çıktıyı kalite, smoothing, biomekanik açılar, hareket segment adayları ve açıklanabilir teknik ön skor ile analiz etmek için:
+Puanlama altyapısı geliştirilebilir durumdadır; fakat mevcut MADS F2 sonucu `82,5 mm` MPJPE olduğu ve `50 mm`
+ground-truth hedefini geçmediği için resmî puanlama kapalıdır. Sistem yalnız kaliteyi geçen karelerden açıklanabilir
+teknik özellik ve `provisional_not_official` durumlu geliştirme skoru üretir. Geçersiz eklem veya yetersiz kamera
+görüşü puana katılmaz.
+
+### MADS F2 üzerinde baştan sona çalıştırma
+
+Aşağıdaki PowerShell bloğu tek seferde kopyalanabilir. Her çalıştırmada benzersiz bir çalışma kimliği üretildiği için
+eski sonuçların üzerine yazılmaz:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
 .\.venv312\Scripts\Activate.ps1
-python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5 --allow-unvalidated-provisional-score
+
+$runId = "mads-kata-f2-scoring-$(Get-Date -Format yyyyMMdd-HHmmss)"
+$runRoot = "outputs\mads_kata_f2\runs\$runId"
+
+python scripts\check_models.py `
+  --session data\mads_test\local\sessions\mads_kata_f2.yaml `
+  --model-config config\model_config.yaml
+
+python scripts\run_vitpose_multiview_3d.py `
+  --session data\mads_test\local\sessions\mads_kata_f2.yaml `
+  --model-config config\model_config.yaml `
+  --stride 2 `
+  --max-frames 300 `
+  --run-id $runId `
+  --allow-low-quality-output
+
+python scripts\evaluate_ground_truth_3d.py `
+  --prediction "$runRoot\json\vitpose_session_3d.json" `
+  --ground-truth data\mads_test\local\ground_truth\multiview\Kata_F2.json `
+  --output-dir "$runRoot\ground_truth_validation" `
+  --allow-failed-quality-gate
+
+python scripts\analyze_pose_for_scoring.py `
+  --session data\mads_test\local\sessions\mads_kata_f2.yaml `
+  --input-json "$runRoot\json\vitpose_session_3d.json" `
+  --smoothing-window 5 `
+  --allow-unvalidated-provisional-score
+
+Write-Host "Sonuç klasörü: $runRoot"
 ```
 
-Doğrulanmamış bir 3B çalışma varsayılan olarak puanlanmaz. Yukarıdaki izin yalnız geliştirme amaçlı geçici skoru
-bilinçli olarak açar; resmî akışta kullanılmamalıdır.
+`--allow-low-quality-output`, `--allow-failed-quality-gate` ve `--allow-unvalidated-provisional-score` yalnız
+geliştirme/teşhis içindir. Kalite kapılarını geçmiş gibi göstermezler. Bu izinler olmadan doğrulanmamış çalışma
+puanlanmaz. Hızlı bir smoke test için yalnız 3B üretim komutunda `--stride 20 --max-frames 30` kullanılabilir; 30
+kare güvenilirlik kararı veya model onayı için yeterli değildir.
 
-Ana ciktilar:
+### Çıktılar nerede?
 
-- `outputs/aist_test/runs/<run_id>/json/scoring_readiness_report.json`
-- `outputs/aist_test/runs/<run_id>/json/vitpose_session_3d_smoothed.json`
-- `outputs/aist_test/runs/<run_id>/csv/pose_quality_frames.csv`
-- `outputs/aist_test/runs/<run_id>/csv/pose_quality_joints.csv`
-- `outputs/aist_test/runs/<run_id>/csv/biomechanics_timeseries.csv`
-- `outputs/aist_test/runs/<run_id>/csv/movement_segments.csv`
-- `outputs/aist_test/runs/<run_id>/json/provisional_scoring_report.json`
-- `outputs/aist_test/runs/<run_id>/csv/provisional_frame_scores.csv`
-- `outputs/aist_test/runs/<run_id>/csv/provisional_step_scores.csv`
-- `outputs/aist_test/runs/<run_id>/csv/technical_errors.csv`
-- `outputs/aist_test/runs/<run_id>/scoring_readiness_analysis.xlsx`
+Bütün sonuçlar `outputs/mads_kata_f2/runs/<run_id>/` altında aynı çalışmaya ait olacak şekilde tutulur.
 
-`provisional_scoring_report.json`, kalite kapısını geçen kareler için duruş, alt vücut, kinematik denge ve kemik uzunluğu kararlılığı bileşenlerinden 0-100 arası bir altyapı skoru verir. Durum alanı daima `provisional_not_official` olur. Hareket segmentleri poomsae adımlarıyla etiketlenmeden ve teknik hedefler uzman tarafından onaylanmadan bu değer resmi puan değildir.
+| Öncelik | Dosya | Ne gösterir? |
+| --- | --- | --- |
+| 1 | `scoring_readiness_analysis.xlsx` | Kalite, biomekanik, segment, kare/adım skoru ve teknik hataları tek dosyada gösterir. |
+| 2 | `ground_truth_validation/ground_truth_validation_report.json` | MPJPE, P95, PCK, açı hatası ve ground-truth kalite kapısı sonucunu gösterir. |
+| 3 | `json/scoring_readiness_report.json` | Kaç kare ve eklemin değerlendirmeye uygun olduğunu gösterir. |
+| 4 | `json/provisional_scoring_report.json` | Geçici toplam/bileşen skorları ve `provisional_not_official` durumunu gösterir. |
+| 5 | `videos/vitpose_skeleton_3d_world.mp4` | Üretilen 3B iskeleti görsel olarak kontrol etmeyi sağlar. |
+
+Diğer ayrıntılı çıktılar:
+
+- `json/vitpose_session_3d.json`: filtrelenmiş ham 3B eklemler, güvenler ve kullanılan kamera sayıları
+- `json/vitpose_session_3d_smoothed.json`: puanlama analizinde kullanılan yumuşatılmış 3B iskelet
+- `json/run_quality_report.json`: kalibrasyon/reprojection/geçerlilik temelli iç geometri kontrolü
+- `csv/pose_quality_frames.csv`: kare bazında kalite ve puanlamaya kabul durumu
+- `csv/pose_quality_joints.csv`: eklem bazında kalite özeti
+- `csv/biomechanics_timeseries.csv`: açı, hız, denge ve diğer biomekanik zaman serileri
+- `csv/movement_segments.csv`: otomatik hareket segment adayları
+- `csv/provisional_frame_scores.csv`: kare bazında geçici skorlar
+- `csv/provisional_step_scores.csv`: segment/adım bazında geçici skorlar
+- `csv/technical_errors.csv`: açıklanabilir teknik hata kodları ve açıklamaları
+- `ground_truth_validation/ground_truth_frame_errors.csv`: kare bazında gerçek 3B hata
+- `ground_truth_validation/ground_truth_joint_errors.csv`: eklem bazında gerçek 3B hata
+
+`provisional_scoring_report.json`, kalite kapısını geçen kareler için duruş, alt vücut, kinematik denge ve kemik
+uzunluğu kararlılığı bileşenlerinden 0-100 arası bir altyapı skoru verir. Hareket segmentleri gerçek poomsae
+adımlarıyla etiketlenmeden, teknik hedefler uzman tarafından onaylanmadan ve hakem puanlarıyla dış doğrulama
+yapılmadan bu değer resmî puan değildir.
+
+### AIST üzerinde eski geliştirme akışı
+
+AIST yalnız akış/smoke testi için korunur; MADS ground-truth doğruluk benchmark'ının yerini almaz:
+
+```powershell
+python scripts\analyze_pose_for_scoring.py `
+  --session data\aist_test\session_all.yaml `
+  --smoothing-window 5 `
+  --allow-unvalidated-provisional-score
+```
 
 Tek kamera 2D cubuk overlay gerekiyorsa zaten mevcut komut kullanilir:
 
