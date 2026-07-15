@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.coordinate_system import aist_world_to_analysis, opencv_reference_to_analysis, transform_points
+from src.pose2d_estimator import _bbox_from_pose, pose2d_from_arrays
 from src.vitpose_plus_runtime import (
     ViTPosePlusWholeBodyInferencer,
     _aspect_correct_bbox,
@@ -53,3 +54,35 @@ def test_udp_peak_refinement_recovers_subpixel_gaussian_center() -> None:
     refined = _refine_heatmap_peaks_udp(heatmap[None, ...], peak, kernel_size=11)
 
     np.testing.assert_allclose(refined[0], target, atol=0.08)
+
+
+def test_tracked_pose_bbox_preserves_fast_motion_margin() -> None:
+    keypoints = np.zeros((133, 2), dtype=float)
+    scores = np.zeros(133, dtype=float)
+    keypoints[5:17, 0] = np.linspace(100.0, 200.0, 12)
+    keypoints[5:17, 1] = np.linspace(50.0, 250.0, 12)
+    scores[5:17] = 1.0
+    pose = pose2d_from_arrays("C0", 0, keypoints, scores, score_threshold=0.3)
+
+    bbox = _bbox_from_pose(pose, image_width=512, image_height=384)
+
+    assert bbox is not None
+    np.testing.assert_allclose(bbox, [82.5, 15.0, 217.5, 285.0])
+
+
+def test_heatmap_offsets_are_applied_in_heatmap_coordinates() -> None:
+    runtime = ViTPosePlusWholeBodyInferencer.__new__(ViTPosePlusWholeBodyInferencer)
+    runtime.heatmap_offsets_xy = np.tile([1.0, -0.5], (133, 1))
+    heatmaps = np.zeros((133, 64, 48), dtype=float)
+    heatmaps[:, 30, 20] = 1.0
+
+    shifted, scores = runtime._decode_heatmaps(heatmaps, (0.0, 0.0, 94.0, 126.0))
+    runtime.heatmap_offsets_xy = np.zeros((133, 2), dtype=float)
+    baseline, _ = runtime._decode_heatmaps(heatmaps, (0.0, 0.0, 94.0, 126.0))
+
+    np.testing.assert_allclose(
+        shifted - baseline,
+        np.tile([2.0, -1.0], (133, 1)),
+        atol=1e-6,
+    )
+    assert np.all(scores == 1.0)

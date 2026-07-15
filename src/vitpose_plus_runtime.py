@@ -20,6 +20,8 @@ class ViTPosePlusWholeBodyInferencer:
         self,
         checkpoint_path: Path,
         device: str,
+        adapter_checkpoint_path: Path | None = None,
+        allow_unapproved_adapter: bool = False,
         repo_root: Path | None = None,
         input_height: int = 256,
         input_width: int = 192,
@@ -29,6 +31,9 @@ class ViTPosePlusWholeBodyInferencer:
         self.input_height = int(input_height)
         self.input_width = int(input_width)
         self.checkpoint_path = checkpoint_path
+        self.adapter_checkpoint_path = adapter_checkpoint_path
+        self.allow_unapproved_adapter = bool(allow_unapproved_adapter)
+        self.heatmap_offsets_xy = np.zeros((COCO_WHOLEBODY_KEYPOINTS, 2), dtype=float)
         self.device = self._resolve_device(device)
         self.repo_root = repo_root or Path("external/vitpose")
         self._torch = self._import_torch()
@@ -86,6 +91,33 @@ class ViTPosePlusWholeBodyInferencer:
         model = WholeBodyModel()
         model.backbone.load_state_dict(_strip_prefix(state_dict, "backbone."), strict=True)
         model.head.load_state_dict(_strip_prefix(state_dict, self.wholebody_head_prefix), strict=True)
+        if self.adapter_checkpoint_path is not None:
+            if not self.adapter_checkpoint_path.exists():
+                raise FileNotFoundError(f"ViTPose adapter checkpoint not found: {self.adapter_checkpoint_path}")
+            try:
+                adapter = torch.load(self.adapter_checkpoint_path, map_location="cpu", weights_only=True)
+            except TypeError:
+                adapter = torch.load(self.adapter_checkpoint_path, map_location="cpu")
+            if not isinstance(adapter, dict):
+                raise ValueError("ViTPose adapter checkpoint must be a mapping")
+            metadata = adapter.get("metadata", {})
+            approved = isinstance(metadata, dict) and metadata.get("production_approved") is True
+            if not approved and not self.allow_unapproved_adapter:
+                raise ValueError(
+                    "ViTPose adapter has not passed held-out 3D approval; "
+                    "use allow_unapproved_adapter only for diagnostic benchmarking"
+                )
+            adapter_state = adapter.get("head_state_dict")
+            if adapter_state is not None:
+                model.head.load_state_dict(adapter_state, strict=True)
+            offsets = adapter.get("heatmap_offsets_xy")
+            if offsets is not None:
+                values = np.asarray(offsets, dtype=float)
+                if values.shape != (COCO_WHOLEBODY_KEYPOINTS, 2) or not np.all(np.isfinite(values)):
+                    raise ValueError("ViTPose heatmap_offsets_xy must have shape [133, 2] and be finite")
+                self.heatmap_offsets_xy = values
+            if adapter_state is None and offsets is None:
+                raise ValueError("ViTPose adapter contains neither head_state_dict nor heatmap_offsets_xy")
         model.to(self.device)
         model.eval()
         return model
@@ -139,6 +171,7 @@ class ViTPosePlusWholeBodyInferencer:
             ]
         )
         refined_xy = _refine_heatmap_peaks_udp(heatmaps, peak_xy, kernel_size=11)
+        refined_xy += getattr(self, "heatmap_offsets_xy", np.zeros_like(refined_xy))
         x1, y1, x2, y2 = crop
         keypoints[:, 0] = x1 + refined_xy[:, 0] * (x2 - x1) / max(heatmap_width - 1.0, 1.0)
         keypoints[:, 1] = y1 + refined_xy[:, 1] * (y2 - y1) / max(heatmap_height - 1.0, 1.0)

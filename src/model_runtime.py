@@ -17,6 +17,10 @@ class ModelRuntimeStatus:
     checkpoint_exists: bool
     checkpoint_valid: bool
     checkpoint_compatible: bool
+    adapter_checkpoint_path: str | None
+    adapter_checkpoint_exists: bool
+    adapter_checkpoint_compatible: bool
+    adapter_checkpoint_approved: bool
     backend_available: bool
     ready: bool
     message: str
@@ -32,11 +36,21 @@ def check_model_runtime(section: dict[str, Any], project_root: str | Path) -> Mo
     model_name = str(section.get("model_name", "unknown"))
     config_path = _resolve_optional_path(section.get("config_path"), root)
     checkpoint_path = _resolve_optional_path(section.get("checkpoint_path"), root)
+    adapter_checkpoint_path = _resolve_optional_path(section.get("adapter_checkpoint_path"), root)
     backend_available = is_backend_available(backend)
     config_exists = bool(config_path and config_path.exists())
     checkpoint_exists = bool(checkpoint_path and checkpoint_path.exists())
     checkpoint_valid = bool(checkpoint_path and _is_probable_checkpoint(checkpoint_path))
     checkpoint_compatible = _is_checkpoint_compatible(section, checkpoint_path) if checkpoint_valid else False
+    adapter_checkpoint_exists = bool(adapter_checkpoint_path and adapter_checkpoint_path.exists())
+    if adapter_checkpoint_exists:
+        adapter_checkpoint_compatible, adapter_checkpoint_approved = _inspect_adapter_checkpoint(
+            section, adapter_checkpoint_path
+        )
+    else:
+        adapter_checkpoint_compatible = adapter_checkpoint_path is None
+        adapter_checkpoint_approved = adapter_checkpoint_path is None
+    allow_unapproved_adapter = section.get("allow_unapproved_adapter") is True
 
     missing = []
     if not backend_available:
@@ -49,6 +63,12 @@ def check_model_runtime(section: dict[str, Any], project_root: str | Path) -> Mo
         missing.append("checkpoint file does not look like a valid model checkpoint")
     elif not checkpoint_compatible:
         missing.append("checkpoint file is not compatible with the configured model")
+    if adapter_checkpoint_path is not None and not adapter_checkpoint_exists:
+        missing.append("adapter checkpoint file is missing")
+    elif not adapter_checkpoint_compatible:
+        missing.append("adapter checkpoint is not compatible with the configured model")
+    elif not adapter_checkpoint_approved and not allow_unapproved_adapter:
+        missing.append("adapter checkpoint has not passed held-out 3D approval")
 
     return ModelRuntimeStatus(
         backend=backend,
@@ -59,6 +79,10 @@ def check_model_runtime(section: dict[str, Any], project_root: str | Path) -> Mo
         checkpoint_exists=checkpoint_exists,
         checkpoint_valid=checkpoint_valid,
         checkpoint_compatible=checkpoint_compatible,
+        adapter_checkpoint_path=str(adapter_checkpoint_path) if adapter_checkpoint_path else None,
+        adapter_checkpoint_exists=adapter_checkpoint_exists,
+        adapter_checkpoint_compatible=adapter_checkpoint_compatible,
+        adapter_checkpoint_approved=adapter_checkpoint_approved,
         backend_available=backend_available,
         ready=not missing,
         message="ready" if not missing else "; ".join(missing),
@@ -127,3 +151,28 @@ def _is_checkpoint_compatible(section: dict[str, Any], path: Path | None) -> boo
     if head is None:
         return False
     return bool(getattr(head, "shape", [None])[0] == expected_keypoints)
+
+
+def _inspect_adapter_checkpoint(
+    section: dict[str, Any], path: Path | None
+) -> tuple[bool, bool]:
+    if path is None:
+        return True, True
+    expected_keypoints = int(section.get("keypoint_count", 133))
+    try:
+        import torch
+
+        try:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+        except TypeError:
+            checkpoint = torch.load(path, map_location="cpu")
+    except Exception:
+        return False, False
+    state_dict = checkpoint.get("head_state_dict", checkpoint) if isinstance(checkpoint, dict) else {}
+    weight = state_dict.get("final_layer.weight")
+    head_compatible = bool(getattr(weight, "shape", [None])[0] == expected_keypoints)
+    offsets = checkpoint.get("heatmap_offsets_xy") if isinstance(checkpoint, dict) else None
+    offset_compatible = bool(getattr(offsets, "shape", None) == (expected_keypoints, 2))
+    metadata = checkpoint.get("metadata", {}) if isinstance(checkpoint, dict) else {}
+    approved = isinstance(metadata, dict) and metadata.get("production_approved") is True
+    return head_compatible or offset_compatible, approved

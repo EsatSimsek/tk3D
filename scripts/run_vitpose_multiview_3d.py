@@ -133,6 +133,12 @@ def main() -> None:
             model_name=pose2d_config["model_name"],
             config_path=(ROOT / pose2d_config["config_path"]).resolve(),
             checkpoint_path=(ROOT / pose2d_config["checkpoint_path"]).resolve(),
+            adapter_checkpoint_path=(
+                (ROOT / pose2d_config["adapter_checkpoint_path"]).resolve()
+                if pose2d_config.get("adapter_checkpoint_path")
+                else None
+            ),
+            allow_unapproved_adapter=bool(pose2d_config.get("allow_unapproved_adapter", False)),
             device=pose2d_config.get("device", "cuda:0"),
             score_threshold=float(pose2d_config.get("score_threshold", 0.30)),
             input_size=tuple(int(value) for value in pose2d_config.get("input_size", [256, 192])),

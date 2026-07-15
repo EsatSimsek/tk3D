@@ -16,7 +16,7 @@ Karşılaştırılan başlıca seçenekler:
 
 | Veri seti | Güçlü tarafı | TK3D için eksik tarafı |
 | --- | --- | --- |
-| MADS | Karate/Tai-chi, 3 kalibre kamera, optik 3B ground truth | Az sporcu ve yalnızca 15 fps RGB |
+| MADS | Karate/Tai-chi, 3 kalibre kamera, optik 3B ground truth | Az sporcu; yayın 15 fps dese de yerel AVI başlıkları 30 fps |
 | TotalCapture | 8 kamera, 60 Hz, Vicon ve IMU, yaklaşık 1.9 milyon kare | Poomsae/karate hareketi yok; kayıt ve araştırma lisansı gerekiyor |
 | Fit3D | 3 milyona yakın 3B iskelet, egzersiz geri bildirimi, SMPL-X | Dövüş sanatı hareketi yok; hesapla giriş gerekiyor |
 | TUHAD | Gerçek taekwondo teknikleri ve uzman sporcular | Ön/yan çekimler eşzamanlı değil; optik 3B ground truth değil |
@@ -200,8 +200,44 @@ güncel `reliable-v1` çalışması aynı 300 karede şu sonucu verdi:
 Filtre, 5.100 vücut noktasının 5.025'ini güvenilir bıraktı; 25 temel kalite, 38 kemik uzunluğu ve 12 zamansal ret
 kaydetti. Dolayısıyla iyileşme kapsama oranını çökertmeden elde edildi. Buna rağmen 50 mm MPJPE kalite hedefi
 geçilmediği için durum hâlâ `failed_ground_truth_quality_gate` ve `scoring_ready=false` olarak kalır. Kalan hata
-özellikle COCO görüntü eklemi ile MADS mocap eklem merkezi tanımı farklı olan kalça/dizlerde sistematiktir; sonraki
-model adımı, F2 test dizisini eğitimden tamamen ayırarak diğer MADS dizilerinde domain adaptation/retargeting yapmaktır.
+özellikle COCO görüntü eklemi ile MADS mocap eklem merkezi tanımı farklı olan kalça/dizlerde sistematiktir.
+
+## MADS domain-adaptation deneyi ve üretim kararı
+
+Adapter eğitimi için F2 daha baştan test kümesi olarak ayrıldı ve özellik cache'ine girmesi kod seviyesinde
+engellendi. Doğrulama dizileri `Kata:F3` ve `Taichi:S6`; eğitim dizileri kalan Kata/Taichi dizileridir. MADS metadata'sı
+açık sporcu kimliği vermediği için bu ayrım sekans bazlıdır; kişi bazlı sızıntısızlık ancak kendi veri setimizde açık
+sporcu kimlikleriyle garanti edilebilir.
+
+İki güvenli aday denendi:
+
+1. ViTPose-Huge omurgası dondurularak yalnız heatmap head'in son katmanı eğitildi. Doğrulama heatmap kaybı
+   `0,00160479` değerinden `0,00137724` değerine indi; buna rağmen hiç görülmemiş F2'nin 30 karelik 3B kontrolünde
+   geçerli eklem oranı `%52,5`, MPJPE `473,1 mm` oldu. Aday reddedildi.
+2. Eğitim dizilerinden robust eklem-offset kalibrasyonu yapıldı. 2B doğrulama merkez hatası `1,8455` heatmap
+   pikselinden `1,6860` değerine indi (`%8,6`). Aynı F2 3B kontrolünde temel model `100,170 mm` MPJPE ve
+   `144,601 mm` P95 üretirken offset adayı `105,568 mm` MPJPE ve `140,768 mm` P95 üretti. P95 azalsa da ana metrik
+   kötüleştiği için bu aday da reddedildi.
+
+Bu sonuç önemli bir güvenilirlik kontrolüdür: yalnız eğitim/2B doğrulama metriği iyileşti diye model üretime
+alınmamıştır. Üretim yapılandırması hiçbir MADS adapter'a bağlı değildir ve doğrulanmış temel `ViTPose-Huge-WholeBody`
+modelini kullanır. Adapter checkpoint'leri `production_approved=false` taşır; normal runtime bunları reddeder.
+`allow_unapproved_adapter=true` yalnız açık tanısal benchmark için kullanılabilir ve puanlama onayı anlamına gelmez.
+
+Deneyleri yeniden üretmek için:
+
+```powershell
+python scripts\train_mads_vitpose_adapter.py `
+  --dataset-root C:\Users\WWWW\Desktop\MADS `
+  --test-sequences Kata:F2 `
+  --validation-sequences Kata:F3 Taichi:S6
+
+python scripts\calibrate_mads_vitpose_offsets.py
+```
+
+Yerel ağırlıklar ve feature cache'leri Git'e eklenmez. Yeni bir aday ancak en az 300 F2 örneğinde temel modelden daha
+düşük MPJPE, daha kötü olmayan P95 ve en az `%95` geçerli eklem oranı gösterirse adapter adayı olarak değerlendirilebilir.
+Bu yine 50 mm ground-truth kalite kapısını veya kendi taekwondo saha doğrulamasını otomatik olarak geçmiş sayılmaz.
 
 Ground-truth değerlendiricisi artık kalite kapısı başarısızsa varsayılan olarak başarısız süreç koduyla çıkar. Yalnız
 tanısal rapor üretiminde açık `--allow-failed-quality-gate` kullanılabilir. Puanlama analizi de doğrulanmamış 3B

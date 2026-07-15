@@ -16,6 +16,8 @@ class Pose2DConfig:
     model_name: str
     config_path: Path
     checkpoint_path: Path
+    adapter_checkpoint_path: Path | None = None
+    allow_unapproved_adapter: bool = False
     device: str = "cuda:0"
     score_threshold: float = 0.30
     input_size: tuple[int, int] = (256, 192)
@@ -198,6 +200,8 @@ class ViTPose2DEstimator:
 
         return ViTPosePlusWholeBodyInferencer(
             checkpoint_path=self.config.checkpoint_path,
+            adapter_checkpoint_path=self.config.adapter_checkpoint_path,
+            allow_unapproved_adapter=self.config.allow_unapproved_adapter,
             device=self.config.device,
             input_height=int(self.config.input_size[0]),
             input_width=int(self.config.input_size[1]),
@@ -267,6 +271,8 @@ def _bbox_from_pose(pose: PersonPose2D, image_width: int, image_height: int) -> 
     maxs = np.max(points, axis=0)
     span = np.maximum(maxs - mins, 32.0)
     center = (mins + maxs) / 2.0
+    # Preserve extra motion margin before the model's aspect-ratio padding;
+    # fast martial-arts limbs otherwise leave the tracked crop.
     expanded = span * 1.35
     bbox = np.asarray(
         [center[0] - expanded[0] / 2.0, center[1] - expanded[1] / 2.0,

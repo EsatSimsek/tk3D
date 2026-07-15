@@ -19,6 +19,13 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("pose2d.input_size must contain two positive multiples of 16")
     if int(pose.get("keypoint_count", 0)) != 133:
         raise ValueError("pose2d.keypoint_count must be 133 for COCO-WholeBody")
+    adapter_path = pose.get("adapter_checkpoint_path")
+    if adapter_path is not None and not str(adapter_path).strip():
+        raise ValueError("pose2d.adapter_checkpoint_path must be a non-empty path when provided")
+    if "allow_unapproved_adapter" in pose and not isinstance(
+        pose["allow_unapproved_adapter"], bool
+    ):
+        raise ValueError("pose2d.allow_unapproved_adapter must be boolean")
     threshold = float(pose.get("score_threshold", 0.30))
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("pose2d.score_threshold must be between 0 and 1")

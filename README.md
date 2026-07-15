@@ -14,6 +14,7 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları -> açıklanabilir geçici teknik skor.
 - Geçici skor resmi hakem puanı değildir. Sıradaki alan işi, gerçek poomsae kayıtlarında phase/step etiketleri ve onaylı teknik hedefler oluşturmaktır.
 - AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
+- MADS Karate/Tai-chi verisi kalibre üç kamera ve motion-capture ground truth ile 3B doğruluk benchmark'ı olarak kullanılıyor; F2 dizisi model uyarlamasından tamamen ayrı testtir.
 - Kendi poomsae videoları geldiğinde ortak checkerboard kalibrasyonu yapılmalı; çok kişili çekimlerde kimlik eşleme, poomsae adım etiketleri ve hakem/koç onaylı puan hedefleri eklenmelidir.
 
 Ana ara hedef veri:
@@ -69,7 +70,7 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Son doğrulama sonucu:
 
 ```text
-64 passed
+73 passed
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
@@ -106,6 +107,12 @@ python scripts\evaluate_ground_truth_3d.py --prediction <tk3d_3d.json> --ground-
 
 Komut, ground-truth kalite kapısı başarısızsa CI/otomasyonun bunu başarı sanmaması için sıfırdan farklı kodla çıkar.
 Yalnız tanısal başarısız raporu bilinçli biçimde kabul etmek için `--allow-failed-quality-gate` kullanılabilir.
+
+MADS domain-adaptation altyapısı da eklidir. Donmuş ViTPose omurga özelliklerinden 2B heatmap head eğitimi ve robust
+eklem offset kalibrasyonu yapılabilir; ancak üretilen adapter varsayılan olarak onaysızdır. Normal çalışma, ayrı 3B
+testte onaylanmamış adapter'ı reddeder. Mevcut deneylerde 2B doğrulama kaybı iyileşmesine rağmen hiç görülmemiş F2
+3B testi kötüleştiği için MADS adapter üretime alınmadı; kullanılan model hâlâ daha iyi sonuç veren temel
+ViTPose-Huge modelidir. Ayrıntılar ve sayısal sonuçlar: `docs/mads_ground_truth_setup.md`.
 
 ## AIST Video Testi
 
