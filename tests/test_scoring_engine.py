@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
+from scripts.analyze_pose_for_scoring import _require_scoring_authorization
 from src.scoring_engine import build_provisional_score
 from src.scoring_readiness import biomechanics_timeseries
 
@@ -61,3 +63,11 @@ def test_provisional_scoring_never_scores_unreliable_frames_and_reports_lean() -
     codes = {row["code"] for row in result["errors"]}
     assert "unreliable_3d_frame" in codes
     assert "excessive_torso_lean" in codes
+
+
+def test_scoring_authorization_is_fail_closed() -> None:
+    with pytest.raises(SystemExit, match="Scoring is blocked"):
+        _require_scoring_authorization({"scoring_ready": False}, allow_unvalidated=False)
+
+    _require_scoring_authorization({"scoring_ready": True}, allow_unvalidated=False)
+    _require_scoring_authorization({"scoring_ready": False}, allow_unvalidated=True)

@@ -56,8 +56,6 @@ def moving_average_pose(
     values = np.asarray(keypoints_3d, dtype=float)
     if values.ndim != 3 or values.shape[-1] != 3:
         raise ValueError(f"Expected [frames, joints, 3], got {values.shape}")
-    if window_size <= 1:
-        return values.copy()
     if window_size % 2 == 0:
         raise ValueError("window_size must be odd")
     valid = np.all(np.isfinite(values), axis=-1)
@@ -66,6 +64,8 @@ def moving_average_pose(
         if supplied.shape != valid.shape:
             raise ValueError(f"valid_mask must have shape {valid.shape}, got {supplied.shape}")
         valid &= supplied
+    if window_size <= 1:
+        return np.where(valid[..., None], values, np.nan)
     if min_valid_samples < 1:
         raise ValueError("min_valid_samples must be at least 1")
     if values.shape[0] < window_size:

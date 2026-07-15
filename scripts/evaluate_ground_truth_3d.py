@@ -30,6 +30,11 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-time-delta-sec", type=float)
     parser.add_argument("--bootstrap-samples", type=int, default=1000)
+    parser.add_argument(
+        "--allow-failed-quality-gate",
+        action="store_true",
+        help="Return success for diagnostic report generation even when accuracy gates fail.",
+    )
     args = parser.parse_args()
 
     predicted = load_pose_sequence_json(args.prediction, args.prediction_key)
@@ -79,6 +84,8 @@ def main() -> None:
     print(f"MPJPE mm: {result.report['mpjpe_mm']:.3f}")
     print(f"P95 error mm: {result.report['p95_error_mm']:.3f}")
     print(f"report: {output_dir / 'ground_truth_validation_report.json'}")
+    if result.report["status"] != "passed_for_scoring_validation" and not args.allow_failed_quality_gate:
+        raise SystemExit(2)
 
 
 def _write_rows(rows: list[dict[str, object]], path: Path) -> None:

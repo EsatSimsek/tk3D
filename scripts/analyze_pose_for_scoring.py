@@ -34,6 +34,11 @@ def main() -> None:
     parser.add_argument("--min-triangulation-score", type=float, default=0.20)
     parser.add_argument("--scoring-config", default="config/scoring_config.yaml")
     parser.add_argument("--allow-legacy-coordinate-system", action="store_true")
+    parser.add_argument(
+        "--allow-unvalidated-provisional-score",
+        action="store_true",
+        help="Development only: explicitly allow a provisional score from an unvalidated 3D run.",
+    )
     args = parser.parse_args()
 
     session = load_session(args.session)
@@ -48,6 +53,7 @@ def main() -> None:
         raise SystemExit(f"3D input JSON bulunamadı: {input_path}")
 
     payload = json.loads(input_path.read_text(encoding="utf-8"))
+    _require_scoring_authorization(payload, args.allow_unvalidated_provisional_score)
     coordinate_system = payload.get("coordinate_system")
     if coordinate_system != ANALYSIS_COORDINATE_SYSTEM and not args.allow_legacy_coordinate_system:
         raise SystemExit(
@@ -225,6 +231,17 @@ def _array(payload: dict[str, Any], key: str, ndim: int) -> np.ndarray:
     if value.ndim != ndim:
         raise SystemExit(f"{key} beklenen boyut {ndim}, gelen shape {value.shape}")
     return value
+
+
+def _require_scoring_authorization(payload: dict[str, Any], allow_unvalidated: bool) -> None:
+    if payload.get("scoring_ready") is True:
+        return
+    if allow_unvalidated:
+        return
+    raise SystemExit(
+        "Scoring is blocked because this 3D run is not ground-truth validated. "
+        "Use --allow-unvalidated-provisional-score only for explicit development diagnostics."
+    )
 
 
 def _optional_array(payload: dict[str, Any], key: str) -> np.ndarray | None:

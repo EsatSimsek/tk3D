@@ -43,6 +43,23 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     window = int(smoothing.get("window_size", 5))
     if window < 1 or window % 2 == 0:
         raise ValueError("smoothing.window_size must be a positive odd integer")
+
+    reliability = config.get("reliability", {})
+    if not isinstance(reliability, dict):
+        raise ValueError("reliability must be a mapping")
+    if float(reliability.get("max_bone_relative_deviation", 0.25)) <= 0.0:
+        raise ValueError("reliability.max_bone_relative_deviation must be positive")
+    if float(reliability.get("max_bone_absolute_deviation_m", 0.08)) <= 0.0:
+        raise ValueError("reliability.max_bone_absolute_deviation_m must be positive")
+    if float(reliability.get("min_temporal_residual_m", 0.08)) <= 0.0:
+        raise ValueError("reliability.min_temporal_residual_m must be positive")
+    if float(reliability.get("max_temporal_acceleration_mps2", 70.0)) <= 0.0:
+        raise ValueError("reliability.max_temporal_acceleration_mps2 must be positive")
+    if int(reliability.get("minimum_bone_samples", 5)) < 1:
+        raise ValueError("reliability.minimum_bone_samples must be positive")
+    minimum_ratio = float(reliability.get("min_output_valid_body_ratio", 0.90))
+    if not 0.0 <= minimum_ratio <= 1.0:
+        raise ValueError("reliability.min_output_valid_body_ratio must be between 0 and 1")
     return config
 
 

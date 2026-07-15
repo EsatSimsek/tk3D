@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 
 from src.coordinate_system import aist_world_to_analysis, opencv_reference_to_analysis, transform_points
-from src.vitpose_plus_runtime import ViTPosePlusWholeBodyInferencer, _aspect_correct_bbox
+from src.vitpose_plus_runtime import (
+    ViTPosePlusWholeBodyInferencer,
+    _aspect_correct_bbox,
+    _refine_heatmap_peaks_udp,
+)
 
 
 def test_coordinate_transforms_produce_meter_z_up_analysis_space() -> None:
@@ -37,3 +41,15 @@ def test_zero_heatmap_response_is_zero_confidence_not_half() -> None:
     _, scores = runtime._decode_heatmaps(heatmaps, (0.0, 0.0, 192.0, 256.0))
 
     assert np.all(scores == 0.0)
+
+
+def test_udp_peak_refinement_recovers_subpixel_gaussian_center() -> None:
+    height, width = 32, 24
+    target = np.asarray([10.35, 18.60])
+    yy, xx = np.mgrid[:height, :width]
+    heatmap = np.exp(-((xx - target[0]) ** 2 + (yy - target[1]) ** 2) / (2.0 * 2.0**2))
+    peak = np.asarray([[float(np.argmax(heatmap) % width), float(np.argmax(heatmap) // width)]])
+
+    refined = _refine_heatmap_peaks_udp(heatmap[None, ...], peak, kernel_size=11)
+
+    np.testing.assert_allclose(refined[0], target, atol=0.08)

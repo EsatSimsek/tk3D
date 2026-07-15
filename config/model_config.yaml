@@ -27,3 +27,11 @@ triangulation:
 smoothing:
   method: moving_average
   window_size: 5
+
+reliability:
+  max_bone_relative_deviation: 0.25
+  max_bone_absolute_deviation_m: 0.08
+  min_temporal_residual_m: 0.08
+  max_temporal_acceleration_mps2: 70.0
+  minimum_bone_samples: 5
+  min_output_valid_body_ratio: 0.90

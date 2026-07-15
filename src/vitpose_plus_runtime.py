@@ -101,8 +101,10 @@ class ViTPosePlusWholeBodyInferencer:
         initial_bbox = _initial_person_bbox(frame) if bbox_xyxy is None else bbox_xyxy
         crop = _aspect_correct_bbox(initial_bbox, frame.shape[1], frame.shape[0], self.input_width / self.input_height)
         x1, y1, x2, y2 = crop
-        scale_x = self.input_width / max(x2 - x1, 1e-6)
-        scale_y = self.input_height / max(y2 - y1, 1e-6)
+        # The checkpoint is trained with UDP affine transforms: ROI endpoints
+        # map to pixel centers 0 and size-1 instead of the outer image edge.
+        scale_x = (self.input_width - 1.0) / max(x2 - x1, 1e-6)
+        scale_y = (self.input_height - 1.0) / max(y2 - y1, 1e-6)
         affine = np.asarray([[scale_x, 0.0, -x1 * scale_x], [0.0, scale_y, -y1 * scale_y]], dtype=np.float32)
         warped = cv2.warpAffine(
             rgb,
@@ -130,20 +132,16 @@ class ViTPosePlusWholeBodyInferencer:
         flat = heatmaps.reshape(COCO_WHOLEBODY_KEYPOINTS, -1)
         indices = np.argmax(flat, axis=1)
         raw_scores = flat[np.arange(COCO_WHOLEBODY_KEYPOINTS), indices]
-        xs = (indices % heatmap_width).astype(float)
-        ys = (indices // heatmap_width).astype(float)
-        # Standard quarter-pixel heatmap refinement used by top-down heatmap models.
-        for joint_idx in range(COCO_WHOLEBODY_KEYPOINTS):
-            x = int(xs[joint_idx])
-            y = int(ys[joint_idx])
-            if 1 <= x < heatmap_width - 1 and 1 <= y < heatmap_height - 1:
-                xs[joint_idx] += 0.25 * np.sign(heatmaps[joint_idx, y, x + 1] - heatmaps[joint_idx, y, x - 1])
-                ys[joint_idx] += 0.25 * np.sign(heatmaps[joint_idx, y + 1, x] - heatmaps[joint_idx, y - 1, x])
-        input_x = (xs + 0.5) * self.input_width / heatmap_width
-        input_y = (ys + 0.5) * self.input_height / heatmap_height
+        peak_xy = np.column_stack(
+            [
+                (indices % heatmap_width).astype(float),
+                (indices // heatmap_width).astype(float),
+            ]
+        )
+        refined_xy = _refine_heatmap_peaks_udp(heatmaps, peak_xy, kernel_size=11)
         x1, y1, x2, y2 = crop
-        keypoints[:, 0] = x1 + input_x * (x2 - x1) / self.input_width
-        keypoints[:, 1] = y1 + input_y * (y2 - y1) / self.input_height
+        keypoints[:, 0] = x1 + refined_xy[:, 0] * (x2 - x1) / max(heatmap_width - 1.0, 1.0)
+        keypoints[:, 1] = y1 + refined_xy[:, 1] * (y2 - y1) / max(heatmap_height - 1.0, 1.0)
         # The checkpoint is trained with Gaussian MSE heatmap targets. Applying a
         # sigmoid makes a zero response look like 0.5 confidence and validates
         # every joint; retain the calibrated heatmap peak instead.
@@ -186,6 +184,46 @@ class _TopdownHeatmapSimpleHead:
                 return self.final_layer(self.deconv_layers(x))
 
         return Head()
+
+
+def _refine_heatmap_peaks_udp(
+    heatmaps: np.ndarray,
+    peak_xy: np.ndarray,
+    kernel_size: int = 11,
+) -> np.ndarray:
+    """DARK/UDP sub-pixel refinement for Gaussian heatmap peaks."""
+    values = np.asarray(heatmaps, dtype=np.float32)
+    coords = np.asarray(peak_xy, dtype=float).copy()
+    if values.ndim != 3 or coords.shape != (values.shape[0], 2):
+        raise ValueError("heatmaps and peak_xy shapes are incompatible")
+    if kernel_size < 1 or kernel_size % 2 == 0:
+        raise ValueError("kernel_size must be a positive odd integer")
+    height, width = values.shape[1:]
+    for joint_idx, heatmap in enumerate(values):
+        x = int(coords[joint_idx, 0])
+        y = int(coords[joint_idx, 1])
+        if not (1 <= x < width - 1 and 1 <= y < height - 1):
+            continue
+        blurred = cv2.GaussianBlur(heatmap, (kernel_size, kernel_size), 0)
+        logged = np.log(np.clip(blurred, 1e-3, 50.0))
+        dx = 0.5 * (logged[y, x + 1] - logged[y, x - 1])
+        dy = 0.5 * (logged[y + 1, x] - logged[y - 1, x])
+        dxx = logged[y, x + 1] - 2.0 * logged[y, x] + logged[y, x - 1]
+        dyy = logged[y + 1, x] - 2.0 * logged[y, x] + logged[y - 1, x]
+        dxy = 0.25 * (
+            logged[y + 1, x + 1]
+            - logged[y - 1, x + 1]
+            - logged[y + 1, x - 1]
+            + logged[y - 1, x - 1]
+        )
+        hessian = np.asarray([[dxx, dxy], [dxy, dyy]], dtype=float)
+        derivative = np.asarray([dx, dy], dtype=float)
+        if abs(np.linalg.det(hessian)) <= 1e-9:
+            continue
+        offset = -np.linalg.solve(hessian, derivative)
+        if np.all(np.isfinite(offset)) and np.linalg.norm(offset) <= 2.0:
+            coords[joint_idx] += offset
+    return coords
 
 
 def _strip_prefix(state_dict: dict[str, Any], prefix: str) -> dict[str, Any]:

@@ -32,4 +32,5 @@ __all__ = [
     "ground_truth_io",
     "ground_truth_validation",
     "mads_dataset",
+    "pose_reliability",
 ]

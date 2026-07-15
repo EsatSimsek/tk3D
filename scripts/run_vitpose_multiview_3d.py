@@ -23,6 +23,7 @@ from src.data_structures import CameraCalibration
 from src.exporter import export_keypoints2d_csv, export_keypoints3d_csv, export_session_json
 from src.multiview_sync import synchronized_frame_map
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
+from src.pose_reliability import filter_unreliable_pose
 from src.progress import ProgressBar
 from src.run_outputs import create_run_output_tree, mark_run_complete
 from src.smoothing_3d import moving_average_pose
@@ -280,16 +281,41 @@ def main() -> None:
         & (arrays["triangulation_score"] >= min_quality)
         & (arrays["used_cameras"] >= int(model_config["triangulation"].get("min_views", 2)))
     )
-    arrays["keypoints_3d_world"] = moving_average_pose(
-        arrays["keypoints_3d_world"],
-        window_size=smoothing_window,
-        valid_mask=accepted,
-    )
     sampled_timestamps = np.asarray(
         [sync_frame.timestamp_sec for index, sync_frame in enumerate(synced_frames) if index % max(args.stride, 1) == 0][
             : arrays["frame_idx"].shape[0]
         ],
         dtype=float,
+    )
+    reliability_config = model_config.get("reliability", {})
+    reliability = filter_unreliable_pose(
+        arrays["keypoints_3d_world"],
+        accepted,
+        sampled_timestamps,
+        confidence=arrays["triangulation_score"],
+        max_bone_relative_deviation=float(
+            reliability_config.get("max_bone_relative_deviation", 0.25)
+        ),
+        max_bone_absolute_deviation_m=float(
+            reliability_config.get("max_bone_absolute_deviation_m", 0.08)
+        ),
+        min_temporal_residual_m=float(reliability_config.get("min_temporal_residual_m", 0.08)),
+        max_temporal_acceleration_mps2=float(
+            reliability_config.get("max_temporal_acceleration_mps2", 70.0)
+        ),
+        minimum_bone_samples=int(reliability_config.get("minimum_bone_samples", 5)),
+    )
+    arrays["keypoints_3d_world"] = moving_average_pose(
+        reliability.keypoints_3d,
+        window_size=smoothing_window,
+        valid_mask=reliability.valid_mask,
+    )
+    arrays["keypoints_3d_world"] = np.where(
+        reliability.valid_mask[..., None], arrays["keypoints_3d_world"], np.nan
+    )
+    export_session_json(
+        reliability.summary,
+        output_paths["json"] / "pose_reliability_report.json",
     )
     video_arrays = _repeat_arrays_for_video(arrays, output_repeats)
     export_keypoints3d_csv(
@@ -320,6 +346,9 @@ def main() -> None:
             "triangulation_score": arrays["triangulation_score"],
             "reprojection_error": arrays["reprojection_error"],
             "used_cameras": arrays["used_cameras"],
+            "reliability_valid_mask": reliability.valid_mask,
+            "reliability_rejection_reasons": reliability.rejection_reasons,
+            "reliability_summary": reliability.summary,
         },
         output_paths["json"] / "vitpose_session_3d.json",
     )
@@ -328,9 +357,10 @@ def main() -> None:
     mean_body_valid_ratio = float(np.mean(body_valid)) if body_valid.size else 0.0
     finite_errors = arrays["reprojection_error"][np.isfinite(arrays["reprojection_error"])]
     mean_reprojection_error = float(np.mean(finite_errors)) if finite_errors.size else None
+    minimum_body_valid_ratio = float(reliability_config.get("min_output_valid_body_ratio", 0.90))
     quality_passed = bool(
         production_ready_calibration
-        and mean_body_valid_ratio >= 0.70
+        and mean_body_valid_ratio >= minimum_body_valid_ratio
         and mean_reprojection_error is not None
         and mean_reprojection_error <= max_error
     )
@@ -349,7 +379,8 @@ def main() -> None:
             "mean_body17_valid_ratio": mean_body_valid_ratio,
             "mean_reprojection_error_px": mean_reprojection_error,
             "max_reprojection_error_px": max_error,
-            "minimum_required_body17_valid_ratio": 0.70,
+            "reliability_filter": reliability.summary,
+            "minimum_required_body17_valid_ratio": minimum_body_valid_ratio,
         },
         output_paths["json"] / "run_quality_report.json",
     )

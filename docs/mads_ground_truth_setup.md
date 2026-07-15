@@ -122,14 +122,15 @@ joint_map:
 ```powershell
 python scripts\run_vitpose_multiview_3d.py `
   --session data\mads_test\local\sessions\mads_kata_f2.yaml `
-  --stride 20 `
-  --run-id mads-kata-f2-stride20-raw `
+  --stride 2 `
+  --run-id mads-kata-f2-stride2-reliable-v1 `
   --allow-low-quality-output
 
 python scripts\evaluate_ground_truth_3d.py `
-  --prediction outputs\mads_kata_f2\runs\mads-kata-f2-stride20-raw\json\vitpose_session_3d.json `
+  --prediction outputs\mads_kata_f2\runs\mads-kata-f2-stride2-reliable-v1\json\vitpose_session_3d.json `
   --ground-truth data\mads_test\local\ground_truth\multiview\Kata_F2.json `
-  --output-dir outputs\mads_kata_f2\runs\mads-kata-f2-stride20-raw\ground_truth_validation
+  --output-dir outputs\mads_kata_f2\runs\mads-kata-f2-stride2-reliable-v1\ground_truth_validation `
+  --allow-failed-quality-gate
 ```
 
 Üretilen çıktılar:
@@ -181,6 +182,31 @@ Canlı pipeline'ın kendi `run_quality_report.json` raporu yalnız kalibrasyon/r
 kontrolleri kapsar; `quality_scope=internal_geometry_only`, `ground_truth_accuracy_evaluated=false` ve
 `scoring_ready=false` alanları bu ayrımı açıkça kaydeder. Resmî kıyas için kalan Kata/Taichi sekansları da sporcu ve
 sekans ayrımlı olarak çalıştırılmalıdır.
+
+UDP/DARK kod çözme, `window_size=1` geçerlilik-maskesi düzeltmesi ve anatomik/zamansal güvenilirlik filtresi eklenen
+güncel `reliable-v1` çalışması aynı 300 karede şu sonucu verdi:
+
+- Değerlendirilen nokta: 3.530 (12 eklem)
+- Geçerli eklem oranı: %98,06
+- Global MPJPE: 82,5 mm
+- Median hata: 76,3 mm
+- P95 hata: 141,1 mm
+- Root-relative MPJPE: 102,1 mm
+- PA-MPJPE: 68,5 mm
+- PCK@100 mm: %77,5
+- Açı MAE: 13,1 derece
+- Kemik uzunluğu CV: %5,6 (önceki %28,8)
+
+Filtre, 5.100 vücut noktasının 5.025'ini güvenilir bıraktı; 25 temel kalite, 38 kemik uzunluğu ve 12 zamansal ret
+kaydetti. Dolayısıyla iyileşme kapsama oranını çökertmeden elde edildi. Buna rağmen 50 mm MPJPE kalite hedefi
+geçilmediği için durum hâlâ `failed_ground_truth_quality_gate` ve `scoring_ready=false` olarak kalır. Kalan hata
+özellikle COCO görüntü eklemi ile MADS mocap eklem merkezi tanımı farklı olan kalça/dizlerde sistematiktir; sonraki
+model adımı, F2 test dizisini eğitimden tamamen ayırarak diğer MADS dizilerinde domain adaptation/retargeting yapmaktır.
+
+Ground-truth değerlendiricisi artık kalite kapısı başarısızsa varsayılan olarak başarısız süreç koduyla çıkar. Yalnız
+tanısal rapor üretiminde açık `--allow-failed-quality-gate` kullanılabilir. Puanlama analizi de doğrulanmamış 3B
+çalışmaları varsayılan olarak reddeder; geliştirme amaçlı geçici skor ancak açık
+`--allow-unvalidated-provisional-score` seçeneğiyle üretilebilir.
 
 ## Ölçülen güvenilirlik
 

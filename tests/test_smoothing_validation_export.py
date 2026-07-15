@@ -54,3 +54,14 @@ def test_pose_smoothing_does_not_flatten_sequences_shorter_than_window() -> None
     smoothed = moving_average_pose(keypoints, window_size=5)
 
     np.testing.assert_array_equal(smoothed, keypoints)
+
+
+def test_window_one_still_applies_validity_mask() -> None:
+    keypoints = np.ones((2, 3, 3), dtype=float)
+    valid = np.ones((2, 3), dtype=bool)
+    valid[0, 1] = False
+
+    filtered = moving_average_pose(keypoints, window_size=1, valid_mask=valid)
+
+    assert np.isnan(filtered[0, 1]).all()
+    np.testing.assert_array_equal(filtered[1], keypoints[1])

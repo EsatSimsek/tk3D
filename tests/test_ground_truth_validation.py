@@ -218,3 +218,46 @@ def test_ground_truth_cli_writes_auditable_reports(tmp_path) -> None:
         "ground_truth_validation_report.json",
         "ground_truth_joint_errors.csv",
     }
+
+
+def test_ground_truth_cli_returns_failure_when_quality_gate_fails(tmp_path) -> None:
+    root = Path(__file__).resolve().parents[1]
+    points = _body_sequence(frame_count=3)
+    common = {
+        "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
+        "joint_names": list(COCO_BODY_JOINT_NAMES),
+        "timestamps_sec": (np.arange(3) / 30.0).tolist(),
+        "fps": 30.0,
+    }
+    prediction_path = tmp_path / "prediction.json"
+    truth_path = tmp_path / "truth.json"
+    output_dir = tmp_path / "failed_report"
+    prediction_path.write_text(
+        json.dumps({**common, "keypoints_3d_world": (points + 1.0).tolist()}), encoding="utf-8"
+    )
+    truth_path.write_text(
+        json.dumps({**common, "keypoints_3d_ground_truth": points.tolist()}), encoding="utf-8"
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts" / "evaluate_ground_truth_3d.py"),
+            "--prediction",
+            str(prediction_path),
+            "--ground-truth",
+            str(truth_path),
+            "--output-dir",
+            str(output_dir),
+            "--bootstrap-samples",
+            "20",
+        ],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    report = json.loads((output_dir / "ground_truth_validation_report.json").read_text(encoding="utf-8"))
+    assert report["validation"]["status"] == "failed_ground_truth_quality_gate"

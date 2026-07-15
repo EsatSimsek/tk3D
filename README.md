@@ -69,7 +69,7 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Son doğrulama sonucu:
 
 ```text
-58 passed
+64 passed
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
@@ -103,6 +103,9 @@ cinsinden 3B ground-truth üretir. Makineye özgü yolları içeren `data/mads_t
 ```powershell
 python scripts\evaluate_ground_truth_3d.py --prediction <tk3d_3d.json> --ground-truth <metric_gt.json> --output-dir outputs\ground_truth_validation
 ```
+
+Komut, ground-truth kalite kapısı başarısızsa CI/otomasyonun bunu başarı sanmaması için sıfırdan farklı kodla çıkar.
+Yalnız tanısal başarısız raporu bilinçli biçimde kabul etmek için `--allow-failed-quality-gate` kullanılabilir.
 
 ## AIST Video Testi
 
@@ -296,8 +299,11 @@ Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
 .\.venv312\Scripts\Activate.ps1
-python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5
+python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5 --allow-unvalidated-provisional-score
 ```
+
+Doğrulanmamış bir 3B çalışma varsayılan olarak puanlanmaz. Yukarıdaki izin yalnız geliştirme amaçlı geçici skoru
+bilinçli olarak açar; resmî akışta kullanılmamalıdır.
 
 Ana ciktilar:
 
