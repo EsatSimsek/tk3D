@@ -38,48 +38,323 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
 
-## Kurulum
+## Sıfırdan Kurulum ve Gerekli İndirmeler
+
+Git deposu bilinçli olarak büyük video, veri seti, model ağırlığı ve lisanslı insan modeli içermez. Aynı testleri
+yeniden üretmek için kodu klonladıktan sonra aşağıdaki varlıklar resmî kaynaklarından indirilmelidir.
+
+### Hangi bileşen gerçekten gerekli?
+
+| Bileşen | Ne için gerekli? | Durum |
+| --- | --- | --- |
+| Python 3.12 ve `requirements.txt` | Sentetik dry-run ve model gerektirmeyen çekirdek işlemler | Zorunlu başlangıç |
+| `requirements-pose.txt` içindeki PyTorch ortamı | 73 otomatik testin tamamı ve gerçek inference | Tam doğrulama için zorunlu |
+| NVIDIA GPU, ViTPose kaynak kodu ve WholeBody ağırlığı | Gerçek videodan 2B/3B iskelet üretimi | Gerçek inference için zorunlu |
+| MADS multi-view | Kalibre üç kamera ve mocap ground-truth ile ana 3B benchmark | Güvenilirlik testi için zorunlu |
+| MADS depth | İleride stereo-depth füzyonu ve depth GT incelemesi | Mevcut RGB benchmark için opsiyonel |
+| AIST videoları ve AIST++ kamera verisi | Eski dans smoke/regresyon testi | Opsiyonel |
+| SMPL model dosyası | Gerçekçi insan mesh'i çizmek | Opsiyonel; iskelet ve puanlama onsuz çalışır |
+
+Test edilen ana Windows ortamı Python `3.12.13`, PyTorch `2.13.0+cu130`, CUDA 13 uyumlu NVIDIA sürücüsü ve RTX
+4060 Laptop GPU'dur. Testlerin tamamı için PyTorch paketi gerekir; GPU, ViTPose kaynak ağacı, checkpoint, MADS, AIST
+veya SMPL gerekmez. ViTPose-Huge gerçek inference için NVIDIA GPU kuvvetle önerilir; CPU üzerinde çalıştırmak pratik
+olmayacak kadar yavaştır. MADS'in tamamı yaklaşık
+24 GB, ViTPose checkpoint'i yaklaşık 3,47 GiB olduğundan en az 50 GB boş alan ayırmak güvenlidir.
+
+### 1. Depoyu klonla ve Python ortamını kur
+
+Windows'ta aşağıdaki araçlar kurulu olmalıdır:
+
+- Git for Windows: https://git-scm.com/download/win
+- 64-bit Python 3.12: https://www.python.org/downloads/windows/
+- MADS split ZIP'leri için güncel 7-Zip: https://www.7-zip.org/
+- Gerçek inference yapılacaksa güncel NVIDIA sürücüsü: https://www.nvidia.com/Download/index.aspx
+- Yalnız AIST API'nin bazı görselleştirmeleri için opsiyonel FFmpeg: https://ffmpeg.org/download.html
 
 ```powershell
-cd C:\Users\WWWW\Desktop\tk3d
-python -m venv .venv312
+git clone https://github.com/EsatSimsek/tk3D.git
+cd .\tk3D
+
+py -3.12 -m venv .venv312
 .\.venv312\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements-pose.txt
+python -m pip install -r requirements.txt
 ```
 
-ViTPose-Huge WholeBody canlı 2D inference için ağırlık dosyası `weights/vitpose_huge_wholebody_256x192.pth` altında tutulur ve Git'e eklenmez. Resmi ViTPose kodu `external/vitpose` altında yerel runtime olarak kullanılır.
-
-## İlk kontrol
+PowerShell sanal ortam aktivasyonunu engellerse yalnız açık terminal için:
 
 ```powershell
-python scripts\inspect_session.py --session data\session_001\session.yaml
-python scripts\preflight_session.py --session data\session_001\session.yaml
-python scripts\probe_videos.py --session data\session_001\session.yaml
-python scripts\check_models.py --session data\session_001\session.yaml
-python scripts\run_multiview_3d.py --session data\session_001\session.yaml --dry-run
-python -m pytest -q
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv312\Scripts\Activate.ps1
 ```
 
-Codex/sandbox ortamında pytest cache veya temp izinleri sorun çıkarırsa şu form kullanılabilir:
+Gerçek ViTPose inference için NVIDIA/CUDA paketlerini ayrıca kur:
+
+```powershell
+python -m pip install -r requirements-pose.txt
+```
+
+`requirements-pose.txt` bu projede test edilen CUDA 13.0 PyTorch wheel'ini kullanır. Farklı CUDA/PyTorch ortamında
+paket sürümlerini körlemesine değiştirmek yerine önce PyTorch'un resmî kurulum seçicisine göre uyumlu wheel kurulmalı,
+ardından `requirements.txt`, `timm` ve `torchvision` tamamlanmalıdır: https://pytorch.org/get-started/locally/
+
+### 2. Resmî ViTPose kaynak kodunu kur
+
+TK3D, MMPose kurulumu yerine resmî ViTPose deposundan sınırlı bir yerel runtime kullanır. Yeniden üretilebilirlik için
+bu projede test edilen commit sabitlenmiştir:
+
+```powershell
+New-Item -ItemType Directory -Force external | Out-Null
+git clone https://github.com/ViTAE-Transformer/ViTPose.git external\vitpose
+git -C external\vitpose checkout c050ed29112da7704797cc1a65af0234b525010d
+```
+
+Resmî depo ve lisans: https://github.com/ViTAE-Transformer/ViTPose
+
+Beklenen klasör:
+
+```text
+external/vitpose/mmpose/
+external/vitpose/configs/
+```
+
+### 3. ViTPose-Huge WholeBody ağırlığını indir ve doğrula
+
+COCO-only 17 eklemli ViTPose-H ağırlığını kullanmayın. Gerekli dosya, resmî ViTPose WholeBody tablosundaki
+`ViTPose++-H COCO+AIC+MPII+AP10K+APT36K+WholeBody 256x192` checkpoint'idir.
+
+1. Resmî bağlantıyı tarayıcıda açın:
+   https://1drv.ms/u/s!AimBgYV7JjTlgccoXv8rCUgVe7oD9Q?e=ZBw6gR
+2. İndirilen gerçek `.pth` dosyasını aşağıdaki ada taşıyın:
+
+```text
+weights/vitpose_huge_wholebody_256x192.pth
+```
+
+3. Boyut ve SHA-256 değerini doğrulayın:
+
+```powershell
+New-Item -ItemType Directory -Force weights | Out-Null
+Get-Item weights\vitpose_huge_wholebody_256x192.pth | Select-Object Name,Length
+Get-FileHash weights\vitpose_huge_wholebody_256x192.pth -Algorithm SHA256
+```
+
+Beklenen değerler:
+
+```text
+Boyut  : 3723960207 byte
+SHA-256: A714AE5F0B45F7A3F1A86624CF7382913454EE1D61A4AE5F06C40573D5B6A459
+```
+
+OneDrive birkaç KB/MB boyutunda HTML dosyası kaydettiyse bu checkpoint değildir; silip tarayıcıdan yeniden indirin.
+`check_models.py` HTML veya uyumsuz model dosyasını reddeder.
+
+### 4. MADS veri setini indir, çıkar ve hazırla
+
+MADS ana güvenilirlik benchmark'ıdır. Proje veri setini yeniden dağıtmaz; resmî sayfadan indirin:
+
+- https://visal.cs.cityu.edu.hk/downloads/
+- Sayfada `Human Pose Datasets -> MADS -> download here`
+
+Aynı ortamı tamamen yeniden üretmek için `MADS_multiview` ve `MADS_depth` arşivlerini indirin. Yalnız mevcut F2 RGB
+benchmark'ını çalıştırmak için multi-view parçaları yeterlidir. Split ZIP'in tüm `.z01`, `.z02`, ... ve `.zip`
+parçaları aynı klasörde olmalıdır. Güncel 7-Zip ile ana `.zip` dosyasını açıp örneğin `C:\datasets\MADS` altına
+çıkarın.
+
+7-Zip varsayılan konumdaysa komut satırından çıkarma örneği:
+
+```powershell
+New-Item -ItemType Directory -Force C:\datasets\MADS\MADS_multiview | Out-Null
+& "C:\Program Files\7-Zip\7z.exe" x `
+  C:\Downloads\MADS\MADS_multiview.zip `
+  "-oC:\datasets\MADS\MADS_multiview"
+
+# Depth arşivi indirildiyse:
+New-Item -ItemType Directory -Force C:\datasets\MADS\MADS_depth | Out-Null
+& "C:\Program Files\7-Zip\7z.exe" x `
+  C:\Downloads\MADS\MADS_depth.zip `
+  "-oC:\datasets\MADS\MADS_depth"
+```
+
+Arşiv yolu farklıysa yalnız `C:\Downloads\MADS` bölümünü değiştirin. Çıkarma bittikten sonra aşağıdaki kesin klasör
+düzenini kontrol etmeden kurulum scriptini çalıştırmayın.
+
+TK3D'nin beklediği kesin klasör düzeni:
+
+```text
+C:\datasets\MADS\
+├── MADS_multiview\MADS\multi_view_data\
+│   ├── Kata\Kata_F2_C0.avi
+│   ├── Kata\Kata_F2_GT.mat
+│   ├── Kata\Calib_Cam0.mat
+│   └── Taichi\...
+└── MADS_depth\MADS\depth_data\       # opsiyonel
+```
+
+Veriyi indeksle, resmî kamera kalibrasyonlarını içe aktar, metric ground-truth JSON'larını ve önizlemeleri üret:
+
+```powershell
+python scripts\setup_mads_test.py `
+  --dataset-root C:\datasets\MADS `
+  --actions Kata `
+  --hash-files `
+  --preview
+```
+
+Başarılı kurulumdan sonra en az şu dosyalar bulunmalıdır:
+
+```text
+data/mads_test/local/sessions/mads_kata_f2.yaml
+data/mads_test/local/ground_truth/multiview/Kata_F2.json
+outputs/mads_kata_f2/calibration/cameras.json
+outputs/mads_setup/mads_setup_report.json
+```
+
+`data/mads_test/local/` makineye özgü mutlak yollar içerir ve Git'e eklenmez. Ayrıntılı MADS açıklaması:
+`docs/mads_ground_truth_setup.md`.
+
+### 5. AIST dans smoke testi için opsiyonel indirme
+
+AIST, MADS'in yerine geçen doğruluk benchmark'ı değildir. Yalnız eski çok-kamera akışını tekrar test etmek isteyenler
+için gerekir. Önce AIST kullanım koşullarını okuyun: https://aistdancedb.ongaaccel.jp/terms_of_use/
+
+İki kameralı küçük örnek için klasörleri hazırla ve resmî AIST video URL'lerinden yalnız gerekli iki videoyu indir:
+
+```powershell
+python scripts\setup_aist_test.py `
+  --sequence gBR_sBM_cAll_d04_mBR0_ch01 `
+  --cameras c01 c02
+
+$aistBase = "https://aistdancedb.ongaaccel.jp/video_raw/10M"
+Invoke-WebRequest `
+  "$aistBase/gBR_sBM_c01_d04_mBR0_ch01.mp4" `
+  -OutFile data\aist_test\videos\gBR_sBM_c01_d04_mBR0_ch01.mp4
+Invoke-WebRequest `
+  "$aistBase/gBR_sBM_c02_d04_mBR0_ch01.mp4" `
+  -OutFile data\aist_test\videos\gBR_sBM_c02_d04_mBR0_ch01.mp4
+```
+
+AIST++ kamera kalibrasyonunu resmî GitHub release'inden indir ve çıkar:
+
+```powershell
+Invoke-WebRequest `
+  "https://github.com/google/aistplusplus_dataset/releases/download/v1.0/cameras.zip" `
+  -OutFile data\aist_test\cameras.zip
+Expand-Archive `
+  -Path data\aist_test\cameras.zip `
+  -DestinationPath data\aist_test\annotations `
+  -Force
+
+python scripts\import_aist_cameras.py --session data\aist_test\session.yaml
+```
+
+Beklenen kamera dosyası `data/aist_test/annotations/cameras/mapping.txt` konumundadır. AIST++ motion, 2B/3B
+annotation veya API kodu yalnız bu ek özellikler kullanılacaksa gerekir. Resmî annotation indirmeleri:
+https://google.github.io/aistplusplus_dataset/download.html
+
+Opsiyonel API kodunu bu projede test edilen commit ile kurmak için:
+
+```powershell
+git clone https://github.com/google/aistplusplus_api.git external\aistplusplus_api
+git -C external\aistplusplus_api checkout 2dd7b3e946b794fd0081c98e2e2433545abf8b87
+```
+
+### 6. SMPL insan modeli yalnız mesh için opsiyoneldir
+
+SMPL dosyası 3B iskelet, MADS ground-truth ölçümü veya puanlama altyapısı için gerekli değildir. Yalnız gerçekçi insan
+yüzeyi/mesh render etmek isteyen kullanıcı kurmalıdır. Standart SMPL modeli lisans nedeniyle bu repo tarafından
+indirilemez veya üçüncü kişilere dağıtılamaz.
+
+1. https://smpl.is.tue.mpg.de/ adresinde hesap açın.
+2. Lisansı okuyup kendi hesabınızla modeli indirin.
+3. İndirdiğiniz dosyaları şu adlarla yerleştirin:
+
+```text
+models/smpl/SMPL_MALE.pkl
+models/smpl/SMPL_FEMALE.pkl   # opsiyonel
+```
+
+4. Mesh paketlerini kurun:
+
+```powershell
+python -m pip install -r requirements-smpl.txt
+```
+
+Open3D kurulamazsa tarayıcı tabanlı Three.js export için yalnız temel mesh paketleri yeterlidir:
+
+```powershell
+python -m pip install smplx trimesh chumpy --no-build-isolation
+```
+
+Lisans ve mesh komutları: `docs/smpl_mesh_setup.md`.
+
+### 7. Kurulumu doğrula
+
+Önce hiçbir model veya video gerektirmeyen core testleri ve sentetik üç kamera dry-run'ını çalıştırın:
+
+```powershell
+python -m pytest -q
+python scripts\run_multiview_3d.py `
+  --session data\session_001\session.yaml `
+  --dry-run
+```
+
+Codex/sandbox ortamında pytest temp izni sorun çıkarırsa:
 
 ```powershell
 python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 ```
 
-Son doğrulama sonucu:
+Beklenen test sonucu:
 
 ```text
 73 passed
 ```
 
-`--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
-Bu komut izole bir `outputs/session_001/runs/<run_id>/videos/skeleton_3d_world.mp4` dosyası üretir. Video, sentetik 3D dünya iskeletinin kare kare render edilmiş halidir; siyah placeholder değildir.
+`--dry-run`, sentetik dünya koordinatlarını üç kameraya projekte edip gerçek triangulation kodundan geçirir. Çıktısı:
 
-Gerçek video/model dosyaları geldiğinde önce strict preflight çalıştırılır:
+```text
+outputs/session_001/runs/<run_id>/videos/skeleton_3d_world.mp4
+```
+
+ViTPose ve MADS kurulduktan sonra gerçek varlık kontrolü:
 
 ```powershell
-python scripts\preflight_session.py --session data\session_001\session.yaml --require-videos --require-calibration-videos --require-model-files
+python scripts\check_models.py `
+  --session data\mads_test\local\sessions\mads_kata_f2.yaml `
+  --model-config config\model_config.yaml
+```
+
+Beklenen satır:
+
+```text
+pose2d: ready - ready
+```
+
+Tam 300 örnekli MADS benchmark ve geçici puanlama komutları aşağıdaki `Puanlama Altyapısı: Güvenli Geliştirme
+Akışı` bölümündedir. Gerçek kullanıcı videosunda önce strict preflight çalıştırılmalıdır:
+
+```powershell
+python scripts\preflight_session.py `
+  --session data\session_001\session.yaml `
+  --require-videos `
+  --require-calibration-videos `
+  --require-model-files
+```
+
+### 8. Git'e konmayan yerel varlıklar
+
+Aşağıdaki dosyalar `.gitignore` ile yerelde tutulur; `git push` bunları GitHub'a yüklemez veya bilgisayardan silmez:
+
+```text
+weights/*.pth
+external/vitpose/
+external/aistplusplus_api/
+data/mads_test/local/
+data/aist_test/videos/*.mp4
+data/aist_test/annotations/
+models/smpl/*.pkl
+outputs/**
 ```
 
 ## Ground-truth 3B Doğrulama
@@ -217,7 +492,7 @@ Hazır olanlar:
 - `keypoints_3d_world[t, 133, 3]` veri sözleşmesi
 - Checkerboard tabanlı multiview ortak referans kalibrasyonu ve üretimde fail-closed davranış
 - Farklı FPS, frame offset ve saniye offsetlerini destekleyen timestamp senkronizasyonu
-- ViTPose 2D ve RTMW3D adapter sınıfları
+- ViTPose-Huge WholeBody 2D runtime; opsiyonel RTMW3D yardımcı adapter'ı varsayılan olarak kapalı
 - Batch/multi-camera 2D inference arayüzü
 - Aykırı kamerayı eleyen, pozitif derinlik ve triangulation açısı kontrolü yapan robust multi-view triangulation
 - Robust reprojection optimizasyonu; reprojection error ve inlier kamera sayısına dayalı kalite skoru
@@ -228,6 +503,9 @@ Hazır olanlar:
 - Model runtime raporu: ViTPose-Huge WholeBody config/checkpoint hazır mı kontrolü
 - AIST++ camera data importer: mapping.txt + setting_*.json dosyalarından gerçek 9 kamera intrinsic/extrinsic üretimi
 - ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
+- MADS multi-view/depth indeksleme, resmî üç kamera kalibrasyonu ve metre cinsinden mocap ground-truth dönüşümü
+- F2'yi eğitimden ayıran domain-adaptation altyapısı ve onaysız adapter'ı üretimde reddeden güvenlik kilidi
+- MADS F2 üzerinde 300 örnekli ölçülmüş `82,5 mm` MPJPE benchmark; `50 mm` hedef geçilmediği için resmî skor kapalı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Yönlü torso lean, smoothing sonrası hız, ağırlıklı center-of-mass proxy, adaptif hareket segmentasyonu
@@ -267,7 +545,9 @@ Ana çıktılar:
 Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya `aist_official_multiview` olarak işaretlenir ve gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için senkron checkerboard calibration gerekir.
 ## SMPL Mesh İnsan Modeli
 
-Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. AIST++ motion dosyaları indirildi; ancak lisanslı SMPL body model dosyası repoda tutulmaz. Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
+Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. Bunun için AIST++ motion annotation
+dosyası ve kullanıcının kendi hesabıyla indirdiği lisanslı SMPL body model dosyası gerekir; ikisi de repoda tutulmaz.
+Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
 
 SMPL model dosyasını koyduktan sonra:
 
