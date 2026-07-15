@@ -163,6 +163,8 @@ ViTPose multi-view pipeline:
 - Üretim kalibrasyonu yoksa veya ortak dünya extrinsic bilgisi doğrulanmamışsa güvenli biçimde durur. Yaklaşık iki-kamera kalibrasyonu yalnızca açık `--allow-approximate-calibration` seçeneğiyle diagnostik preview için kullanılabilir.
 - Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
 - Her canlı çalışma `outputs/<session_id>/runs/<run_id>/` altında izole edilir; yalnızca kalite kapısını geçen çalışma `latest_run.json` olarak işaretlenir.
+- Canlı çalışmanın kalite raporu yalnız iç geometrik kaliteyi ölçer ve `scoring_ready=false` yazar; ground-truth
+  doğruluk raporu ayrıca geçmeden çıktı puanlama için güvenilir kabul edilmez.
 
 Sentetik dry-run çıktıları `outputs/session_001/runs/<run_id>/` altında, canlı ViTPose çıktıları da aynı izole çalışma yapısında tutulur. Beklenen dry-run dosyaları:
 

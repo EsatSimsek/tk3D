@@ -144,7 +144,7 @@ python scripts\evaluate_ground_truth_3d.py `
 MADS arşivindeki hazırlanmış GT dizisi her video karesi için bir poz içerir. Dönüştürücü gerçek AVI fps değerini
 kaydeder; değerlendirici frame/timestamp eşleşme farkını ayrıca raporlar.
 
-## İlk ölçülen sonuç
+## Ölçülen sonuçlar
 
 Kata F2 üzerinde 600 kareye eşit aralıklı 30 örnekle yapılan diagnostik çalışmada resmî üç kamera kalibrasyonu
 kullanıldı. Seyrek örneklerde uzak anları birbirine karıştırmamak için smoothing otomatik olarak kapatıldı.
@@ -161,7 +161,26 @@ Bu bir başarı sonucu değildir: ground-truth kalite kapısı doğru biçimde `
 Önceki yanlış smoothing davranışı aynı testte 276.1 mm üretmişti; düzeltmeden sonra hata 149.0 mm'ye indi. Kalan
 hata ağırlıklı olarak birkaç 2B eklem sapmasının triangulation sırasında derinlik hatasına büyümesidir. Kalibrasyon
 projeksiyonları üç kamerada görüntüyle örtüşmekte ve sağ/sol eklem eşlemesi doğrulanmıştır. 30 kare yalnız diagnostik
-örnektir; resmî kıyas için en az 300 geçerli kare ve sporcu/sekans ayrımlı tam benchmark çalıştırılmalıdır.
+örnektir.
+
+Asgari örnek koşulunu karşılayan ikinci çalışmada F2'nin 300 karesi (stride 2) ölçüldü:
+
+- Değerlendirilen nokta: 3.598 (12 eklem)
+- Geçerli eklem oranı: %99,94
+- Global MPJPE: 100,6 mm
+- Median hata: 78,9 mm
+- P95 hata: 154,3 mm
+- Root-relative MPJPE: 116,5 mm
+- PA-MPJPE: 85,1 mm
+- PCK@100 mm: %73,6
+- Açı MAE: 13,8 derece
+
+300 kare koşulu ve geçerli eklem oranı geçti; doğruluk, PCK, açı, dinamik ve kemik kararlılığı kapıları geçmedi.
+Sonuç `failed_ground_truth_quality_gate` olduğundan sistem henüz sayısal poomsae puanı üretmeye hazır değildir.
+Canlı pipeline'ın kendi `run_quality_report.json` raporu yalnız kalibrasyon/reprojection/geçerlilik gibi iç geometrik
+kontrolleri kapsar; `quality_scope=internal_geometry_only`, `ground_truth_accuracy_evaluated=false` ve
+`scoring_ready=false` alanları bu ayrımı açıkça kaydeder. Resmî kıyas için kalan Kata/Taichi sekansları da sporcu ve
+sekans ayrımlı olarak çalıştırılmalıdır.
 
 ## Ölçülen güvenilirlik
 

@@ -339,6 +339,12 @@ def main() -> None:
             "session_id": session.session_id,
             "run_id": run_id,
             "status": "passed" if quality_passed else "failed",
+            "quality_scope": "internal_geometry_only",
+            "ground_truth_accuracy_evaluated": False,
+            "scoring_ready": False,
+            "scoring_readiness_reason": (
+                "A separate ground-truth validation must pass before this run can support scoring."
+            ),
             "production_ready_calibration": production_ready_calibration,
             "mean_body17_valid_ratio": mean_body_valid_ratio,
             "mean_reprojection_error_px": mean_reprojection_error,
@@ -360,7 +366,9 @@ def main() -> None:
     print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
     print(f"run_id: {run_id}")
-    print(f"quality_status: {'passed' if quality_passed else 'failed'}")
+    print(f"internal_geometry_quality_status: {'passed' if quality_passed else 'failed'}")
+    print("ground_truth_accuracy_status: not_evaluated_in_this_command")
+    print("scoring_ready: false")
     if not quality_passed and not args.allow_low_quality_output:
         raise SystemExit(
             "3D output failed production quality gates. Diagnostic files were kept, "
