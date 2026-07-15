@@ -16,12 +16,33 @@ def export_session_json(payload: dict[str, Any], output_path: str | Path) -> Non
         json.dump(_json_ready(payload), file, indent=2)
 
 
-def export_keypoints3d_csv(keypoints_3d_world: np.ndarray, output_path: str | Path) -> None:
+def export_keypoints3d_csv(
+    keypoints_3d_world: np.ndarray,
+    output_path: str | Path,
+    frame_indices: np.ndarray | None = None,
+    timestamps_sec: np.ndarray | None = None,
+) -> None:
+    frame_count = keypoints_3d_world.shape[0]
+    indices = np.arange(frame_count, dtype=int) if frame_indices is None else np.asarray(frame_indices, dtype=int)
+    timestamps = None if timestamps_sec is None else np.asarray(timestamps_sec, dtype=float)
+    if indices.shape != (frame_count,):
+        raise ValueError(f"frame_indices must have shape {(frame_count,)}, got {indices.shape}")
+    if timestamps is not None and timestamps.shape != (frame_count,):
+        raise ValueError(f"timestamps_sec must have shape {(frame_count,)}, got {timestamps.shape}")
     rows = []
-    for frame_idx in range(keypoints_3d_world.shape[0]):
+    for array_idx in range(frame_count):
         for joint_idx in range(keypoints_3d_world.shape[1]):
-            x, y, z = keypoints_3d_world[frame_idx, joint_idx]
-            rows.append({"frame_idx": frame_idx, "joint_idx": joint_idx, "x": x, "y": y, "z": z})
+            x, y, z = keypoints_3d_world[array_idx, joint_idx]
+            row = {
+                "frame_idx": int(indices[array_idx]),
+                "joint_idx": joint_idx,
+                "x_m": x,
+                "y_m": y,
+                "z_m": z,
+            }
+            if timestamps is not None:
+                row["timestamp_sec"] = float(timestamps[array_idx])
+            rows.append(row)
     _write_csv(rows, output_path)
 
 

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.model_runtime import check_model_runtime, save_model_runtime_report
+from src.config_validation import validate_model_config
 from src.video_io import ensure_output_tree, load_session
 
 
@@ -22,7 +23,7 @@ def main() -> None:
 
     session = load_session(args.session)
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
-        model_config = yaml.safe_load(file)
+        model_config = validate_model_config(yaml.safe_load(file))
 
     statuses = {"pose2d": check_model_runtime(model_config.get("pose2d", {}), ROOT)}
     pose3d_config = model_config.get("pose3d_single_view", {})

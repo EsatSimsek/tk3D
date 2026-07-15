@@ -1,0 +1,5 @@
+-r requirements-pose.txt
+smplx>=0.1.28
+trimesh>=4.12
+chumpy>=0.70
+open3d>=0.19

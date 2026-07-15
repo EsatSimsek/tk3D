@@ -14,37 +14,52 @@ from .model_runtime import ModelRuntimeError
 class ViTPosePlusWholeBodyInferencer:
     """Minimal ViTPose+ WholeBody runtime for the official multi-head checkpoint."""
 
-    input_width = 192
-    input_height = 256
     wholebody_head_prefix = "associate_keypoint_heads.4."
 
-    def __init__(self, checkpoint_path: Path, device: str, repo_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        checkpoint_path: Path,
+        device: str,
+        repo_root: Path | None = None,
+        input_height: int = 256,
+        input_width: int = 192,
+    ) -> None:
+        if input_height <= 0 or input_width <= 0 or input_height % 16 or input_width % 16:
+            raise ValueError("ViTPose input dimensions must be positive multiples of 16")
+        self.input_height = int(input_height)
+        self.input_width = int(input_width)
         self.checkpoint_path = checkpoint_path
         self.device = self._resolve_device(device)
         self.repo_root = repo_root or Path("external/vitpose")
         self._torch = self._import_torch()
         self._model = self._build_model()
 
-    def __call__(self, frame: np.ndarray) -> dict[str, Any]:
-        keypoints, scores = self.predict_arrays(frame)
+    def __call__(self, frame: np.ndarray, bbox_xyxy: np.ndarray | None = None) -> dict[str, Any]:
+        keypoints, scores = self.predict_arrays(frame, bbox_xyxy=bbox_xyxy)
         return {"predictions": [[{"keypoints": keypoints, "keypoint_scores": scores}]]}
 
-    def predict_arrays(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        tensor = self._preprocess(frame)
+    def predict_arrays(
+        self,
+        frame: np.ndarray,
+        bbox_xyxy: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        tensor, crop = self._preprocess(frame, bbox_xyxy=bbox_xyxy)
         with self._torch.no_grad():
             heatmaps = self._model(tensor)[0].detach().cpu().numpy()
-        return self._decode_heatmaps(heatmaps, frame.shape[1], frame.shape[0])
+        return self._decode_heatmaps(heatmaps, crop)
 
     def _build_model(self) -> Any:
         torch = self._torch
         nn = torch.nn
         ViTMoE = _load_vit_moe_class(self.repo_root)
+        input_height = self.input_height
+        input_width = self.input_width
 
         class WholeBodyModel(nn.Module):
             def __init__(self) -> None:
                 super().__init__()
                 self.backbone = ViTMoE(
-                    img_size=(256, 192),
+                    img_size=(input_height, input_width),
                     patch_size=16,
                     embed_dim=1280,
                     depth=32,
@@ -63,7 +78,10 @@ class ViTPosePlusWholeBodyInferencer:
                 features = self.backbone(x, source)
                 return self.head(features)
 
-        checkpoint = torch.load(self.checkpoint_path, map_location="cpu")
+        try:
+            checkpoint = torch.load(self.checkpoint_path, map_location="cpu", weights_only=True)
+        except TypeError:
+            checkpoint = torch.load(self.checkpoint_path, map_location="cpu")
         state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else {}
         model = WholeBodyModel()
         model.backbone.load_state_dict(_strip_prefix(state_dict, "backbone."), strict=True)
@@ -72,21 +90,39 @@ class ViTPosePlusWholeBodyInferencer:
         model.eval()
         return model
 
-    def _preprocess(self, frame: np.ndarray) -> Any:
+    def _preprocess(
+        self,
+        frame: np.ndarray,
+        bbox_xyxy: np.ndarray | None = None,
+    ) -> tuple[Any, tuple[float, float, float, float]]:
+        if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
+            raise ValueError(f"Expected a BGR image with shape HxWx3, got {getattr(frame, 'shape', None)}")
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        resized = cv2.resize(rgb, (self.input_width, self.input_height), interpolation=cv2.INTER_LINEAR)
-        image = resized.astype(np.float32) / 255.0
+        initial_bbox = _initial_person_bbox(frame) if bbox_xyxy is None else bbox_xyxy
+        crop = _aspect_correct_bbox(initial_bbox, frame.shape[1], frame.shape[0], self.input_width / self.input_height)
+        x1, y1, x2, y2 = crop
+        scale_x = self.input_width / max(x2 - x1, 1e-6)
+        scale_y = self.input_height / max(y2 - y1, 1e-6)
+        affine = np.asarray([[scale_x, 0.0, -x1 * scale_x], [0.0, scale_y, -y1 * scale_y]], dtype=np.float32)
+        warped = cv2.warpAffine(
+            rgb,
+            affine,
+            (self.input_width, self.input_height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(0, 0, 0),
+        )
+        image = warped.astype(np.float32) / 255.0
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
         std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
         image = (image - mean) / std
         image = np.transpose(image, (2, 0, 1))[None, ...]
-        return self._torch.from_numpy(image).to(self.device)
+        return self._torch.from_numpy(image).to(self.device), crop
 
     def _decode_heatmaps(
         self,
         heatmaps: np.ndarray,
-        original_width: int,
-        original_height: int,
+        crop: tuple[float, float, float, float],
     ) -> tuple[np.ndarray, np.ndarray]:
         keypoints = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
         scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
@@ -94,11 +130,24 @@ class ViTPosePlusWholeBodyInferencer:
         flat = heatmaps.reshape(COCO_WHOLEBODY_KEYPOINTS, -1)
         indices = np.argmax(flat, axis=1)
         raw_scores = flat[np.arange(COCO_WHOLEBODY_KEYPOINTS), indices]
-        xs = indices % heatmap_width
-        ys = indices // heatmap_width
-        keypoints[:, 0] = (xs + 0.5) * original_width / heatmap_width
-        keypoints[:, 1] = (ys + 0.5) * original_height / heatmap_height
-        scores[:] = 1.0 / (1.0 + np.exp(-raw_scores))
+        xs = (indices % heatmap_width).astype(float)
+        ys = (indices // heatmap_width).astype(float)
+        # Standard quarter-pixel heatmap refinement used by top-down heatmap models.
+        for joint_idx in range(COCO_WHOLEBODY_KEYPOINTS):
+            x = int(xs[joint_idx])
+            y = int(ys[joint_idx])
+            if 1 <= x < heatmap_width - 1 and 1 <= y < heatmap_height - 1:
+                xs[joint_idx] += 0.25 * np.sign(heatmaps[joint_idx, y, x + 1] - heatmaps[joint_idx, y, x - 1])
+                ys[joint_idx] += 0.25 * np.sign(heatmaps[joint_idx, y + 1, x] - heatmaps[joint_idx, y - 1, x])
+        input_x = (xs + 0.5) * self.input_width / heatmap_width
+        input_y = (ys + 0.5) * self.input_height / heatmap_height
+        x1, y1, x2, y2 = crop
+        keypoints[:, 0] = x1 + input_x * (x2 - x1) / self.input_width
+        keypoints[:, 1] = y1 + input_y * (y2 - y1) / self.input_height
+        # The checkpoint is trained with Gaussian MSE heatmap targets. Applying a
+        # sigmoid makes a zero response look like 0.5 confidence and validates
+        # every joint; retain the calibrated heatmap peak instead.
+        scores[:] = np.clip(raw_scores, 0.0, 1.0)
         return keypoints, scores
 
     def _resolve_device(self, requested: str) -> str:
@@ -143,8 +192,84 @@ def _strip_prefix(state_dict: dict[str, Any], prefix: str) -> dict[str, Any]:
     return {key[len(prefix):]: value for key, value in state_dict.items() if key.startswith(prefix)}
 
 
+def _aspect_correct_bbox(
+    bbox_xyxy: np.ndarray | None,
+    image_width: int,
+    image_height: int,
+    target_aspect: float,
+    padding: float = 1.25,
+) -> tuple[float, float, float, float]:
+    if bbox_xyxy is None:
+        # Poomsae/AIST recordings are staged around the image center. Use a
+        # centered, aspect-correct initial crop; subsequent frames use the
+        # confidence-derived tracked person box.
+        crop_height = float(image_height)
+        crop_width = min(float(image_width), crop_height * target_aspect)
+        crop_height = crop_width / target_aspect
+        center_x = image_width / 2.0
+        center_y = image_height / 2.0
+    else:
+        bbox = np.asarray(bbox_xyxy, dtype=float).reshape(4)
+        if not np.all(np.isfinite(bbox)) or bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+            raise ValueError(f"Invalid person bbox: {bbox.tolist()}")
+        center_x = float((bbox[0] + bbox[2]) / 2.0)
+        center_y = float((bbox[1] + bbox[3]) / 2.0)
+        crop_width = float(bbox[2] - bbox[0]) * padding
+        crop_height = float(bbox[3] - bbox[1]) * padding
+        if crop_width / max(crop_height, 1e-6) > target_aspect:
+            crop_height = crop_width / target_aspect
+        else:
+            crop_width = crop_height * target_aspect
+    crop_width = max(crop_width, 32.0)
+    crop_height = max(crop_height, 32.0)
+    return (
+        center_x - crop_width / 2.0,
+        center_y - crop_height / 2.0,
+        center_x + crop_width / 2.0,
+        center_y + crop_height / 2.0,
+    )
+
+
+def _initial_person_bbox(frame: np.ndarray) -> np.ndarray | None:
+    """Find the central foreground person in staged, static-camera recordings.
+
+    This is deliberately conservative: it rejects wall/curtain-sized regions
+    and returns ``None`` when no plausible human-sized foreground component is
+    found, allowing the aspect-correct center crop fallback.
+    """
+    height, width = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mask = np.where(gray < 175, 255, 0).astype(np.uint8)
+    mask[: int(height * 0.07)] = 0
+    mask[int(height * 0.96) :] = 0
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    candidates: list[tuple[float, np.ndarray]] = []
+    image_area = float(width * height)
+    for index in range(1, count):
+        x, y, box_width, box_height, area = stats[index].astype(float)
+        area_ratio = area / image_area
+        height_ratio = box_height / max(height, 1)
+        width_ratio = box_width / max(width, 1)
+        if not (0.001 <= area_ratio <= 0.12 and 0.12 <= height_ratio <= 0.80 and 0.02 <= width_ratio <= 0.40):
+            continue
+        center_x, center_y = centroids[index]
+        if not (0.12 * height <= center_y <= 0.90 * height):
+            continue
+        horizontal_distance = abs(center_x - width / 2.0) / max(width / 2.0, 1.0)
+        if horizontal_distance > 0.50:
+            continue
+        score = area * height_ratio / (1.0 + 6.0 * horizontal_distance)
+        candidates.append((score, np.asarray([x, y, x + box_width, y + box_height], dtype=float)))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
+
+
 def _load_vit_moe_class(repo_root: Path) -> Any:
-    source = repo_root / "mmpose" / "models" / "backbones" / "vit_moe.py"
+    trusted_root = repo_root.resolve()
+    source = (trusted_root / "mmpose" / "models" / "backbones" / "vit_moe.py").resolve()
+    if trusted_root not in source.parents:
+        raise ModelRuntimeError(f"ViTPose source escaped the configured repository root: {source}")
     if not source.exists():
         raise ModelRuntimeError(f"Official ViTPose repository not found: {repo_root}")
 

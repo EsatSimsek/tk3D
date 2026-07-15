@@ -15,7 +15,7 @@ AIST++ motion annotations are expected under:
 data/aist_test/annotations/motions/gBR_sBM_cAll_d04_mBR0_ch01.pkl
 ```
 
-Install/runtime packages used in `.venv` for video render and browser HTML export:
+Install/runtime packages used in `.venv312` for video render and browser HTML export:
 
 ```powershell
 python -m pip install smplx trimesh chumpy --no-build-isolation
@@ -25,7 +25,7 @@ Render command after placing `SMPL_MALE.pkl`:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv\Scripts\Activate.ps1
+.\.venv312\Scripts\Activate.ps1
 python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
 ```
 

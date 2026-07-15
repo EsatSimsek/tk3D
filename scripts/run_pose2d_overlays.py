@@ -13,7 +13,9 @@ sys.path.insert(0, str(ROOT))
 
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.progress import ProgressBar, print_step
-from src.video_io import ensure_output_tree, iter_video_frames, load_session
+from src.config_validation import validate_model_config
+from src.run_outputs import create_run_output_tree
+from src.video_io import iter_video_frames, load_session
 from src.visualization_2d import draw_pose2d
 
 
@@ -27,6 +29,7 @@ def main() -> None:
     parser.add_argument("--camera", default=None, help="Optional single camera_id")
     parser.add_argument("--progress-every", type=int, default=1, help="Update progress every N written frames.")
     parser.add_argument("--output-fps", type=float, default=None, help="Playback FPS. Defaults to the source video FPS.")
+    parser.add_argument("--run-id", default=None, help="Optional unique output identifier")
     args = parser.parse_args()
 
     print("=" * 72, flush=True)
@@ -35,7 +38,7 @@ def main() -> None:
     print_step(1, 4, "Loading session and model config")
     session = load_session(args.session)
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
-        model_config = yaml.safe_load(file)
+        model_config = validate_model_config(yaml.safe_load(file))
     pose2d_cfg = model_config["pose2d"]
     print_step(2, 4, f"Loading ViTPose model: {pose2d_cfg['model_name']}")
     load_start = time.perf_counter()
@@ -46,13 +49,14 @@ def main() -> None:
             checkpoint_path=(ROOT / pose2d_cfg["checkpoint_path"]).resolve(),
             device=pose2d_cfg.get("device", "cuda:0"),
             score_threshold=float(pose2d_cfg.get("score_threshold", 0.30)),
+            input_size=tuple(int(value) for value in pose2d_cfg.get("input_size", [256, 192])),
         ),
         dry_run=False,
     )
     print(f"      model loaded in {time.perf_counter() - load_start:.1f}s", flush=True)
 
     print_step(3, 4, "Preparing output videos")
-    output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
+    run_id, output_paths = create_run_output_tree(ROOT / args.output_root, session.session_id, args.run_id)
     cameras = [camera for camera in session.cameras if args.camera is None or camera.camera_id == args.camera]
     if not cameras:
         raise SystemExit(f"No cameras matched: {args.camera}")
@@ -71,6 +75,7 @@ def main() -> None:
             args.output_fps,
         )
         print(f"saved: {output_path}")
+    print(f"run id: {run_id}")
 
 
 def write_overlay(
@@ -96,6 +101,8 @@ def write_overlay(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     playback_fps = max(float(output_fps or fps), 1.0)
     writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), playback_fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open overlay video writer: {output_path}")
     progress = ProgressBar(f"{camera_id} overlay", target)
     try:
         written = 0

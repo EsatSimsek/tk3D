@@ -47,10 +47,11 @@ def build_scoring_readiness(
     used_cameras: np.ndarray | None = None,
     fps: float = 30.0,
     max_reprojection_error_px: float = 25.0,
+    min_triangulation_score: float = 0.20,
 ) -> ReadinessResult:
     keypoints_3d = np.asarray(keypoints_3d, dtype=float)
-    frame_quality_rows = frame_quality(keypoints_3d, triangulation_score, reprojection_error, used_cameras, max_reprojection_error_px)
-    joint_quality_rows = joint_quality(keypoints_3d, triangulation_score, reprojection_error, used_cameras, max_reprojection_error_px)
+    frame_quality_rows = frame_quality(keypoints_3d, triangulation_score, reprojection_error, used_cameras, max_reprojection_error_px, min_triangulation_score)
+    joint_quality_rows = joint_quality(keypoints_3d, triangulation_score, reprojection_error, used_cameras, max_reprojection_error_px, min_triangulation_score)
     biomechanics_rows = biomechanics_timeseries(keypoints_3d, fps=fps)
     segment_rows = movement_segments(keypoints_3d, fps=fps)
     report = readiness_report(frame_quality_rows, joint_quality_rows, biomechanics_rows, segment_rows)
@@ -62,6 +63,7 @@ def frame_quality(
     reprojection_error: np.ndarray | None,
     used_cameras: np.ndarray | None,
     max_reprojection_error_px: float,
+    min_triangulation_score: float = 0.20,
 ) -> list[dict[str, Any]]:
     valid_xyz = np.all(np.isfinite(keypoints_3d), axis=-1)
     rows: list[dict[str, Any]] = []
@@ -76,8 +78,12 @@ def frame_quality(
         }
         row["ready_for_scoring"] = bool(
             row["valid_body17_ratio"] >= 0.70
-            and (not np.isfinite(row["mean_reprojection_error_px"]) or row["mean_reprojection_error_px"] <= max_reprojection_error_px)
-            and (not np.isfinite(row["mean_used_cameras"]) or row["mean_used_cameras"] >= 2.0)
+            and np.isfinite(row["mean_triangulation_score"])
+            and row["mean_triangulation_score"] >= min_triangulation_score
+            and np.isfinite(row["mean_reprojection_error_px"])
+            and row["mean_reprojection_error_px"] <= max_reprojection_error_px
+            and np.isfinite(row["mean_used_cameras"])
+            and row["mean_used_cameras"] >= 2.0
         )
         rows.append(row)
     return rows
@@ -88,6 +94,7 @@ def joint_quality(
     reprojection_error: np.ndarray | None,
     used_cameras: np.ndarray | None,
     max_reprojection_error_px: float,
+    min_triangulation_score: float = 0.20,
 ) -> list[dict[str, Any]]:
     valid_xyz = np.all(np.isfinite(keypoints_3d), axis=-1)
     rows = []
@@ -102,7 +109,12 @@ def joint_quality(
         }
         row["ready_for_scoring"] = bool(
             row["valid_ratio"] >= 0.70
-            and (not np.isfinite(row["mean_reprojection_error_px"]) or row["mean_reprojection_error_px"] <= max_reprojection_error_px)
+            and np.isfinite(row["mean_triangulation_score"])
+            and row["mean_triangulation_score"] >= min_triangulation_score
+            and np.isfinite(row["mean_reprojection_error_px"])
+            and row["mean_reprojection_error_px"] <= max_reprojection_error_px
+            and np.isfinite(row["mean_used_cameras"])
+            and row["mean_used_cameras"] >= 2.0
         )
         rows.append(row)
     return rows
@@ -269,4 +281,3 @@ def _joint_speed_value(speed: np.ndarray, frame_idx: int, joint_idx: int) -> flo
     if frame_idx >= speed.shape[0] or joint_idx >= speed.shape[1]:
         return float("nan")
     return float(speed[frame_idx, joint_idx])
-

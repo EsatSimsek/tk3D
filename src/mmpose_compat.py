@@ -36,7 +36,6 @@ def install_xtcocotools_alias() -> None:
     if "xtcocotools" in sys.modules:
         return
     try:
-        import pycocotools
         from pycocotools import coco, cocoeval, mask
     except ModuleNotFoundError:
         return

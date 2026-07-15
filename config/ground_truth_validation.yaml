@@ -1,0 +1,12 @@
+thresholds:
+  # Internal engineering acceptance targets, not official sport standards.
+  min_evaluated_frames: 300
+  min_valid_joint_ratio: 0.95
+  max_mpjpe_mm: 50.0
+  max_p95_error_mm: 100.0
+  max_root_relative_mpjpe_mm: 50.0
+  min_pck_100mm: 0.95
+  max_angle_mae_deg: 5.0
+  max_velocity_mae_mps: 0.20
+  max_acceleration_mae_mps2: 2.0
+  max_bone_length_cv_percent: 3.0

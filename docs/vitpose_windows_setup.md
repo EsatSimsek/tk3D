@@ -1,14 +1,14 @@
 # ViTPose Windows Environment
 
-TK3D'nin varsayılan 2D pose yolu ViTPose-Huge WholeBody'dir. Yerel canlı test, bu repodaki `.venv` ortamında doğrulanmıştır.
+TK3D'nin varsayılan 2D pose yolu ViTPose-Huge WholeBody'dir. Yerel canlı test Python 3.12, PyTorch 2.13 CUDA 13.0 ve RTX 4060 ile doğrulanmıştır. MMPose kurulumu gerekmez; TK3D checkpoint için kendi sınırlı runtime'ını kullanır.
 
 Aktif yerel ortam:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv\Scripts\Activate.ps1
+.\.venv312\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-pose.txt
 ```
 
 The 2D config defaults to:
@@ -43,9 +43,12 @@ Validation:
 ```powershell
 python scripts\check_models.py --session data\aist_test\session.yaml
 python scripts\run_pose2d_overlays.py --session data\aist_test\session.yaml --camera c01 --stride 10
-python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10
+python scripts\import_aist_cameras.py --session data\aist_test\session_all.yaml
+python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session_all.yaml --stride 10
 ```
 
 Use `--max-frames` only for a short preview. Omit it when the output video must preserve the full source video duration.
+
+Every live inference gets an isolated `outputs/<session_id>/runs/<run_id>/` directory. A run is promoted to `latest_run.json` only when the calibration and 3D quality gates pass. Missing or diagnostic-only calibration stops the command by default.
 
 Do not use the MMPose COCO-only `vitpose-h` checkpoint for TK3D. It predicts 17 body keypoints, while TK3D requires 133 COCO-WholeBody keypoints.

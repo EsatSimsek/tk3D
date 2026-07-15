@@ -5,7 +5,7 @@ import json
 import numpy as np
 
 from src.exporter import export_session_json
-from src.smoothing_3d import moving_average_nan
+from src.smoothing_3d import moving_average_nan, moving_average_pose
 from src.validation_3d import validate_triangulation
 
 def test_moving_average_keeps_all_nan_joints_without_warning() -> None:
@@ -45,3 +45,12 @@ def test_validation_all_nan_errors_without_runtime_warning() -> None:
 
     assert validation.mean_reprojection_error_px.shape == (2,)
     assert np.isnan(validation.mean_reprojection_error_px).all()
+
+
+def test_pose_smoothing_does_not_flatten_sequences_shorter_than_window() -> None:
+    keypoints = np.zeros((2, 133, 3), dtype=float)
+    keypoints[1, :, 0] = 1.0
+
+    smoothed = moving_average_pose(keypoints, window_size=5)
+
+    np.testing.assert_array_equal(smoothed, keypoints)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,12 @@ import numpy as np
 
 from .data_structures import CameraCalibration
 from .video_io import iter_video_frames
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationBundle:
+    calibrations: dict[str, CameraCalibration]
+    metadata: dict[str, Any]
 
 def checkerboard_object_points(pattern_size: tuple[int, int], square_size_m: float) -> np.ndarray:
     cols, rows = pattern_size
@@ -50,15 +57,17 @@ def collect_checkerboard_detections(
     square_size_m: float,
     frame_stride: int,
     frame_offset: int = 0,
-) -> tuple[list[np.ndarray], list[np.ndarray], tuple[int, int], dict[int, np.ndarray]]:
+    time_offset_sec: float = 0.0,
+) -> tuple[list[np.ndarray], list[np.ndarray], tuple[int, int], dict[float, np.ndarray], float]:
     object_template = checkerboard_object_points(pattern_size, square_size_m)
     object_points: list[np.ndarray] = []
     image_points: list[np.ndarray] = []
-    detections_by_global_frame: dict[int, np.ndarray] = {}
+    detections_by_global_time: dict[float, np.ndarray] = {}
     image_size: tuple[int, int] | None = None
+    fps = _video_fps(video_path)
 
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-    for local_frame_idx, _, frame in iter_video_frames(video_path, stride=frame_stride):
+    for _, local_timestamp_sec, frame in iter_video_frames(video_path, stride=frame_stride):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         image_size = (gray.shape[1], gray.shape[0])
         found, corners = cv2.findChessboardCorners(gray, pattern_size, None)
@@ -67,11 +76,12 @@ def collect_checkerboard_detections(
         refined = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
         object_points.append(object_template.copy())
         image_points.append(refined)
-        detections_by_global_frame[int(local_frame_idx) + int(frame_offset)] = refined
+        global_timestamp = local_timestamp_sec + int(frame_offset) / fps + float(time_offset_sec)
+        detections_by_global_time[global_timestamp] = refined
 
     if image_size is None:
         raise FileNotFoundError(f"No frames found in calibration video: {video_path}")
-    return object_points, image_points, image_size, detections_by_global_frame
+    return object_points, image_points, image_size, detections_by_global_time, fps
 
 
 def calibrate_multiview_cameras(
@@ -83,6 +93,9 @@ def calibrate_multiview_cameras(
     min_valid_frames: int = 12,
     min_common_frames: int = 3,
     reference_camera_id: str | None = None,
+    calibration_flags: int = 0,
+    time_offsets_sec: dict[str, float] | None = None,
+    sync_tolerance_sec: float | None = None,
 ) -> list[CameraCalibration]:
     if len(camera_videos) < 2:
         raise ValueError("Multi-view calibration requires at least two cameras.")
@@ -91,44 +104,51 @@ def calibrate_multiview_cameras(
     distortions: dict[str, np.ndarray] = {}
     image_sizes: dict[str, tuple[int, int]] = {}
     rms_errors: dict[str, float] = {}
-    detections: dict[str, dict[int, np.ndarray]] = {}
+    detections: dict[str, dict[float, np.ndarray]] = {}
+    fps_by_camera: dict[str, float] = {}
+    seconds = time_offsets_sec or {}
 
     for camera_id, video_path in camera_videos.items():
-        object_points, image_points, image_size, detections_by_frame = collect_checkerboard_detections(
+        object_points, image_points, image_size, detections_by_time, fps = collect_checkerboard_detections(
             video_path=video_path,
             pattern_size=pattern_size,
             square_size_m=square_size_m,
             frame_stride=frame_stride,
             frame_offset=int(frame_offsets.get(camera_id, 0)),
+            time_offset_sec=float(seconds.get(camera_id, 0.0)),
         )
         if len(object_points) < min_valid_frames:
             raise ValueError(
                 f"{camera_id}: need at least {min_valid_frames} checkerboard detections, got {len(object_points)}"
             )
-        rms, intrinsic, distortion, _, _ = cv2.calibrateCamera(object_points, image_points, image_size, None, None)
+        rms, intrinsic, distortion, _, _ = cv2.calibrateCamera(
+            object_points, image_points, image_size, None, None, flags=int(calibration_flags)
+        )
         intrinsics[camera_id] = intrinsic
         distortions[camera_id] = distortion
         image_sizes[camera_id] = image_size
         rms_errors[camera_id] = float(rms)
-        detections[camera_id] = detections_by_frame
+        detections[camera_id] = detections_by_time
+        fps_by_camera[camera_id] = fps
 
     reference_id = reference_camera_id or next(iter(camera_videos))
     if reference_id not in camera_videos:
         raise ValueError(f"Reference camera is not part of calibration set: {reference_id}")
-    common_frames = sorted(set.intersection(*(set(items) for items in detections.values())))
-    if len(common_frames) < min_common_frames:
+    tolerance = float(0.5 / min(fps_by_camera.values()) if sync_tolerance_sec is None else sync_tolerance_sec)
+    synchronized = match_synchronized_detections(detections, reference_id, tolerance)
+    if len(synchronized) < min_common_frames:
         raise ValueError(
             f"Need at least {min_common_frames} synchronized checkerboard detections across all cameras, "
-            f"got {len(common_frames)}"
+            f"got {len(synchronized)} within {tolerance:.6f}s tolerance"
         )
 
     relative_poses: dict[str, list[tuple[np.ndarray, np.ndarray]]] = {camera_id: [] for camera_id in camera_videos}
-    for global_frame_idx in common_frames:
+    for synchronized_detection in synchronized:
         board_to_camera: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for camera_id in camera_videos:
             ok, rvec, tvec = cv2.solvePnP(
                 object_template,
-                detections[camera_id][global_frame_idx],
+                synchronized_detection[camera_id],
                 intrinsics[camera_id],
                 distortions[camera_id],
                 flags=cv2.SOLVEPNP_ITERATIVE,
@@ -172,6 +192,53 @@ def calibrate_multiview_cameras(
         )
     return calibrations
 
+
+def match_synchronized_detections(
+    detections: dict[str, dict[float, np.ndarray]],
+    reference_camera_id: str,
+    tolerance_sec: float,
+) -> list[dict[str, np.ndarray]]:
+    """Match each reference detection to the nearest unused detection per camera."""
+    if reference_camera_id not in detections:
+        raise ValueError(f"Reference camera has no detections: {reference_camera_id}")
+    if tolerance_sec <= 0.0:
+        raise ValueError("Synchronization tolerance must be positive")
+    used: dict[str, set[float]] = {camera_id: set() for camera_id in detections}
+    matches: list[dict[str, np.ndarray]] = []
+    for reference_time, reference_points in sorted(detections[reference_camera_id].items()):
+        match = {reference_camera_id: reference_points}
+        selected_times = {reference_camera_id: reference_time}
+        for camera_id, camera_detections in detections.items():
+            if camera_id == reference_camera_id:
+                continue
+            candidates = [time for time in camera_detections if time not in used[camera_id]]
+            if not candidates:
+                break
+            nearest = min(candidates, key=lambda time: abs(time - reference_time))
+            if abs(nearest - reference_time) > tolerance_sec + 1e-12:
+                break
+            match[camera_id] = camera_detections[nearest]
+            selected_times[camera_id] = nearest
+        if len(match) != len(detections):
+            continue
+        matches.append(match)
+        for camera_id, time in selected_times.items():
+            used[camera_id].add(time)
+    return matches
+
+
+def _video_fps(video_path: str | Path) -> float:
+    capture = cv2.VideoCapture(str(video_path))
+    try:
+        if not capture.isOpened():
+            raise FileNotFoundError(f"Could not open video: {video_path}")
+        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    finally:
+        capture.release()
+    if fps <= 0.0 or not np.isfinite(fps):
+        raise ValueError(f"Video does not report a valid FPS: {video_path}")
+    return fps
+
 def calibrate_single_camera(
     camera_id: str,
     video_path: str | Path,
@@ -179,6 +246,7 @@ def calibrate_single_camera(
     square_size_m: float,
     frame_stride: int = 10,
     min_valid_frames: int = 12,
+    calibration_flags: int = 0,
 ) -> CameraCalibration:
     object_points, image_points, image_size = collect_checkerboard_points(
         video_path=video_path,
@@ -192,7 +260,7 @@ def calibrate_single_camera(
         )
 
     rms, intrinsic, distortion, rvecs, tvecs = cv2.calibrateCamera(
-        object_points, image_points, image_size, None, None
+        object_points, image_points, image_size, None, None, flags=int(calibration_flags)
     )
     best_idx = representative_extrinsic_index(object_points, image_points, intrinsic, distortion, rvecs, tvecs)
     rotation_vector = rvecs[best_idx]
@@ -277,20 +345,63 @@ def _average_rotation(rotations: list[np.ndarray]) -> np.ndarray:
         rotation = u @ vt
     return rotation
 
-def save_calibrations(calibrations: list[CameraCalibration], output_path: str | Path) -> None:
-    payload = {"cameras": [camera.to_json_dict() for camera in calibrations]}
+def save_calibrations(
+    calibrations: list[CameraCalibration],
+    output_path: str | Path,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    if not calibrations:
+        raise ValueError("Refusing to save an empty calibration set")
+    camera_ids = [camera.camera_id for camera in calibrations]
+    if len(camera_ids) != len(set(camera_ids)):
+        raise ValueError("Calibration camera IDs must be unique")
+    for calibration in calibrations:
+        _validate_calibration(calibration)
+    payload = {
+        "schema_version": 2,
+        "metadata": dict(metadata or {}),
+        "cameras": [camera.to_json_dict() for camera in calibrations],
+    }
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2)
+    temporary.replace(path)
 
 def load_calibrations(path: str | Path) -> dict[str, CameraCalibration]:
+    return load_calibration_bundle(path).calibrations
+
+
+def load_calibration_bundle(path: str | Path) -> CalibrationBundle:
     with Path(path).open("r", encoding="utf-8") as file:
         raw: dict[str, Any] = json.load(file)
-    return {
+    calibrations = {
         item["camera_id"]: CameraCalibration.from_json_dict(item)
         for item in raw.get("cameras", [])
     }
+    if not calibrations:
+        raise ValueError(f"Calibration file contains no cameras: {path}")
+    for calibration in calibrations.values():
+        _validate_calibration(calibration)
+    return CalibrationBundle(calibrations=calibrations, metadata=dict(raw.get("metadata", {})))
+
+
+def _validate_calibration(calibration: CameraCalibration) -> None:
+    arrays = {
+        "intrinsic_matrix": (calibration.intrinsic_matrix, (3, 3)),
+        "rotation_vector": (calibration.rotation_vector, (3,)),
+        "translation_vector": (calibration.translation_vector, (3,)),
+        "projection_matrix": (calibration.projection_matrix, (3, 4)),
+    }
+    for name, (raw, expected_shape) in arrays.items():
+        value = np.asarray(raw, dtype=float).reshape(expected_shape) if np.asarray(raw).size == int(np.prod(expected_shape)) else np.asarray(raw)
+        if value.shape != expected_shape or not np.all(np.isfinite(value)):
+            raise ValueError(f"{calibration.camera_id}.{name} must be finite with shape {expected_shape}")
+    if calibration.image_size[0] <= 0 or calibration.image_size[1] <= 0:
+        raise ValueError(f"{calibration.camera_id}.image_size must be positive")
+    if abs(float(np.linalg.det(np.asarray(calibration.intrinsic_matrix, dtype=float)))) < 1e-12:
+        raise ValueError(f"{calibration.camera_id}.intrinsic_matrix is singular")
 
 def calibration_report(calibrations: list[CameraCalibration]) -> dict[str, Any]:
     errors = np.asarray(

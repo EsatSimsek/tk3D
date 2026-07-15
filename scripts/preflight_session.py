@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.preflight import preflight_summary, run_preflight, save_preflight_report
+from src.config_validation import validate_model_config
 from src.video_io import ensure_output_tree, load_session
 
 
@@ -25,7 +26,7 @@ def main() -> None:
 
     session = load_session(args.session)
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
-        model_config = yaml.safe_load(file)
+        model_config = validate_model_config(yaml.safe_load(file))
 
     issues = run_preflight(
         session=session,

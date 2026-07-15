@@ -28,6 +28,8 @@ def save_reprojection_timeline(reprojection_error: np.ndarray, output_path: str 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ModuleNotFoundError:
         _save_fallback_png(path, mean_error.reshape(1, -1), scale_to_255=True)
@@ -47,6 +49,8 @@ def save_heatmap(data: np.ndarray, output_path: str | Path, title: str, ylabel: 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
     except ModuleNotFoundError:
         _save_fallback_png(path, data, scale_to_255=True)
@@ -97,6 +101,8 @@ def _write_blank_video(path: Path, size: tuple[int, int] = (1280, 720), fps: flo
     path.parent.mkdir(parents=True, exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open video writer: {path}")
     frame = np.zeros((size[1], size[0], 3), dtype=np.uint8)
     writer.write(frame)
     writer.release()
@@ -106,6 +112,8 @@ def _write_frames_to_video(frames: list[np.ndarray], path: Path, fps: float, siz
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open video writer: {path}")
     try:
         for frame in frames:
             if frame.shape[1] != size[0] or frame.shape[0] != size[1]:
@@ -120,6 +128,8 @@ def _render_matplotlib_frames(
     edges: list[tuple[int, int]],
 ) -> list[np.ndarray]:
     import cv2
+    import matplotlib
+    matplotlib.use("Agg", force=True)
     import matplotlib.pyplot as plt
 
     render_points = _center_body_for_render(keypoints_3d_world)
@@ -227,7 +237,9 @@ def _axis_limits(keypoints_3d_world: np.ndarray) -> dict[str, tuple[float, float
     mins = np.nanpercentile(finite, 5, axis=0)
     maxs = np.nanpercentile(finite, 95, axis=0)
     centers = (mins + maxs) / 2.0
-    spans = np.maximum(maxs - mins, 50.0)
+    # TK3D analysis coordinates are meters. A 0.5 m minimum keeps a human
+    # visible without expanding a normal skeleton into a 50 m scene.
+    spans = np.maximum(maxs - mins, 0.5)
     spans = np.full(3, float(np.max(spans) * 1.25))
     return {
         "x": (float(centers[0] - spans[0] / 2), float(centers[0] + spans[0] / 2)),
@@ -266,4 +278,3 @@ def _save_fallback_png(path: Path, data: np.ndarray, scale_to_255: bool) -> None
         image = (image * 255.0).clip(0, 255).astype(np.uint8)
     image = cv2.resize(image, (max(320, image.shape[1] * 8), max(120, image.shape[0] * 8)))
     cv2.imwrite(str(path), image)
-

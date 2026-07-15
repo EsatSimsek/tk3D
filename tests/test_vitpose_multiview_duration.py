@@ -7,7 +7,7 @@ from scripts.run_vitpose_multiview_3d import (
     _repeat_count,
     _target_sample_count,
 )
-from src.multiview_sync import global_frame_range, local_frame_for_global
+from src.multiview_sync import global_frame_range, local_frame_for_global, synchronized_frame_map
 
 
 def test_stride_sampling_preserves_output_frame_count() -> None:
@@ -42,3 +42,17 @@ def test_frame_offsets_define_common_global_timeline() -> None:
     assert synced == [2, 3, 4]
     assert local_frame_for_global("cam_a", 2, offsets) == 2
     assert local_frame_for_global("cam_b", 2, offsets) == 0
+
+
+def test_timestamp_sync_handles_different_camera_fps_without_drift() -> None:
+    frames = synchronized_frame_map(
+        frame_counts={"cam_a": 301, "cam_b": 300},
+        fps_by_camera={"cam_a": 30.0, "cam_b": 29.97},
+        target_fps=30.0,
+    )
+
+    assert frames
+    last = frames[-1]
+    time_a = last.local_frame_indices["cam_a"] / 30.0
+    time_b = last.local_frame_indices["cam_b"] / 29.97
+    assert abs(time_a - time_b) <= 1.0 / 29.97

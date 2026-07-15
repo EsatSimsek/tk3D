@@ -83,3 +83,19 @@ def test_center_of_mass_proxy_uses_anatomical_weights() -> None:
     unweighted = np.mean(keypoints[[5, 6, 11, 12]], axis=0)
 
     assert weighted[2] != unweighted[2]
+
+
+def test_scoring_readiness_rejects_missing_quality_evidence() -> None:
+    keypoints = np.stack([_body_frame() for _ in range(3)])
+
+    result = build_scoring_readiness(keypoints, None, None, None, fps=30.0)
+
+    assert result.report["scoring_ready_frame_ratio"] == 0.0
+    assert result.frame_quality_rows[0]["ready_for_scoring"] is False
+
+
+def test_torso_lean_uses_analysis_z_up_y_forward_contract() -> None:
+    frame = _body_frame()
+    assert abs(torso_lean_deg(frame)) < 1e-9
+    frame[5:7, 1] = 0.3
+    assert torso_lean_deg(frame) > 0.0

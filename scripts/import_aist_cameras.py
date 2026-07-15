@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from src.aist_calibration import find_aist_camera_setting, load_aist_camera_calibrations
 from src.camera_calibration import save_calibrations
+from src.coordinate_system import aist_world_to_analysis, calibration_metadata
 from src.video_io import ensure_output_tree, load_session
 
 
@@ -37,7 +38,16 @@ def main() -> None:
     calibrations = load_aist_camera_calibrations(sequence, cameras_dir, camera_ids=camera_ids)
     output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
     output_path = output_paths["calibration"] / "cameras.json"
-    save_calibrations(calibrations, output_path)
+    metadata = calibration_metadata(
+        calibration_mode="aist_official_multiview",
+        source_coordinate_system={
+            "name": "aist_world",
+            "unit": "centimeter",
+            "axes": {"x": "right", "y": "up", "z": "forward"},
+        },
+        source_to_analysis=aist_world_to_analysis(),
+    )
+    save_calibrations(calibrations, output_path, metadata=metadata)
 
     report = {
         "source": "AIST++ cameras",

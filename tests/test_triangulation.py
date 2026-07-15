@@ -30,3 +30,18 @@ def test_stack_triangulated_handles_empty_input() -> None:
     assert arrays["triangulation_score"].shape == (0, 133)
     assert arrays["reprojection_error"].shape == (0, 133)
     assert arrays["used_cameras"].shape == (0, 133)
+    assert arrays["frame_idx"].shape == (0,)
+
+
+def test_robust_triangulation_rejects_one_bad_camera_observation() -> None:
+    calibrations = build_synthetic_calibrations()
+    world = build_synthetic_world_sequence(frame_count=1, valid_joint_count=1)
+    projected = project_world_sequence(world, calibrations)
+    bad_pose = projected[0]["cam_side"]
+    bad_pose.keypoints_xy[0] += np.array([400.0, -300.0])
+
+    pose = triangulate_frame(0, projected[0], calibrations, min_views=2, max_reprojection_error_px=10.0)
+
+    np.testing.assert_allclose(pose.keypoints_3d_world[0], world[0, 0], atol=1e-5)
+    assert pose.used_cameras[0] == 2
+    assert pose.reprojection_error[0] < 1e-5

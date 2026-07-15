@@ -66,6 +66,8 @@ def check_model_runtime(section: dict[str, Any], project_root: str | Path) -> Mo
 
 
 def is_backend_available(backend: str) -> bool:
+    if backend == "tk3d_vitpose_plus":
+        return importlib.util.find_spec("torch") is not None and importlib.util.find_spec("timm") is not None
     if backend == "mmpose":
         return importlib.util.find_spec("mmpose") is not None
     return importlib.util.find_spec(backend) is not None
@@ -112,7 +114,10 @@ def _is_checkpoint_compatible(section: dict[str, Any], path: Path | None) -> boo
     try:
         import torch
 
-        checkpoint = torch.load(path, map_location="cpu")
+        try:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+        except TypeError:
+            checkpoint = torch.load(path, map_location="cpu")
     except Exception:
         return False
     state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else {}

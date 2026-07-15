@@ -38,5 +38,8 @@ weights/
 !data/**/
 !data/**/.gitkeep
 .venv311/
+.venv312/
 data/aist_test/annotations/**
 data/aist_test/annotations/cameras.zip
+data/mads_test/raw/
+data/mads_test/extracted/

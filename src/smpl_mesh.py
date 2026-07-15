@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pickle
+import builtins
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,7 @@ def load_aist_smpl_motion(motion_path: str | Path) -> AISTSMPLMotion:
     if not path.exists():
         raise FileNotFoundError(f"AIST++ SMPL motion file not found: {path}")
     with path.open("rb") as file:
-        raw: dict[str, Any] = pickle.load(file)
+        raw: dict[str, Any] = _RestrictedNumpyUnpickler(file).load()
     return AISTSMPLMotion(
         poses=np.asarray(raw["smpl_poses"], dtype=np.float32),
         scaling=np.asarray(raw["smpl_scaling"], dtype=np.float32).reshape(-1),
@@ -57,3 +58,21 @@ def selected_frame_indices(total_frames: int, max_frames: int | None, stride: in
         indices = indices[: max(int(max_frames), 0)]
     return indices
 
+
+class _RestrictedNumpyUnpickler(pickle.Unpickler):
+    _allowed_builtins = {"dict", "list", "tuple", "set", "slice"}
+    _allowed_numpy = {
+        ("numpy", "dtype"),
+        ("numpy", "ndarray"),
+        ("numpy.core.multiarray", "_reconstruct"),
+        ("numpy._core.multiarray", "_reconstruct"),
+        ("numpy.core.multiarray", "scalar"),
+        ("numpy._core.multiarray", "scalar"),
+    }
+
+    def find_class(self, module: str, name: str) -> Any:
+        if module == "builtins" and name in self._allowed_builtins:
+            return getattr(builtins, name)
+        if (module, name) in self._allowed_numpy:
+            return super().find_class(module, name)
+        raise pickle.UnpicklingError(f"Unsafe class in SMPL pickle: {module}.{name}")

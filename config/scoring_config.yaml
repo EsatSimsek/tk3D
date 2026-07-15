@@ -1,10 +1,10 @@
 scoring:
-  enabled: false
+  enabled: true
+  mode: provisional_not_official
   pose_dimension: 3d
-  task_name: taegeuk_1_jang
+  task_name: generic_unlabeled
 
 thresholds:
-  kick_height_low_ratio: 0.75
   trunk_lean_warn_deg: 10.0
   knee_angle_front_stance_min_deg: 130.0
   balance_min_score: 0.70

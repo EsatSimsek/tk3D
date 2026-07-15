@@ -11,10 +11,10 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - Nihai ürün, poomsae performansını otomatik veya yarı otomatik puanlayan bir analiz sistemidir.
 - 3D iskelet üretimi projenin asıl amacı değil, puanlama için gerekli ara çıktıdır.
 - Ana ara veri sözleşmesi `keypoints_3d_world[t, 133, 3]` formatındaki COCO-WholeBody tabanlı 3D dünya koordinatlarıdır.
-- Şu an odak, video -> 2D pose -> multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları zincirini sağlamlaştırmaktır.
-- Puanlama motoru henüz tamamlanmadı; sıradaki büyük iş phase/step detection, teknik hata metrikleri ve skor üretimidir.
+- Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları -> açıklanabilir geçici teknik skor.
+- Geçici skor resmi hakem puanı değildir. Sıradaki alan işi, gerçek poomsae kayıtlarında phase/step etiketleri ve onaylı teknik hedefler oluşturmaktır.
 - AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
-- Kendi poomsae videoları geldiğinde checkerboard calibration, kişi takibi/eşleme, poomsae adım segmentasyonu ve kural tabanlı/öğrenmeli scoring katmanı eklenecek.
+- Kendi poomsae videoları geldiğinde ortak checkerboard kalibrasyonu yapılmalı; çok kişili çekimlerde kimlik eşleme, poomsae adım etiketleri ve hakem/koç onaylı puan hedefleri eklenmelidir.
 
 Ana ara hedef veri:
 
@@ -27,11 +27,12 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - Checkerboard tabanlı kamera kalibrasyonu için giriş noktası
 - ViTPose-Huge 2D wholebody tahmin sınıfı için entegrasyon arayüzü
 - Kalibrasyonlu multi-view triangulation
-- Kamera `frame_offset` değerlerini dikkate alan global frame senkronizasyonu
-- Normalize DLT triangulation, reprojection-error tabanlı triangulation quality score
+- Kamera FPS'i ile saniye/frame offsetlerini dikkate alan ortak zaman çizelgesi senkronizasyonu
+- Görüş aykırılıklarını eleyen sağlam triangulation, pozitif derinlik/açı kontrolleri ve robust reprojection optimizasyonu
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
 - 3D temporal smoothing
 - 3D validation, kalite ölçümleri ve scoring-readiness analizi
+- Açıklanabilir, kalite kapılı ve açıkça `provisional_not_official` olarak işaretlenen teknik ön skor
 - JSON, CSV, Excel ve figür export iskeleti
 - Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
@@ -40,10 +41,10 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python -m venv .venv312
+.\.venv312\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-pose.txt
 ```
 
 ViTPose-Huge WholeBody canlı 2D inference için ağırlık dosyası `weights/vitpose_huge_wholebody_256x192.pth` altında tutulur ve Git'e eklenmez. Resmi ViTPose kodu `external/vitpose` altında yerel runtime olarak kullanılır.
@@ -68,16 +69,30 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Son doğrulama sonucu:
 
 ```text
-31 passed
+53 passed
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
-Bu komut gerçek bir `outputs/session_001/videos/skeleton_3d_world.mp4` dosyası üretir. Video, sentetik 3D dünya iskeletinin frame frame render edilmiş halidir; siyah placeholder değildir.
+Bu komut izole bir `outputs/session_001/runs/<run_id>/videos/skeleton_3d_world.mp4` dosyası üretir. Video, sentetik 3D dünya iskeletinin kare kare render edilmiş halidir; siyah placeholder değildir.
 
 Gerçek video/model dosyaları geldiğinde önce strict preflight çalıştırılır:
 
 ```powershell
 python scripts\preflight_session.py --session data\session_001\session.yaml --require-videos --require-calibration-videos --require-model-files
+```
+
+## Ground-truth 3B Doğrulama
+
+Poomsae'ye yakın hareket alanı ve optik motion-capture referansı nedeniyle birincil dış doğrulama veri seti olarak
+MADS (Martial Arts, Dancing and Sports) seçildi. AIST mevcut çok-kamera smoke testleri için korunur; gerçek 3B hata
+ölçümünün ana benchmark'ı değildir.
+
+Ground-truth karşılaştırma katmanı global/pelvis-relative/PA-MPJPE, PCK-3D, açı, hız, ivme ve kemik kararlılığı
+raporlarını üretir. Girdi koordinatı ve birimi açıkça doğrulanmadan çalışmaz. Kurulum, veri sözleşmesi ve resmî indirme
+durumu: `docs/mads_ground_truth_setup.md`.
+
+```powershell
+python scripts\evaluate_ground_truth_3d.py --prediction <tk3d_3d.json> --ground-truth <metric_gt.json> --output-dir outputs\ground_truth_validation
 ```
 
 ## AIST Video Testi
@@ -112,13 +127,13 @@ AIST++ API bu projede `external/aistplusplus_api` altına kurulur ve Git'e eklen
 python scripts\calibrate_cameras.py --session data\session_001\session.yaml
 ```
 
-Kalibrasyon scripti önce senkron checkerboard tespitleriyle tüm kameraları ortak bir referans kamera koordinat sistemine bağlayan `multiview_common_reference` modunu dener. Bu mod için:
+Kalibrasyon scripti senkron checkerboard tespitleriyle tüm kameraları ortak bir referans kamera koordinat sistemine bağlayan `multiview_common_reference` modunu üretir. Bu mod için:
 
 - Her kamerada checkerboard aynı fiziksel anda görünmelidir.
 - `session.yaml` içindeki `sync.offsets` değerleri kalibrasyon frame eşlemesine uygulanır.
 - `config/calibration_config.yaml` içinde opsiyonel `checkerboard.min_common_frames` ve referans kamera için `extrinsics.world_origin_camera` veya `checkerboard.reference_camera_id` kullanılabilir.
 
-Ortak frame bulunamazsa script `single_camera_fallback` moduna düşer ve rapora açık uyarı yazar. Bu fallback intrinsic üretmek için yararlıdır, ancak kameraların ortak dünya koordinatında metrik 3D verdiğini garanti etmez.
+Ortak kare bulunamazsa komut güvenli biçimde durur ve üretim `cameras.json` dosyası yazmaz. Yalnızca intrinsic teşhisi gerekiyorsa açık `--allow-intrinsics-only-fallback` seçeneği `intrinsics_only.json` üretir; canlı 3B akış bu dosyayı kabul etmez.
 
 Kalibrasyon çıktıları:
 
@@ -135,23 +150,24 @@ python scripts\run_vitpose_multiview_3d.py --session data\session_001\session.ya
 ViTPose multi-view pipeline:
 
 - `session.yaml` içindeki kamera `frame_offset` değerlerini global frame zaman çizelgesine uygular.
-- Aynı fiziksel ana denk gelen yerel kamera karelerini batch inference ile işler.
-- Kalibrasyon yoksa yalnızca test amaçlı yaklaşık iki kamera kalibrasyonuna düşer ve `calibration_mode: approximate_test_calibration` yazar.
+- Aynı fiziksel ana denk gelen yerel kamera karelerini işler ve her kameradaki kişi kutusunu zaman içinde takip eder.
+- Üretim kalibrasyonu yoksa veya ortak dünya extrinsic bilgisi doğrulanmamışsa güvenli biçimde durur. Yaklaşık iki-kamera kalibrasyonu yalnızca açık `--allow-approximate-calibration` seçeneğiyle diagnostik preview için kullanılabilir.
 - Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
+- Her canlı çalışma `outputs/<session_id>/runs/<run_id>/` altında izole edilir; yalnızca kalite kapısını geçen çalışma `latest_run.json` olarak işaretlenir.
 
-Beklenen ana çıktılar:
+Sentetik dry-run çıktıları `outputs/session_001/runs/<run_id>/` altında, canlı ViTPose çıktıları da aynı izole çalışma yapısında tutulur. Beklenen dry-run dosyaları:
 
-- `outputs/session_001/json/session_3d.json`
-- `outputs/session_001/json/preflight_report.json`
-- `outputs/session_001/json/video_probe_report.json`
-- `outputs/session_001/json/model_runtime_report.json`
-- `outputs/session_001/json/quality_summary.json`
-- `outputs/session_001/json/artifact_manifest.json`
-- `outputs/session_001/csv/keypoints_3d_world_flat.csv`
-- `outputs/session_001/session_3d_analysis.xlsx`
-- `outputs/session_001/figures/reprojection_error_timeline.png`
-- `outputs/session_001/figures/keypoint_validity_heatmap.png`
-- `outputs/session_001/figures/camera_usage_heatmap.png`
+- `outputs/session_001/runs/<run_id>/json/session_3d.json`
+- `outputs/session_001/runs/<run_id>/json/preflight_report.json`
+- `outputs/session_001/runs/<run_id>/json/video_probe_report.json`
+- `outputs/session_001/runs/<run_id>/json/model_runtime_report.json`
+- `outputs/session_001/runs/<run_id>/json/quality_summary.json`
+- `outputs/session_001/runs/<run_id>/json/artifact_manifest.json`
+- `outputs/session_001/runs/<run_id>/csv/keypoints_3d_world_flat.csv`
+- `outputs/session_001/runs/<run_id>/session_3d_analysis.xlsx`
+- `outputs/session_001/runs/<run_id>/figures/reprojection_error_timeline.png`
+- `outputs/session_001/runs/<run_id>/figures/keypoint_validity_heatmap.png`
+- `outputs/session_001/runs/<run_id>/figures/camera_usage_heatmap.png`
 
 ## Veri Mimarisi
 
@@ -170,7 +186,7 @@ Session
 
 Nihai scoring hiyerarşisi `Episode -> Task -> Phase -> Step -> Metric -> Error -> Score` şeklinde düşünülür.
 
-Bu ilk sürümde gerçek puanlama motoru henüz uygulanmaz. Mevcut kod, scoring motorunun ihtiyaç duyacağı 3D poz, kalite, smoothing, biomekanik açı ve hareket segment adayı verilerini üretmeye odaklanır.
+Kod, 3B poz ve kalite kapılarının üzerine açıklanabilir bir teknik ön skor üretir. Bu skor yalnızca altyapı/doğrulama içindir; onaylı poomsae adım şablonu ve hakem kriteri olmadan resmi puan olarak kullanılamaz.
 
 ## Güncel Durum
 
@@ -178,12 +194,12 @@ Hazır olanlar:
 
 - Proje iskeleti ve Git ignore kuralları
 - `keypoints_3d_world[t, 133, 3]` veri sözleşmesi
-- Checkerboard tabanlı multiview ortak referans kalibrasyonu ve single-camera fallback raporlaması
-- Kamera frame offset senkronizasyonu
+- Checkerboard tabanlı multiview ortak referans kalibrasyonu ve üretimde fail-closed davranış
+- Farklı FPS, frame offset ve saniye offsetlerini destekleyen timestamp senkronizasyonu
 - ViTPose 2D ve RTMW3D adapter sınıfları
 - Batch/multi-camera 2D inference arayüzü
-- Hartley-style normalize edilmiş multi-view triangulation çekirdeği
-- Reprojection error, görüş sayısı ve SVD conditioning kullanan triangulation quality score
+- Aykırı kamerayı eleyen, pozitif derinlik ve triangulation açısı kontrolü yapan robust multi-view triangulation
+- Robust reprojection optimizasyonu; reprojection error ve inlier kamera sayısına dayalı kalite skoru
 - Sentetik 3 kamera dry-run pipeline
 - JSON/CSV/Excel/PNG/MP4 output üretimi; CSV export eksik sayıları `NaN` stringi yerine boş hücre yazar
 - Preflight raporu: eksik/açılamayan video, eksik kalibrasyon videosu, eksik model config/checkpoint kontrolü
@@ -194,6 +210,7 @@ Hazır olanlar:
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Yönlü torso lean, smoothing sonrası hız, ağırlıklı center-of-mass proxy, adaptif hareket segmentasyonu
+- Kalite kapılı geçici frame/step skoru ve puan kırılma nedenlerini listeleyen teknik hata raporu
 - Triangulation, smoothing, validation, scoring-readiness ve pipeline testleri
 
 Bekleyenler / sıradaki büyük işler:
@@ -201,17 +218,17 @@ Bekleyenler / sıradaki büyük işler:
 - Kendi poomsae kameraları için senkron checkerboard calibration videoları ile ortak referans intrinsic/extrinsic üretimi
 - Gerçek poomsae videolarında multi-person/person tracking eşlemesi
 - Poomsae phase/step detection: hareketleri poomsae adımlarına bölme
-- Teknik hata metrikleri: denge, açı, hizalama, yükseklik, zamanlama, simetri ve duruş kararlılığı gibi ölçümler
-- Scoring motoru: kural tabanlı ve/veya öğrenmeli puan üretimi
-- Hakem/koç tarafından anlaşılabilir rapor: hangi adımda hangi teknik hata var, puan neden kırıldı
+- Gerçek poomsae için phase/step adlarını ve başlangıç-bitiş karelerini onaylayacak etiket veri seti
+- Denge, açı, hizalama, yükseklik, zamanlama ve simetri hedeflerinin hakem/koç tarafından onaylanması
+- Geçici teknik ön skoru resmi kurallara bağlayan sürümlü referans şablonları ve uzman doğrulaması
 
 ## ViTPose Gerçek Video Testi
 
-ViTPose gerçek video inference mevcut `.venv` ortamında çalışır. Ayrıntılı Windows sürüm notu: `docs/vitpose_windows_setup.md`.
+ViTPose gerçek video inference `.venv312` ortamında çalışır. Ayrıntılı Windows sürüm notu: `docs/vitpose_windows_setup.md`.
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv\Scripts\Activate.ps1
+.\.venv312\Scripts\Activate.ps1
 python scripts\check_models.py --session data\aist_test\session.yaml
 python scripts\run_pose2d_overlays.py --session data\aist_test\session.yaml --camera c01 --stride 10
 python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10
@@ -221,12 +238,12 @@ Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video 
 
 Ana çıktılar:
 
-- `outputs/aist_test/videos/c01_vitpose_2d_overlay.mp4`
-- `outputs/aist_test/videos/vitpose_skeleton_3d_world.mp4`
-- `outputs/aist_test/json/vitpose_session_3d.json`
-- `outputs/aist_test/csv/vitpose_keypoints_3d_world_flat.csv`
+- `outputs/aist_test/runs/<run_id>/videos/c01_vitpose_2d_overlay.mp4`
+- `outputs/aist_test/runs/<run_id>/videos/vitpose_skeleton_3d_world.mp4`
+- `outputs/aist_test/runs/<run_id>/json/vitpose_session_3d.json`
+- `outputs/aist_test/runs/<run_id>/csv/vitpose_keypoints_3d_world_flat.csv`
 
-Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya varken ViTPose multi-view pipeline `calibration_mode: loaded` ile gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için senkron checkerboard calibration gerekir.
+Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya `aist_official_multiview` olarak işaretlenir ve gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için senkron checkerboard calibration gerekir.
 ## SMPL Mesh İnsan Modeli
 
 Çubuk iskelet yerine gerçek insan yüzeyi/mesh görmek için SMPL aşaması kullanılır. AIST++ motion dosyaları indirildi; ancak lisanslı SMPL body model dosyası repoda tutulmaz. Ayrıntılı kurulum: `docs/smpl_mesh_setup.md`.
@@ -235,7 +252,7 @@ SMPL model dosyasını koyduktan sonra:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv\Scripts\Activate.ps1
+.\.venv312\Scripts\Activate.ps1
 python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
 ```
 
@@ -261,27 +278,31 @@ python scripts\export_aist_smpl_threejs_viewer.py --session data\aist_test\sessi
 
 Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 
-## Puanlama Hazirlik Analizi
+## Puanlama Hazırlık ve Teknik Ön Skor Analizi
 
-Puanlama motoruna gecmeden once 3D ciktiyi kalite, smoothing, biomekanik acilar ve hareket segment adaylari ile hazirlamak icin:
+3B çıktıyı kalite, smoothing, biomekanik açılar, hareket segment adayları ve açıklanabilir teknik ön skor ile analiz etmek için:
 
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
-.\.venv\Scripts\Activate.ps1
+.\.venv312\Scripts\Activate.ps1
 python scripts\analyze_pose_for_scoring.py --session data\aist_test\session_all.yaml --smoothing-window 5
 ```
 
 Ana ciktilar:
 
-- `outputs/aist_test/json/scoring_readiness_report.json`
-- `outputs/aist_test/json/vitpose_session_3d_smoothed.json`
-- `outputs/aist_test/csv/pose_quality_frames.csv`
-- `outputs/aist_test/csv/pose_quality_joints.csv`
-- `outputs/aist_test/csv/biomechanics_timeseries.csv`
-- `outputs/aist_test/csv/movement_segments.csv`
-- `outputs/aist_test/scoring_readiness_analysis.xlsx`
+- `outputs/aist_test/runs/<run_id>/json/scoring_readiness_report.json`
+- `outputs/aist_test/runs/<run_id>/json/vitpose_session_3d_smoothed.json`
+- `outputs/aist_test/runs/<run_id>/csv/pose_quality_frames.csv`
+- `outputs/aist_test/runs/<run_id>/csv/pose_quality_joints.csv`
+- `outputs/aist_test/runs/<run_id>/csv/biomechanics_timeseries.csv`
+- `outputs/aist_test/runs/<run_id>/csv/movement_segments.csv`
+- `outputs/aist_test/runs/<run_id>/json/provisional_scoring_report.json`
+- `outputs/aist_test/runs/<run_id>/csv/provisional_frame_scores.csv`
+- `outputs/aist_test/runs/<run_id>/csv/provisional_step_scores.csv`
+- `outputs/aist_test/runs/<run_id>/csv/technical_errors.csv`
+- `outputs/aist_test/runs/<run_id>/scoring_readiness_analysis.xlsx`
 
-Bu asama henuz puan vermez; puanlama motorunun kullanacagi guvenilir frame, guvenilir eklem, smoothing, diz/kalca/omuz/dirsek acilari ve hareket segment adaylarini hazirlar. Gercek poomsae videosu geldiginde scoring motoru bu dosyalarin uzerine kurulur.
+`provisional_scoring_report.json`, kalite kapısını geçen kareler için duruş, alt vücut, kinematik denge ve kemik uzunluğu kararlılığı bileşenlerinden 0-100 arası bir altyapı skoru verir. Durum alanı daima `provisional_not_official` olur. Hareket segmentleri poomsae adımlarıyla etiketlenmeden ve teknik hedefler uzman tarafından onaylanmadan bu değer resmi puan değildir.
 
 Tek kamera 2D cubuk overlay gerekiyorsa zaten mevcut komut kullanilir:
 

@@ -37,6 +37,7 @@ class CameraView:
     video_path: Path
     calibration_video_path: Path | None = None
     frame_offset: int = 0
+    time_offset_sec: float = 0.0
 
 
 @dataclass(slots=True)
@@ -46,6 +47,7 @@ class Session:
     root_dir: Path
     cameras: list[CameraView]
     fps: float | None = None
+    sync_method: str = "timestamp"
 
 
 @dataclass(slots=True)

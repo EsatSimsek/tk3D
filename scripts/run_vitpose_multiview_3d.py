@@ -11,17 +11,28 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.camera_calibration import load_calibrations
+from src.camera_calibration import load_calibration_bundle
+from src.coordinate_system import (
+    ANALYSIS_COORDINATE_SYSTEM,
+    opencv_reference_to_analysis,
+    require_source_to_analysis,
+    transform_points,
+)
+from src.config_validation import validate_model_config
 from src.data_structures import CameraCalibration
-from src.exporter import export_keypoints3d_csv, export_session_json
-from src.multiview_sync import global_frame_range, local_frame_for_global
+from src.exporter import export_keypoints2d_csv, export_keypoints3d_csv, export_session_json
+from src.multiview_sync import synchronized_frame_map
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.progress import ProgressBar
-from src.smoothing_3d import moving_average_nan
+from src.run_outputs import create_run_output_tree, mark_run_complete
+from src.smoothing_3d import moving_average_pose
 from src.triangulation import stack_triangulated, triangulate_frame
-from src.video_io import ensure_output_tree, load_session
+from src.video_io import load_session
 from src.visualization_2d import draw_pose2d
 from src.visualization_3d import write_3d_skeleton_video
+
+
+PRODUCTION_CALIBRATION_MODES = {"multiview_common_reference", "aist_official_multiview"}
 
 
 def main() -> None:
@@ -34,6 +45,17 @@ def main() -> None:
     parser.add_argument("--max-cameras", type=int, default=None, help="Optional limit for faster tests; default uses all session cameras.")
     parser.add_argument("--progress-every", type=int, default=1, help="Print progress every N written frames.")
     parser.add_argument("--output-fps", type=float, default=None, help="Playback FPS. Defaults to the source video FPS.")
+    parser.add_argument("--run-id", default=None, help="Unique output run identifier; defaults to a UTC timestamp.")
+    parser.add_argument(
+        "--allow-approximate-calibration",
+        action="store_true",
+        help="Explicitly allow non-metric two-camera preview calibration. Never use for scoring.",
+    )
+    parser.add_argument(
+        "--allow-low-quality-output",
+        action="store_true",
+        help="Keep diagnostic files when quality gates fail; the run is not promoted as latest.",
+    )
     args = parser.parse_args()
 
     session = load_session(args.session)
@@ -42,15 +64,49 @@ def main() -> None:
     cameras = session.cameras[: args.max_cameras] if args.max_cameras else session.cameras
     if len(cameras) < 2:
         raise SystemExit("Need at least two selected cameras. Increase --max-cameras or update the session.")
-    output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
+    output_root = (ROOT / args.output_root).resolve()
 
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
-        model_config = yaml.safe_load(file)
+        model_config = validate_model_config(yaml.safe_load(file))
     pose2d_config = model_config["pose2d"]
+    calibrations_path = output_root / session.session_id / "calibration" / "cameras.json"
+    if calibrations_path.exists():
+        bundle = load_calibration_bundle(calibrations_path)
+        calibrations = bundle.calibrations
+        if all(camera.camera_id in calibrations for camera in cameras):
+            calibration_mode = str(bundle.metadata.get("calibration_mode", "legacy_unknown"))
+            if calibration_mode not in PRODUCTION_CALIBRATION_MODES:
+                raise SystemExit(
+                    f"Calibration mode is not production-ready: {calibration_mode}. "
+                    "Re-run calibration/import with the current TK3D version."
+                )
+            source_to_analysis = require_source_to_analysis(bundle.metadata)
+        else:
+            if not args.allow_approximate_calibration:
+                missing = [camera.camera_id for camera in cameras if camera.camera_id not in calibrations]
+                raise SystemExit(f"Calibration is missing selected cameras: {missing}")
+            cameras = cameras[:2]
+            calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
+            calibration_mode = "approximate_test_calibration"
+            source_to_analysis = opencv_reference_to_analysis()
+    else:
+        if not args.allow_approximate_calibration:
+            raise SystemExit(
+                f"Production calibration not found: {calibrations_path}. "
+                "Run calibrate_cameras.py or import_aist_cameras.py first."
+            )
+        cameras = cameras[:2]
+        calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
+        calibration_mode = "approximate_test_calibration"
+        source_to_analysis = opencv_reference_to_analysis()
+
+    run_id, output_paths = create_run_output_tree(output_root, session.session_id, args.run_id)
+    production_ready_calibration = calibration_mode in PRODUCTION_CALIBRATION_MODES
+
     print("=" * 72, flush=True)
     print("TK3D VITPOSE MULTI-VIEW 3D", flush=True)
     print("=" * 72, flush=True)
-    print(f"[1/4] Loading ViTPose model", flush=True)
+    print("[1/4] Loading ViTPose model", flush=True)
     print(f"      model : {pose2d_config['model_name']}", flush=True)
     print(f"      device: {pose2d_config.get('device', 'cuda:0')}", flush=True)
     estimator = ViTPose2DEstimator(
@@ -60,30 +116,28 @@ def main() -> None:
             checkpoint_path=(ROOT / pose2d_config["checkpoint_path"]).resolve(),
             device=pose2d_config.get("device", "cuda:0"),
             score_threshold=float(pose2d_config.get("score_threshold", 0.30)),
+            input_size=tuple(int(value) for value in pose2d_config.get("input_size", [256, 192])),
         )
     )
-
-    calibrations_path = output_paths["calibration"] / "cameras.json"
-    if calibrations_path.exists():
-        calibrations = load_calibrations(calibrations_path)
-        if all(camera.camera_id in calibrations for camera in cameras):
-            calibration_mode = "loaded"
-        else:
-            cameras = cameras[:2]
-            calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
-            calibration_mode = "approximate_test_calibration"
-            print("WARNING: calibration/cameras.json does not match selected cameras. Using the first two cameras with approximate test calibration.")
-    else:
-        cameras = cameras[:2]
-        calibrations = build_pair_test_calibrations(cameras[0].camera_id, cameras[1].camera_id)
-        calibration_mode = "approximate_test_calibration"
-        print("WARNING: calibration/cameras.json not found. Using the first two cameras with approximate test calibration, not metric 3D.")
 
     captures = [cv2.VideoCapture(str(camera.video_path)) for camera in cameras]
     if not all(capture.isOpened() for capture in captures):
         raise SystemExit("Could not open all selected videos.")
 
-    fps = captures[0].get(cv2.CAP_PROP_FPS) or 30.0
+    fps_by_camera = {
+        camera.camera_id: float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+        for camera, capture in zip(cameras, captures, strict=True)
+    }
+    if any(value <= 0 for value in fps_by_camera.values()):
+        raise SystemExit(f"Every video must report a valid FPS: {fps_by_camera}")
+    fps = float(session.fps or min(fps_by_camera.values()))
+    for camera, capture in zip(cameras, captures, strict=True):
+        actual_size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
+        expected_size = tuple(calibrations[camera.camera_id].image_size)
+        if actual_size != expected_size and calibration_mode != "approximate_test_calibration":
+            raise SystemExit(
+                f"{camera.camera_id}: video size {actual_size} does not match calibration {expected_size}"
+            )
     print(
         "[2/4] Preparing videos and calibration\n"
         f"      cameras         : {len(cameras)}\n"
@@ -98,15 +152,37 @@ def main() -> None:
         width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         output_path = output_paths["videos"] / f"{camera.camera_id}_vitpose_2d_overlay.mp4"
-        overlay_writers.append(cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), max(float(args.output_fps or fps), 1.0), (width, height)))
+        writer = cv2.VideoWriter(
+            str(output_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            max(float(args.output_fps or fps), 1.0),
+            (width, height),
+        )
+        if not writer.isOpened():
+            writer.release()
+            for opened_writer in overlay_writers:
+                opened_writer.release()
+            for opened_capture in captures:
+                opened_capture.release()
+            raise SystemExit(f"Could not open overlay video writer: {output_path}")
+        overlay_writers.append(writer)
 
     triangulated = []
+    poses_2d_by_frame: dict[int, dict[str, object]] = {}
     frame_counts = {
         camera.camera_id: int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        for camera, capture in zip(cameras, captures)
+        for camera, capture in zip(cameras, captures, strict=True)
     }
     frame_offsets = {camera.camera_id: int(camera.frame_offset) for camera in cameras}
-    synced_frames = list(global_frame_range(frame_counts, frame_offsets))
+    synced_frames = synchronized_frame_map(
+        frame_counts=frame_counts,
+        fps_by_camera=fps_by_camera,
+        frame_offsets=frame_offsets,
+        time_offsets_sec={camera.camera_id: camera.time_offset_sec for camera in cameras},
+        target_fps=fps,
+    )
+    if not synced_frames:
+        raise SystemExit("Selected camera videos have no overlapping synchronized timeline")
     source_frame_count = len(synced_frames)
     target_frames = _target_sample_count(source_frame_count, args.max_frames, args.stride)
     output_repeats: list[int] = []
@@ -114,7 +190,8 @@ def main() -> None:
     try:
         written = 0
         next_local_frame_by_camera = {camera.camera_id: 0 for camera in cameras}
-        for overlap_idx, global_frame_idx in enumerate(synced_frames):
+        for overlap_idx, sync_frame in enumerate(synced_frames):
+            global_frame_idx = sync_frame.global_frame_idx
             if args.max_frames is not None and written >= args.max_frames:
                 break
             if overlap_idx % args.stride != 0:
@@ -124,7 +201,7 @@ def main() -> None:
             repeat_count = _repeat_count(overlap_idx, source_frame_count, args.stride)
             frames: list[np.ndarray] = []
             for camera, capture in zip(cameras, captures):
-                local_frame_idx = local_frame_for_global(camera.camera_id, global_frame_idx, frame_offsets)
+                local_frame_idx = sync_frame.local_frame_indices[camera.camera_id]
                 frame = _read_frame_sequential(
                     capture=capture,
                     camera_id=camera.camera_id,
@@ -140,7 +217,7 @@ def main() -> None:
 
             camera_ids = [camera.camera_id for camera in cameras]
             local_frame_indices = [
-                local_frame_for_global(camera.camera_id, global_frame_idx, frame_offsets)
+                sync_frame.local_frame_indices[camera.camera_id]
                 for camera in cameras
             ]
             poses = estimator.predict_many(frames, camera_ids, local_frame_indices)
@@ -149,6 +226,7 @@ def main() -> None:
                 overlay = draw_pose2d(frame, pose)
                 for _ in range(repeat_count):
                     writer.write(overlay)
+            poses_2d_by_frame[global_frame_idx] = dict(poses_by_camera)
 
             triangulated.append(
                 triangulate_frame(
@@ -156,6 +234,8 @@ def main() -> None:
                     poses_by_camera=poses_by_camera,
                     calibrations=calibrations,
                     min_views=2,
+                    max_reprojection_error_px=float(model_config["triangulation"].get("max_reprojection_error_px", 25.0)),
+                    max_hypotheses=int(model_config["triangulation"].get("max_hypotheses", 16)),
                 )
             )
             output_repeats.append(repeat_count)
@@ -172,35 +252,101 @@ def main() -> None:
             print("[4/4] Saving 3D outputs", flush=True)
 
     arrays = stack_triangulated(triangulated)
-    arrays["keypoints_3d_world"] = moving_average_nan(arrays["keypoints_3d_world"], window_size=5)
+    arrays["keypoints_3d_world"] = transform_points(arrays["keypoints_3d_world"], source_to_analysis)
+    max_error = float(model_config["triangulation"].get("max_reprojection_error_px", 25.0))
+    min_quality = float(model_config["triangulation"].get("min_triangulation_score", 0.20))
+    accepted = (
+        np.isfinite(arrays["reprojection_error"])
+        & (arrays["reprojection_error"] <= max_error)
+        & (arrays["triangulation_score"] >= min_quality)
+        & (arrays["used_cameras"] >= int(model_config["triangulation"].get("min_views", 2)))
+    )
+    arrays["keypoints_3d_world"] = moving_average_pose(
+        arrays["keypoints_3d_world"],
+        window_size=int(model_config.get("smoothing", {}).get("window_size", 5)),
+        valid_mask=accepted,
+    )
+    sampled_timestamps = np.asarray(
+        [sync_frame.timestamp_sec for index, sync_frame in enumerate(synced_frames) if index % max(args.stride, 1) == 0][
+            : arrays["frame_idx"].shape[0]
+        ],
+        dtype=float,
+    )
     video_arrays = _repeat_arrays_for_video(arrays, output_repeats)
-    export_keypoints3d_csv(video_arrays["keypoints_3d_world"], output_paths["csv"] / "vitpose_keypoints_3d_world_flat.csv")
+    export_keypoints3d_csv(
+        arrays["keypoints_3d_world"],
+        output_paths["csv"] / "vitpose_keypoints_3d_world_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
+    export_keypoints2d_csv(poses_2d_by_frame, output_paths["csv"] / "vitpose_keypoints_2d_flat.csv")
     export_session_json(
         {
             "session_id": session.session_id,
+            "run_id": run_id,
             "source": "vitpose_multiview",
             "calibration_mode": calibration_mode,
+            "production_ready_calibration": production_ready_calibration,
+            "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
+            "frame_indices": arrays["frame_idx"],
+            "timestamps_sec": sampled_timestamps,
+            "sample_fps": fps / max(args.stride, 1),
+            "smoothing_applied": True,
+            "smoothing_window": int(model_config.get("smoothing", {}).get("window_size", 5)),
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
             "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
-            "shape": {"keypoints_3d_world": list(video_arrays["keypoints_3d_world"].shape)},
-            "keypoints_3d_world": video_arrays["keypoints_3d_world"],
-            "triangulation_score": video_arrays["triangulation_score"],
-            "reprojection_error": video_arrays["reprojection_error"],
-            "used_cameras": video_arrays["used_cameras"],
+            "shape": {"keypoints_3d_world": list(arrays["keypoints_3d_world"].shape)},
+            "keypoints_3d_world": arrays["keypoints_3d_world"],
+            "triangulation_score": arrays["triangulation_score"],
+            "reprojection_error": arrays["reprojection_error"],
+            "used_cameras": arrays["used_cameras"],
         },
         output_paths["json"] / "vitpose_session_3d.json",
+    )
+    body_count = min(17, arrays["keypoints_3d_world"].shape[1])
+    body_valid = np.all(np.isfinite(arrays["keypoints_3d_world"][:, :body_count]), axis=-1)
+    mean_body_valid_ratio = float(np.mean(body_valid)) if body_valid.size else 0.0
+    finite_errors = arrays["reprojection_error"][np.isfinite(arrays["reprojection_error"])]
+    mean_reprojection_error = float(np.mean(finite_errors)) if finite_errors.size else None
+    quality_passed = bool(
+        production_ready_calibration
+        and mean_body_valid_ratio >= 0.70
+        and mean_reprojection_error is not None
+        and mean_reprojection_error <= max_error
+    )
+    export_session_json(
+        {
+            "session_id": session.session_id,
+            "run_id": run_id,
+            "status": "passed" if quality_passed else "failed",
+            "production_ready_calibration": production_ready_calibration,
+            "mean_body17_valid_ratio": mean_body_valid_ratio,
+            "mean_reprojection_error_px": mean_reprojection_error,
+            "max_reprojection_error_px": max_error,
+            "minimum_required_body17_valid_ratio": 0.70,
+        },
+        output_paths["json"] / "run_quality_report.json",
     )
     write_3d_skeleton_video(
         video_arrays["keypoints_3d_world"],
         output_paths["videos"] / "vitpose_skeleton_3d_world.mp4",
         fps=max(float(args.output_fps or fps), 1.0),
     )
+    if quality_passed:
+        mark_run_complete(output_root, session.session_id, run_id, output_paths["root"])
 
     print(f"saved: {output_paths['videos'] / 'vitpose_skeleton_3d_world.mp4'}")
     print(f"keypoints_3d_world shape: {video_arrays['keypoints_3d_world'].shape}")
     print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
+    print(f"run_id: {run_id}")
+    print(f"quality_status: {'passed' if quality_passed else 'failed'}")
+    if not quality_passed and not args.allow_low_quality_output:
+        raise SystemExit(
+            "3D output failed production quality gates. Diagnostic files were kept, "
+            "but this run was not promoted as latest. Inspect run_quality_report.json."
+        )
 
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
     intrinsic = np.array([[1200.0, 0.0, 960.0], [0.0, 1200.0, 540.0], [0.0, 0.0, 1.0]], dtype=float)
@@ -301,4 +447,3 @@ def _repeat_array_for_video(values: np.ndarray, repeats: list[int]) -> np.ndarra
 
 if __name__ == "__main__":
     main()
-

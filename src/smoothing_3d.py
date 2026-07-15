@@ -44,3 +44,44 @@ def moving_average_nan(keypoints_3d: np.ndarray, window_size: int = 5) -> np.nda
         where=window_counts > 0,
     )
     return smoothed
+
+
+def moving_average_pose(
+    keypoints_3d: np.ndarray,
+    window_size: int = 5,
+    valid_mask: np.ndarray | None = None,
+    min_valid_samples: int = 1,
+) -> np.ndarray:
+    """Smooth complete XYZ observations without mixing partial coordinates."""
+    values = np.asarray(keypoints_3d, dtype=float)
+    if values.ndim != 3 or values.shape[-1] != 3:
+        raise ValueError(f"Expected [frames, joints, 3], got {values.shape}")
+    if window_size <= 1:
+        return values.copy()
+    if window_size % 2 == 0:
+        raise ValueError("window_size must be odd")
+    valid = np.all(np.isfinite(values), axis=-1)
+    if valid_mask is not None:
+        supplied = np.asarray(valid_mask, dtype=bool)
+        if supplied.shape != valid.shape:
+            raise ValueError(f"valid_mask must have shape {valid.shape}, got {supplied.shape}")
+        valid &= supplied
+    if min_valid_samples < 1:
+        raise ValueError("min_valid_samples must be at least 1")
+    if values.shape[0] < window_size:
+        return np.where(valid[..., None], values, np.nan)
+    safe = np.where(valid[..., None], values, 0.0)
+    radius = window_size // 2
+    frame_count = values.shape[0]
+    cumulative = np.concatenate([np.zeros((1,) + safe.shape[1:]), np.cumsum(safe, axis=0)], axis=0)
+    counts = np.concatenate([np.zeros((1,) + valid.shape[1:]), np.cumsum(valid.astype(float), axis=0)], axis=0)
+    starts = np.clip(np.arange(frame_count) - radius, 0, frame_count)
+    ends = np.clip(np.arange(frame_count) + radius + 1, 0, frame_count)
+    sums = cumulative[ends] - cumulative[starts]
+    sample_counts = counts[ends] - counts[starts]
+    return np.divide(
+        sums,
+        sample_counts[..., None],
+        out=np.full_like(values, np.nan),
+        where=(sample_counts >= min_valid_samples)[..., None],
+    )

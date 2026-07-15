@@ -13,6 +13,8 @@ sys.path.insert(0, str(ROOT))
 
 from src.artifacts import save_artifact_manifest
 from src.camera_calibration import save_calibrations
+from src.coordinate_system import calibration_metadata, opencv_reference_to_analysis
+from src.config_validation import validate_model_config
 from src.exporter import (
     export_excel,
     export_joint_validation_csv,
@@ -25,10 +27,11 @@ from src.exporter import (
 )
 from src.model_runtime import check_model_runtime, save_model_runtime_report
 from src.preflight import has_errors, run_preflight, save_preflight_report
+from src.run_outputs import create_run_output_tree
 from src.smoothing_3d import moving_average_nan
 from src.synthetic_data import build_synthetic_triangulation_result
 from src.validation_3d import quality_summary, validate_triangulation
-from src.video_io import ensure_output_tree, load_session
+from src.video_io import load_session
 from src.video_probe import probe_session_videos, video_probe_summary
 from src.visualization_2d import write_placeholder_overlay_video
 from src.visualization_3d import save_heatmap, save_reprojection_timeline, write_3d_skeleton_video
@@ -41,6 +44,7 @@ def main() -> None:
     parser.add_argument("--output-root", default="outputs", help="Output root directory")
     parser.add_argument("--dry-run", action="store_true", help="Create expected outputs without model/video inference")
     parser.add_argument("--dry-run-frames", type=int, default=30)
+    parser.add_argument("--run-id", default=None, help="Optional unique dry-run output identifier")
     parser.add_argument(
         "--strict-preflight",
         action="store_true",
@@ -50,9 +54,9 @@ def main() -> None:
 
     session = load_session(args.session)
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
-        model_config = yaml.safe_load(file)
+        model_config = validate_model_config(yaml.safe_load(file))
 
-    output_paths = ensure_output_tree(ROOT / args.output_root, session.session_id)
+    run_id, output_paths = create_run_output_tree(ROOT / args.output_root, session.session_id, args.run_id)
     issues = run_preflight(
         session=session,
         model_config=model_config,
@@ -104,7 +108,15 @@ def main() -> None:
         write_placeholder_overlay_video(output_paths["videos"] / f"{camera.camera_id}_2d_overlay.mp4")
     write_3d_skeleton_video(keypoints_3d_world, output_paths["videos"] / "skeleton_3d_world.mp4")
     if "calibrations" in result:
-        save_calibrations(list(result["calibrations"].values()), output_paths["calibration"] / "cameras.json")
+        save_calibrations(
+            list(result["calibrations"].values()),
+            output_paths["calibration"] / "cameras.json",
+            metadata=calibration_metadata(
+                "synthetic_test",
+                {"name": "synthetic_opencv", "unit": "meter", "axes": {"x": "right", "y": "down", "z": "forward"}},
+                opencv_reference_to_analysis(),
+            ),
+        )
     if "synthetic_ground_truth_3d_world" in result:
         summary["synthetic_mean_3d_error_m"] = _mean_3d_error(
             keypoints_3d_world,
@@ -167,6 +179,7 @@ def main() -> None:
     save_artifact_manifest(output_paths["root"], output_paths["json"] / "artifact_manifest.json")
 
     print(f"saved outputs under: {output_paths['root']}")
+    print(f"run id: {run_id}")
     print(f"keypoints_3d_world shape: {keypoints_3d_world.shape}")
     print(f"mean reprojection error px: {summary['mean_reprojection_error_px']:.6f}")
     if "synthetic_mean_3d_error_m" in summary:

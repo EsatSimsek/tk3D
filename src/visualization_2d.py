@@ -35,6 +35,8 @@ def write_placeholder_overlay_video(path: str | Path, size: tuple[int, int] = (1
     target.parent.mkdir(parents=True, exist_ok=True)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(str(target), fourcc, fps, size)
+    if not writer.isOpened():
+        raise RuntimeError(f"Could not open video writer: {target}")
     blank = np.zeros((size[1], size[0], 3), dtype=np.uint8)
     writer.write(blank)
     writer.release()
