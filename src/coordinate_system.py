@@ -40,6 +40,20 @@ def aist_world_to_analysis() -> np.ndarray:
     )
 
 
+def mads_world_to_analysis() -> np.ndarray:
+    """MADS millimeters (x horizontal, y up, z backward) -> TK3D meters."""
+    scale = 0.001
+    return np.asarray(
+        [
+            [scale, 0.0, 0.0, 0.0],
+            [0.0, 0.0, -scale, 0.0],
+            [0.0, scale, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=float,
+    )
+
+
 def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     values = np.asarray(points, dtype=float)
     matrix = np.asarray(transform, dtype=float)

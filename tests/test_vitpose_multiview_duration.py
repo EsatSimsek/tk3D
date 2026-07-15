@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from scripts.run_vitpose_multiview_3d import (
+    _effective_smoothing_window,
     _repeat_array_for_video,
     _repeat_count,
     _target_sample_count,
@@ -20,6 +21,12 @@ def test_stride_sampling_preserves_output_frame_count() -> None:
     assert len(repeats) == sample_count
     assert sum(repeats) == source_frames
     assert repeats[-1] == 9
+
+
+def test_sparse_sampling_disables_temporal_smoothing_by_default() -> None:
+    assert _effective_smoothing_window(configured_window=5, stride=20, override=None) == 1
+    assert _effective_smoothing_window(configured_window=5, stride=1, override=None) == 5
+    assert _effective_smoothing_window(configured_window=5, stride=20, override=3) == 3
 
 
 def test_repeated_arrays_match_video_timeline_length() -> None:

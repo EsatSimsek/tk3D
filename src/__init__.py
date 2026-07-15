@@ -31,4 +31,5 @@ __all__ = [
     "run_outputs",
     "ground_truth_io",
     "ground_truth_validation",
+    "mads_dataset",
 ]

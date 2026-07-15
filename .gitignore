@@ -43,3 +43,4 @@ data/aist_test/annotations/**
 data/aist_test/annotations/cameras.zip
 data/mads_test/raw/
 data/mads_test/extracted/
+data/mads_test/local/

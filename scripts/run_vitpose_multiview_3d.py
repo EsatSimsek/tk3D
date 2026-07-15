@@ -32,7 +32,11 @@ from src.visualization_2d import draw_pose2d
 from src.visualization_3d import write_3d_skeleton_video
 
 
-PRODUCTION_CALIBRATION_MODES = {"multiview_common_reference", "aist_official_multiview"}
+PRODUCTION_CALIBRATION_MODES = {
+    "multiview_common_reference",
+    "aist_official_multiview",
+    "mads_official_multiview",
+}
 
 
 def main() -> None:
@@ -42,6 +46,15 @@ def main() -> None:
     parser.add_argument("--output-root", default="outputs")
     parser.add_argument("--max-frames", type=int, default=None, help="Maximum sampled inference frames. Omit for full video duration.")
     parser.add_argument("--stride", type=int, default=1)
+    parser.add_argument(
+        "--smoothing-window",
+        type=int,
+        default=None,
+        help=(
+            "Optional odd smoothing window. By default the configured window is used for stride=1, "
+            "while sparse stride runs use window=1 to avoid blending distant moments."
+        ),
+    )
     parser.add_argument("--max-cameras", type=int, default=None, help="Optional limit for faster tests; default uses all session cameras.")
     parser.add_argument("--progress-every", type=int, default=1, help="Print progress every N written frames.")
     parser.add_argument("--output-fps", type=float, default=None, help="Playback FPS. Defaults to the source video FPS.")
@@ -69,6 +82,11 @@ def main() -> None:
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
         model_config = validate_model_config(yaml.safe_load(file))
     pose2d_config = model_config["pose2d"]
+    smoothing_window = _effective_smoothing_window(
+        configured_window=int(model_config.get("smoothing", {}).get("window_size", 5)),
+        stride=args.stride,
+        override=args.smoothing_window,
+    )
     calibrations_path = output_root / session.session_id / "calibration" / "cameras.json"
     if calibrations_path.exists():
         bundle = load_calibration_bundle(calibrations_path)
@@ -143,6 +161,7 @@ def main() -> None:
         f"      cameras         : {len(cameras)}\n"
         f"      target frames   : {args.max_frames or 'full video'}\n"
         f"      stride          : {max(args.stride, 1)}\n"
+        f"      smoothing window: {smoothing_window}\n"
         f"      calibration     : {calibration_mode}\n"
         "[3/4] Running 2D pose + 3D triangulation",
         flush=True,
@@ -263,7 +282,7 @@ def main() -> None:
     )
     arrays["keypoints_3d_world"] = moving_average_pose(
         arrays["keypoints_3d_world"],
-        window_size=int(model_config.get("smoothing", {}).get("window_size", 5)),
+        window_size=smoothing_window,
         valid_mask=accepted,
     )
     sampled_timestamps = np.asarray(
@@ -291,8 +310,8 @@ def main() -> None:
             "frame_indices": arrays["frame_idx"],
             "timestamps_sec": sampled_timestamps,
             "sample_fps": fps / max(args.stride, 1),
-            "smoothing_applied": True,
-            "smoothing_window": int(model_config.get("smoothing", {}).get("window_size", 5)),
+            "smoothing_applied": smoothing_window > 1,
+            "smoothing_window": smoothing_window,
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
             "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
@@ -426,6 +445,13 @@ def _repeat_count(frame_idx: int, source_frames: int, stride: int) -> int:
     if source_frames <= 0:
         return step
     return max(min(step, source_frames - frame_idx), 1)
+
+
+def _effective_smoothing_window(configured_window: int, stride: int, override: int | None) -> int:
+    window = int(override) if override is not None else (1 if int(stride) > 1 else int(configured_window))
+    if window < 1 or window % 2 == 0:
+        raise SystemExit("--smoothing-window must be a positive odd integer")
+    return window
 
 
 def _repeat_arrays_for_video(arrays: dict[str, np.ndarray], repeats: list[int]) -> dict[str, np.ndarray]:

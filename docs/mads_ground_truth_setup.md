@@ -5,8 +5,9 @@
 TK3D için birincil dış doğrulama veri seti MADS (Martial Arts, Dancing and Sports) olarak seçildi.
 Veri seti Karate ve Tai-chi gibi poomsae'ye yakın hızlı, dönüşlü ve kendi kendini örten hareketleri içerir.
 Üç RGB kamera senkronize ve kalibredir; 3B referans pozlar 60 Hz optik motion-capture sistemiyle ölçülmüştür.
-RGB video 15 fps ve 1024x768 çözünürlüktedir. Kamera, video ve motion-capture verileri ortak koordinat ve zaman
-referansına kalibre edilmiştir.
+Kamera, video ve motion-capture verileri ortak koordinat ve zaman referansına kalibre edilmiştir. Yayın 15 fps ve
+1024x768 değerlerini belirtse de indirilen, çıkarılmış çoklu-görüş AVI dosyalarının gerçek başlığı 30 fps ve 512x384'tür.
+Kurulum bu yüzden yayın metnini varsaymak yerine dosya başlığını kaydeder ve video/GT'yi kare indeksiyle eşler.
 
 Bu seçim, AIST'in kötü bir veri seti olduğu anlamına gelmez. AIST dans ve çok-kamera akış testi için değerlidir;
 MADS ise TK3D'nin dövüş sanatı hareket alanına daha yakındır.
@@ -31,11 +32,9 @@ Yalnızca üreticinin resmî sayfası kullanılmalıdır:
 - https://visal.cs.cityu.edu.hk/downloads/
 - Sayfadaki `Human Pose Datasets -> MADS -> download here` bağlantısı
 
-15 Temmuz 2026 kontrolünde resmî sunucu zaman aşımına uğradığı için otomatik indirme tamamlanamadı. Lisansı ve dosya
-bütünlüğü doğrulanamayan üçüncü taraf aynalar projeye alınmadı.
-
-TK3D için stereo-depth arşivi gerekli değildir. Resmî bağlantı tekrar çalıştığında yalnızca çoklu kamera parçalarını
-indirmek yeterlidir:
+Yerel kurulumda hem çoklu-görüş hem stereo-depth arşivleri mevcuttur. 3B RGB pipeline'ın ana benchmark'ı çoklu-görüş
+verisidir; depth verisi de indekslenir, 19 eklemli ground-truth JSON'a dönüştürülür ve ileride depth füzyonu için
+saklanır. Yalnız RGB benchmark kurulacaksa çoklu kamera parçaları yeterlidir:
 
 ```text
 MADS_multiview.z01
@@ -45,9 +44,36 @@ MADS_multiview.z10
 MADS_multiview.zip
 ```
 
-Dosyaları `data/mads_test/raw/` altına koyun. Tüm parçalar aynı klasördeyken güncel 7-Zip ile
-`MADS_multiview.zip` dosyasını `data/mads_test/extracted/` içine açın. `raw/` ve `extracted/` Git tarafından
-özellikle izlenmez.
+Tüm parçalar aynı klasördeyken güncel 7-Zip ile arşivleri açın. Büyük arşivler ve çıkarılmış veri Git'e eklenmez.
+
+## Yerel MADS kurulumu
+
+Mevcut veri kökü `C:\Users\WWWW\Desktop\MADS` olarak algılandı. Aşağıdaki komut tüm 60 diziyi indeksler; seçilen
+Kata dizileri için yerel oturum dosyalarını, resmî kamera kalibrasyonlarını, metre cinsinden ground-truth JSON'larını,
+SHA-256 özetlerini ve projeksiyon önizlemelerini üretir:
+
+```powershell
+python scripts\setup_mads_test.py `
+  --dataset-root C:\Users\WWWW\Desktop\MADS `
+  --actions Kata `
+  --hash-files `
+  --preview
+```
+
+Üretilen yerel dosyalar:
+
+- `data/mads_test/local/sessions/mads_kata_*.yaml`
+- `data/mads_test/local/ground_truth/multiview/Kata_*.json`
+- `data/mads_test/local/ground_truth/depth/Kata_*.json`
+- `data/mads_test/local/mads_manifest.json`
+- `outputs/mads_kata_*/calibration/cameras.json`
+- `outputs/mads_setup/previews/*_gt_overlay.png`
+- `outputs/mads_setup/mads_setup_report.json`
+
+Yerel manifest ve veri yolları makineye özgü olduğu için Git'e eklenmez. Kurulumda bulunan tüm 30 çoklu-görüş ve
+30 depth dizi manifestte kayıtlıdır. Kata çoklu-görüş dizileri 15, Kata depth dizileri 19 eklemlidir; dönüştürücü bu
+iki resmî şemayı ayrı ayrı destekler. NaN içeren geçersiz mocap kareleri manifestte sayılır ve değerlendirmede
+kullanılmaz.
 
 Arşiv geldikten sonra ilk işlem dosya adlarını, annotation anahtarlarını, eklem sırasını, kamera matrislerini ve
 koordinat birimini kontrol etmektir. Bu bilgiler tahmin edilmemeli; arşivdeki resmî README ve metadata esas alınmalıdır.
@@ -81,8 +107,8 @@ Referans JSON'un asgari alanları:
 }
 ```
 
-MADS eklem adları COCO adlarıyla aynı değilse açık bir YAML eşlemesi verilmelidir. Anahtar tahmin eklemi, değer MADS
-eklemidir:
+MADS dönüştürücüsü resmî 15/19 eklem sırasını anatomik adlara çevirir. Ortak adlar otomatik eşlenir; farklı bir
+model/şema kullanılırsa anahtar tahmin eklemi, değer MADS eklemi olacak şekilde açık YAML eşlemesi verilebilir:
 
 ```yaml
 joint_map:
@@ -91,16 +117,19 @@ joint_map:
   left_hip: MADS_LEFT_HIP_NAME
 ```
 
-Gerçek MADS eklem adları arşiv görülmeden bu dosyaya yazılmamalıdır.
-
 ## Doğruluk raporunu çalıştırma
 
 ```powershell
+python scripts\run_vitpose_multiview_3d.py `
+  --session data\mads_test\local\sessions\mads_kata_f2.yaml `
+  --stride 20 `
+  --run-id mads-kata-f2-stride20-raw `
+  --allow-low-quality-output
+
 python scripts\evaluate_ground_truth_3d.py `
-  --prediction outputs\<session>\runs\<run_id>\json\vitpose_session_3d.json `
-  --ground-truth data\mads_test\ground_truth\<sequence>.json `
-  --joint-map data\mads_test\mads_to_coco.yaml `
-  --output-dir outputs\mads_validation\<sequence>
+  --prediction outputs\mads_kata_f2\runs\mads-kata-f2-stride20-raw\json\vitpose_session_3d.json `
+  --ground-truth data\mads_test\local\ground_truth\multiview\Kata_F2.json `
+  --output-dir outputs\mads_kata_f2\runs\mads-kata-f2-stride20-raw\ground_truth_validation
 ```
 
 Üretilen çıktılar:
@@ -112,8 +141,27 @@ python scripts\evaluate_ground_truth_3d.py `
 - `ground_truth_frame_matches.csv`
 - `validation_manifest.json` (girdi ve çıktıların SHA-256 özeti)
 
-Video 15 fps, motion capture 60 fps olsa da değerlendirici timestamp üzerinden en yakın referans karesini eşler ve
-eşleşme farkını ayrıca raporlar.
+MADS arşivindeki hazırlanmış GT dizisi her video karesi için bir poz içerir. Dönüştürücü gerçek AVI fps değerini
+kaydeder; değerlendirici frame/timestamp eşleşme farkını ayrıca raporlar.
+
+## İlk ölçülen sonuç
+
+Kata F2 üzerinde 600 kareye eşit aralıklı 30 örnekle yapılan diagnostik çalışmada resmî üç kamera kalibrasyonu
+kullanıldı. Seyrek örneklerde uzak anları birbirine karıştırmamak için smoothing otomatik olarak kapatıldı.
+
+- Ortak anatomik eklem: 12
+- Global MPJPE: 149.0 mm
+- Median hata: 79.7 mm
+- Root-relative MPJPE: 123.0 mm
+- PA-MPJPE: 94.7 mm
+- PCK@100 mm: %70
+- 2B GT projeksiyonuna medyan uzaklık: yaklaşık 8 piksel
+
+Bu bir başarı sonucu değildir: ground-truth kalite kapısı doğru biçimde `failed_ground_truth_quality_gate` verdi.
+Önceki yanlış smoothing davranışı aynı testte 276.1 mm üretmişti; düzeltmeden sonra hata 149.0 mm'ye indi. Kalan
+hata ağırlıklı olarak birkaç 2B eklem sapmasının triangulation sırasında derinlik hatasına büyümesidir. Kalibrasyon
+projeksiyonları üç kamerada görüntüyle örtüşmekte ve sağ/sol eklem eşlemesi doğrulanmıştır. 30 kare yalnız diagnostik
+örnektir; resmî kıyas için en az 300 geçerli kare ve sporcu/sekans ayrımlı tam benchmark çalıştırılmalıdır.
 
 ## Ölçülen güvenilirlik
 

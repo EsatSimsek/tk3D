@@ -69,7 +69,7 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Son doğrulama sonucu:
 
 ```text
-53 passed
+58 passed
 ```
 
 `--dry-run`, gerçek video ve model olmadan sentetik dünya koordinatları üretir, bunları 3 kamera projection matrix ile 2D'ye projekte eder ve gerçek multi-view triangulation kodundan geçirerek beklenen output yapısını üretir.
@@ -90,6 +90,15 @@ MADS (Martial Arts, Dancing and Sports) seçildi. AIST mevcut çok-kamera smoke 
 Ground-truth karşılaştırma katmanı global/pelvis-relative/PA-MPJPE, PCK-3D, açı, hız, ivme ve kemik kararlılığı
 raporlarını üretir. Girdi koordinatı ve birimi açıkça doğrulanmadan çalışmaz. Kurulum, veri sözleşmesi ve resmî indirme
 durumu: `docs/mads_ground_truth_setup.md`.
+
+Yerel MADS arşivini (çoklu-görüş ve depth) indeksleyip Kata oturumlarını hazırlamak:
+
+```powershell
+python scripts\setup_mads_test.py --dataset-root C:\Users\WWWW\Desktop\MADS --actions Kata --hash-files --preview
+```
+
+Kurulum 30 çoklu-görüş ve 30 depth diziyi indeksler; seçilen diziler için resmî kalibrasyon, yerel session ve metre
+cinsinden 3B ground-truth üretir. Makineye özgü yolları içeren `data/mads_test/local/` Git'e eklenmez.
 
 ```powershell
 python scripts\evaluate_ground_truth_3d.py --prediction <tk3d_3d.json> --ground-truth <metric_gt.json> --output-dir outputs\ground_truth_validation
