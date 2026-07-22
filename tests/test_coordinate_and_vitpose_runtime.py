@@ -7,6 +7,7 @@ from src.pose2d_estimator import _bbox_from_pose, pose2d_from_arrays
 from src.vitpose_plus_runtime import (
     ViTPosePlusWholeBodyInferencer,
     _aspect_correct_bbox,
+    _flip_back_heatmaps,
     _refine_heatmap_peaks_udp,
 )
 
@@ -86,3 +87,14 @@ def test_heatmap_offsets_are_applied_in_heatmap_coordinates() -> None:
         atol=1e-6,
     )
     assert np.all(scores == 1.0)
+
+
+def test_flip_back_heatmaps_reverses_x_and_swaps_left_right() -> None:
+    heatmaps = np.zeros((133, 2, 4), dtype=float)
+    heatmaps[1, 0, 0] = 1.0
+    heatmaps[2, 1, 3] = 2.0
+
+    flipped = _flip_back_heatmaps(heatmaps)
+
+    assert flipped[2, 0, 3] == 1.0
+    assert flipped[1, 1, 0] == 2.0

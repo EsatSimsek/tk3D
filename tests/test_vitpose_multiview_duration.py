@@ -4,6 +4,7 @@ import numpy as np
 
 from scripts.run_vitpose_multiview_3d import (
     _effective_smoothing_window,
+    _interpolate_array_for_video,
     _repeat_array_for_video,
     _repeat_count,
     _target_sample_count,
@@ -38,6 +39,13 @@ def test_repeated_arrays_match_video_timeline_length() -> None:
     np.testing.assert_array_equal(repeated[1], sampled[0])
     np.testing.assert_array_equal(repeated[2], sampled[1])
     np.testing.assert_array_equal(repeated[4], sampled[2])
+
+
+def test_sparse_video_values_are_interpolated_instead_of_frozen() -> None:
+    sampled = np.asarray([[[0.0]], [[10.0]], [[20.0]]])
+    interpolated = _interpolate_array_for_video(sampled, repeats=[2, 2, 1])
+
+    np.testing.assert_allclose(interpolated[:, 0, 0], [0.0, 5.0, 10.0, 15.0, 20.0])
 
 
 def test_frame_offsets_define_common_global_timeline() -> None:

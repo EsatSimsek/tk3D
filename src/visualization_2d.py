@@ -14,6 +14,7 @@ def draw_pose2d(
     pose: PersonPose2D,
     color: tuple[int, int, int] = (0, 255, 0),
     edge_color: tuple[int, int, int] = (255, 180, 40),
+    draw_wholebody_points: bool = False,
 ) -> np.ndarray:
     output = frame.copy()
     valid_points = np.asarray(pose.valid_mask, dtype=bool) & np.all(np.isfinite(pose.keypoints_xy), axis=1)
@@ -24,7 +25,8 @@ def draw_pose2d(
             p1 = tuple(np.round(pose.keypoints_xy[start]).astype(int))
             p2 = tuple(np.round(pose.keypoints_xy[end]).astype(int))
             cv2.line(output, p1, p2, edge_color, 2, lineType=cv2.LINE_AA)
-    for point, valid in zip(pose.keypoints_xy, valid_points):
+    point_count = pose.keypoints_xy.shape[0] if draw_wholebody_points else min(17, pose.keypoints_xy.shape[0])
+    for point, valid in zip(pose.keypoints_xy[:point_count], valid_points[:point_count]):
         if valid:
             cv2.circle(output, tuple(np.round(point).astype(int)), 3, color, -1, lineType=cv2.LINE_AA)
     return output

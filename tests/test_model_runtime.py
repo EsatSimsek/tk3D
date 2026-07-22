@@ -105,3 +105,12 @@ def test_model_config_rejects_non_boolean_adapter_override() -> None:
 
     with pytest.raises(ValueError, match="must be boolean"):
         validate_model_config(config)
+
+
+def test_model_config_rejects_invalid_person_detector_threshold() -> None:
+    with open("config/model_config.yaml", "r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+    config["person_detector"]["threshold"] = 1.5
+
+    with pytest.raises(ValueError, match="person_detector.threshold"):
+        validate_model_config(config)

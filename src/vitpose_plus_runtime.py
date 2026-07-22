@@ -11,6 +11,30 @@ from .data_structures import COCO_WHOLEBODY_KEYPOINTS
 from .model_runtime import ModelRuntimeError
 
 
+def _wholebody_flip_index() -> np.ndarray:
+    index = np.arange(COCO_WHOLEBODY_KEYPOINTS, dtype=int)
+    pairs: list[tuple[int, int]] = [
+        (1, 2), (3, 4), (5, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16),
+        (17, 20), (18, 21), (19, 22),
+    ]
+    face_pairs = [
+        (0, 16), (1, 15), (2, 14), (3, 13), (4, 12), (5, 11), (6, 10), (7, 9),
+        (17, 26), (18, 25), (19, 24), (20, 23), (21, 22),
+        (31, 35), (32, 34),
+        (36, 45), (37, 44), (38, 43), (39, 42), (40, 47), (41, 46),
+        (48, 54), (49, 53), (50, 52), (55, 59), (56, 58),
+        (60, 64), (61, 63), (65, 67),
+    ]
+    pairs.extend((23 + left, 23 + right) for left, right in face_pairs)
+    pairs.extend((91 + offset, 112 + offset) for offset in range(21))
+    for left, right in pairs:
+        index[left], index[right] = index[right], index[left]
+    return index
+
+
+COCO_WHOLEBODY_FLIP_INDEX = _wholebody_flip_index()
+
+
 class ViTPosePlusWholeBodyInferencer:
     """Minimal ViTPose+ WholeBody runtime for the official multi-head checkpoint."""
 
@@ -25,11 +49,13 @@ class ViTPosePlusWholeBodyInferencer:
         repo_root: Path | None = None,
         input_height: int = 256,
         input_width: int = 192,
+        flip_test: bool = True,
     ) -> None:
         if input_height <= 0 or input_width <= 0 or input_height % 16 or input_width % 16:
             raise ValueError("ViTPose input dimensions must be positive multiples of 16")
         self.input_height = int(input_height)
         self.input_width = int(input_width)
+        self.flip_test = bool(flip_test)
         self.checkpoint_path = checkpoint_path
         self.adapter_checkpoint_path = adapter_checkpoint_path
         self.allow_unapproved_adapter = bool(allow_unapproved_adapter)
@@ -51,6 +77,10 @@ class ViTPosePlusWholeBodyInferencer:
         tensor, crop = self._preprocess(frame, bbox_xyxy=bbox_xyxy)
         with self._torch.no_grad():
             heatmaps = self._model(tensor)[0].detach().cpu().numpy()
+            if self.flip_test:
+                flipped_tensor = self._torch.flip(tensor, dims=[3])
+                flipped_heatmaps = self._model(flipped_tensor)[0].detach().cpu().numpy()
+                heatmaps = 0.5 * (heatmaps + _flip_back_heatmaps(flipped_heatmaps))
         return self._decode_heatmaps(heatmaps, crop)
 
     def _build_model(self) -> Any:
@@ -257,6 +287,13 @@ def _refine_heatmap_peaks_udp(
         if np.all(np.isfinite(offset)) and np.linalg.norm(offset) <= 2.0:
             coords[joint_idx] += offset
     return coords
+
+
+def _flip_back_heatmaps(heatmaps: np.ndarray) -> np.ndarray:
+    values = np.asarray(heatmaps)
+    if values.ndim != 3 or values.shape[0] != COCO_WHOLEBODY_KEYPOINTS:
+        raise ValueError(f"Expected heatmaps with shape [133, H, W], got {values.shape}")
+    return values[COCO_WHOLEBODY_FLIP_INDEX, :, ::-1].copy()
 
 
 def _strip_prefix(state_dict: dict[str, Any], prefix: str) -> dict[str, Any]:

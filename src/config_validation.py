@@ -29,6 +29,41 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     threshold = float(pose.get("score_threshold", 0.30))
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("pose2d.score_threshold must be between 0 and 1")
+    for option in ("flip_test", "temporal_filter_enabled", "temporal_stabilize_left_right"):
+        if option in pose and not isinstance(pose[option], bool):
+            raise ValueError(f"pose2d.{option} must be boolean")
+
+    detector = config.get("person_detector", {})
+    if not isinstance(detector, dict):
+        raise ValueError("person_detector must be a mapping")
+    if "enabled" in detector and not isinstance(detector["enabled"], bool):
+        raise ValueError("person_detector.enabled must be boolean")
+    if detector.get("enabled", False):
+        if detector.get("backend", "rfdetr") != "rfdetr":
+            raise ValueError("person_detector.backend must be rfdetr")
+        if detector.get("model_variant", "small") not in {"nano", "small", "medium", "large"}:
+            raise ValueError("person_detector.model_variant must be nano, small, medium, or large")
+        for key, default in (
+            ("threshold", 0.25),
+            ("target_confidence_threshold", 0.65),
+            ("track_activation_threshold", 0.25),
+            ("minimum_matching_threshold", 0.80),
+        ):
+            value = float(detector.get(key, default))
+            if not 0.0 <= value <= 1.0:
+                raise ValueError(f"person_detector.{key} must be between 0 and 1")
+        if not 0.0 <= float(detector.get("bbox_padding", 0.18)) <= 1.0:
+            raise ValueError("person_detector.bbox_padding must be between 0 and 1")
+        stationary_alpha = float(detector.get("bbox_stationary_alpha", 0.35))
+        if not 0.0 < stationary_alpha <= 1.0:
+            raise ValueError("person_detector.bbox_stationary_alpha must be between 0 and 1")
+        if float(detector.get("bbox_motion_scale_ratio", 0.12)) <= 0.0:
+            raise ValueError("person_detector.bbox_motion_scale_ratio must be positive")
+        for key, default in (("lost_track_buffer", 30), ("reacquire_after_frames", 12)):
+            if int(detector.get(key, default)) < 1:
+                raise ValueError(f"person_detector.{key} must be positive")
+        if "optimize_for_inference" in detector and not isinstance(detector["optimize_for_inference"], bool):
+            raise ValueError("person_detector.optimize_for_inference must be boolean")
 
     triangulation = _mapping(config, "triangulation")
     if int(triangulation.get("min_views", 2)) < 2:

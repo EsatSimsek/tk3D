@@ -15,6 +15,8 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - Geçici skor resmi hakem puanı değildir. Sıradaki alan işi, gerçek poomsae kayıtlarında phase/step etiketleri ve onaylı teknik hedefler oluşturmaktır.
 - AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
 - MADS Karate/Tai-chi verisi kalibre üç kamera ve motion-capture ground truth ile 3B doğruluk benchmark'ı olarak kullanılıyor; F2 dizisi model uyarlamasından tamamen ayrı testtir.
+- Üretim 2B hattı RF-DETR kişi tespiti, ByteTrack kimlik takibi, adaptif kişi-kutusu stabilizasyonu, ViTPose flip-test ve zamansal eklem filtresi kullanır.
+- Son 300 örnekli MADS F2 kör testinde iç geometri kapısı geçti; global MPJPE `90,409 mm` olduğu için `50 mm` ground-truth hedefi ve resmî puanlama kapısı geçmedi.
 - Kendi poomsae videoları geldiğinde ortak checkerboard kalibrasyonu yapılmalı; çok kişili çekimlerde kimlik eşleme, poomsae adım etiketleri ve hakem/koç onaylı puan hedefleri eklenmelidir.
 
 Ana ara hedef veri:
@@ -27,6 +29,8 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 
 - Checkerboard tabanlı kamera kalibrasyonu için giriş noktası
 - ViTPose-Huge 2D wholebody tahmin sınıfı için entegrasyon arayüzü
+- RF-DETR + ByteTrack ile kamera başına kalıcı sporcu kimliği ve adaptif bounding-box stabilizasyonu
+- ViTPose flip-test, güven ağırlıklı zamansal filtre ve dönüşlerde anatomik sağ/sol kimlik koruması
 - Kalibrasyonlu multi-view triangulation
 - Kamera FPS'i ile saniye/frame offsetlerini dikkate alan ortak zaman çizelgesi senkronizasyonu
 - Görüş aykırılıklarını eleyen sağlam triangulation, pozitif derinlik/açı kontrolleri ve robust reprojection optimizasyonu
@@ -48,7 +52,7 @@ yeniden üretmek için kodu klonladıktan sonra aşağıdaki varlıklar resmî k
 | Bileşen | Ne için gerekli? | Durum |
 | --- | --- | --- |
 | Python 3.12 ve `requirements.txt` | Sentetik dry-run ve model gerektirmeyen çekirdek işlemler | Zorunlu başlangıç |
-| `requirements-pose.txt` içindeki PyTorch ortamı | 73 otomatik testin tamamı ve gerçek inference | Tam doğrulama için zorunlu |
+| `requirements-pose.txt` içindeki PyTorch, RF-DETR ve Supervision ortamı | 91 otomatik testin tamamı ve gerçek inference | Tam doğrulama için zorunlu |
 | NVIDIA GPU, ViTPose kaynak kodu ve WholeBody ağırlığı | Gerçek videodan 2B/3B iskelet üretimi | Gerçek inference için zorunlu |
 | MADS multi-view | Kalibre üç kamera ve mocap ground-truth ile ana 3B benchmark | Güvenilirlik testi için zorunlu |
 | MADS depth | İleride stereo-depth füzyonu ve depth GT incelemesi | Mevcut RGB benchmark için opsiyonel |
@@ -97,6 +101,10 @@ python -m pip install -r requirements-pose.txt
 `requirements-pose.txt` bu projede test edilen CUDA 13.0 PyTorch wheel'ini kullanır. Farklı CUDA/PyTorch ortamında
 paket sürümlerini körlemesine değiştirmek yerine önce PyTorch'un resmî kurulum seçicisine göre uyumlu wheel kurulmalı,
 ardından `requirements.txt`, `timm` ve `torchvision` tamamlanmalıdır: https://pytorch.org/get-started/locally/
+
+RF-DETR-Small ağırlığı ilk gerçek inference sırasında `C:\Users\<kullanıcı>\.roboflow\models\` altına otomatik
+indirilir. Sonraki çalıştırmalar doğrulanmış yerel ağırlığı kullanır. İnternetsiz bir makinede çalıştırmadan önce bu
+ilk indirme tamamlanmış olmalıdır.
 
 ### 2. Resmî ViTPose kaynak kodunu kur
 
@@ -309,7 +317,7 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Beklenen test sonucu:
 
 ```text
-73 passed
+91 passed
 ```
 
 `--dry-run`, sentetik dünya koordinatlarını üç kameraya projekte edip gerçek triangulation kodundan geçirir. Çıktısı:
@@ -445,7 +453,11 @@ python scripts\run_vitpose_multiview_3d.py --session data\session_001\session.ya
 ViTPose multi-view pipeline:
 
 - `session.yaml` içindeki kamera `frame_offset` değerlerini global frame zaman çizelgesine uygular.
-- Aynı fiziksel ana denk gelen yerel kamera karelerini işler ve her kameradaki kişi kutusunu zaman içinde takip eder.
+- RF-DETR ile kişileri bulur; ByteTrack ile kamera başına aynı sporcunun kimliğini korur ve kısa tespit kayıplarında son güvenilir kutuyu kullanır.
+- Adaptif kutu filtresi sabit duruşta dedektör titreşimini bastırır, büyük gerçek harekette kutuyu gecikmesiz izler.
+- ViTPose-Huge WholeBody üzerinde flip-test çalıştırır; güven ağırlıklı zamansal filtre küçük eklem sıçramalarını azaltır.
+- Dönüşlerde tek karelik anatomik sağ/sol değişimlerini önceki poz ve hareket tahminiyle düzeltir.
+- Stride kullanılan tanısal koşularda örnek pozları gerçek kaynak karelerine enterpole eder; çıktı videosu hızlandırılmış görünmez.
 - Üretim kalibrasyonu yoksa veya ortak dünya extrinsic bilgisi doğrulanmamışsa güvenli biçimde durur. Yaklaşık iki-kamera kalibrasyonu yalnızca açık `--allow-approximate-calibration` seçeneğiyle diagnostik preview için kullanılabilir.
 - Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
 - Her canlı çalışma `outputs/<session_id>/runs/<run_id>/` altında izole edilir; yalnızca kalite kapısını geçen çalışma `latest_run.json` olarak işaretlenir.
@@ -495,6 +507,10 @@ Hazır olanlar:
 - Farklı FPS, frame offset ve saniye offsetlerini destekleyen timestamp senkronizasyonu
 - ViTPose-Huge WholeBody 2D runtime; opsiyonel RTMW3D yardımcı adapter'ı varsayılan olarak kapalı
 - Batch/multi-camera 2D inference arayüzü
+- RF-DETR-Small kişi dedektörü ve ByteTrack tabanlı kalıcı sporcu kimliği; kısa kayıpta yeniden edinme desteği
+- Sabit duruş için adaptif bounding-box stabilizasyonu, ViTPose flip-test ve güven ağırlıklı zamansal eklem filtresi
+- Arka/yan dönüşlerde anatomik sağ-sol eklem kimliğini koruyan sıçrama düzeltmesi
+- BODY-17 odaklı 2B görselleştirme ve stride çıktılarında gerçek kare zaman çizelgesi enterpolasyonu
 - Aykırı kamerayı eleyen, pozitif derinlik ve triangulation açısı kontrolü yapan robust multi-view triangulation
 - Robust reprojection optimizasyonu; reprojection error ve inlier kamera sayısına dayalı kalite skoru
 - Sentetik 3 kamera dry-run pipeline
@@ -506,7 +522,7 @@ Hazır olanlar:
 - ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - MADS multi-view/depth indeksleme, resmî üç kamera kalibrasyonu ve metre cinsinden mocap ground-truth dönüşümü
 - F2'yi eğitimden ayıran domain-adaptation altyapısı ve onaysız adapter'ı üretimde reddeden güvenlik kilidi
-- MADS F2 üzerinde 300 örnekli ölçülmüş `82,5 mm` MPJPE benchmark; `50 mm` hedef geçilmediği için resmî skor kapalı
+- MADS F2 üzerinde 300 örnekli son kör test: `90,409 mm` MPJPE, `162,504 mm` P95, `13,426°` açı MAE ve `%95,89` geçerli eklem oranı; `50 mm` hedef geçilmediği için resmî skor kapalı
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Yönlü torso lean, smoothing sonrası hız, ağırlıklı center-of-mass proxy, adaptif hareket segmentasyonu
@@ -516,7 +532,8 @@ Hazır olanlar:
 Bekleyenler / sıradaki büyük işler:
 
 - Kendi poomsae kameraları için senkron checkerboard calibration videoları ile ortak referans intrinsic/extrinsic üretimi
-- Gerçek poomsae videolarında multi-person/person tracking eşlemesi
+- Aynı görüntüde birden fazla aktif sporcu varsa forma/kimlik tabanlı uzun süreli kamera-arası eşleme
+- Etiketli gerçek Taekwondo BODY-17 verisiyle yüksek çözünürlüklü pose modelinin yeniden eğitilmesi
 - Poomsae phase/step detection: hareketleri poomsae adımlarına bölme
 - Gerçek poomsae için phase/step adlarını ve başlangıç-bitiş karelerini onaylayacak etiket veri seti
 - Denge, açı, hizalama, yükseklik, zamanlama ve simetri hedeflerinin hakem/koç tarafından onaylanması
@@ -582,10 +599,16 @@ Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 
 ## Puanlama Altyapısı: Güvenli Geliştirme Akışı
 
-Puanlama altyapısı geliştirilebilir durumdadır; fakat mevcut MADS F2 sonucu `82,5 mm` MPJPE olduğu ve `50 mm`
+Puanlama altyapısı geliştirilebilir durumdadır; fakat mevcut üretim ayarlarının MADS F2 sonucu `90,409 mm` MPJPE olduğu ve `50 mm`
 ground-truth hedefini geçmediği için resmî puanlama kapalıdır. Sistem yalnız kaliteyi geçen karelerden açıklanabilir
 teknik özellik ve `provisional_not_official` durumlu geliştirme skoru üretir. Geçersiz eklem veya yetersiz kamera
 görüşü puana katılmaz.
+
+Son kör test üç resmî MADS kamerasında, stride 2 ile 300 inference örneği üzerinde yapılmıştır. İç geometri kapısı
+geçmiştir; ancak P95 `162,504 mm`, açı MAE `13,426°`, hız MAE `0,400 m/s`, ivme MAE `5,947 m/s²` ve kemik uzunluğu
+CV `%6,490` olduğundan ground-truth kapısı başarısızdır. Takip ve filtreler görsel kararlılığı artırır; bu sonuçlar
+etiketli Taekwondo verisiyle alan-özel yeniden eğitim yapılmadan PlayVision düzeyinde kusursuzluk iddia edilmemesi
+gerektiğini gösterir.
 
 ### MADS F2 üzerinde baştan sona çalıştırma
 

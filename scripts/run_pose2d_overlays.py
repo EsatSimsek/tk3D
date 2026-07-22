@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
+from src.person_tracking import person_detector_config_from_mapping
+from src.pose2d_sequence import pose2d_at_frame
 from src.progress import ProgressBar, print_step
 from src.config_validation import validate_model_config
 from src.run_outputs import create_run_output_tree
@@ -50,6 +52,15 @@ def main() -> None:
             device=pose2d_cfg.get("device", "cuda:0"),
             score_threshold=float(pose2d_cfg.get("score_threshold", 0.30)),
             input_size=tuple(int(value) for value in pose2d_cfg.get("input_size", [256, 192])),
+            flip_test=bool(pose2d_cfg.get("flip_test", True)),
+            temporal_filter_enabled=bool(pose2d_cfg.get("temporal_filter_enabled", True)),
+            temporal_stabilize_left_right=bool(
+                pose2d_cfg.get("temporal_stabilize_left_right", True)
+            ),
+            person_detector=person_detector_config_from_mapping(
+                model_config.get("person_detector"),
+                frame_rate=session.fps / max(args.stride, 1),
+            ),
         ),
         dry_run=False,
     )
@@ -100,25 +111,42 @@ def write_overlay(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     playback_fps = max(float(output_fps or fps), 1.0)
+    inference_progress = ProgressBar(f"{camera_id} inference", target)
+    sampled_poses = []
+    written = 0
+    for frame_idx, _, frame in iter_video_frames(video_path, stride=stride):
+        sampled_poses.append(estimator.predict(frame, camera_id=camera_id, frame_idx=frame_idx))
+        written += 1
+        if written == 1 or written >= target or written % max(progress_every, 1) == 0:
+            inference_progress.print(written, extra=f"src frame {frame_idx}")
+        if max_frames is not None and written >= max_frames:
+            break
+    inference_progress.done()
+    if not sampled_poses:
+        raise RuntimeError(f"No frames could be inferred from: {video_path}")
+
+    output_frame_count = min(
+        source_frames,
+        sampled_poses[-1].frame_idx + _repeat_count(sampled_poses[-1].frame_idx, source_frames, stride),
+    )
     writer = cv2.VideoWriter(str(output_path), cv2.VideoWriter_fourcc(*"mp4v"), playback_fps, (width, height))
     if not writer.isOpened():
         raise RuntimeError(f"Could not open overlay video writer: {output_path}")
-    progress = ProgressBar(f"{camera_id} overlay", target)
+    capture = cv2.VideoCapture(str(video_path))
+    render_progress = ProgressBar(f"{camera_id} render", output_frame_count)
     try:
-        written = 0
-        for frame_idx, _, frame in iter_video_frames(video_path, stride=stride):
-            pose = estimator.predict(frame, camera_id=camera_id, frame_idx=frame_idx)
-            overlay = draw_pose2d(frame, pose)
-            for _ in range(_repeat_count(frame_idx, source_frames, stride)):
-                writer.write(overlay)
-            written += 1
-            if written == 1 or written >= target or written % max(progress_every, 1) == 0:
-                progress.print(written, extra=f"src frame {frame_idx}")
-            if max_frames is not None and written >= max_frames:
+        for frame_idx in range(output_frame_count):
+            ok, frame = capture.read()
+            if not ok:
                 break
+            overlay = draw_pose2d(frame, pose2d_at_frame(sampled_poses, frame_idx))
+            writer.write(overlay)
+            if frame_idx == 0 or frame_idx + 1 >= output_frame_count or (frame_idx + 1) % max(progress_every, 1) == 0:
+                render_progress.print(frame_idx + 1, extra=f"src frame {frame_idx}")
     finally:
+        capture.release()
         writer.release()
-        progress.done()
+        render_progress.done()
 
 
 def _target_frame_count(capture: cv2.VideoCapture, max_frames: int | None, stride: int) -> int:

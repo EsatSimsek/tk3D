@@ -7,6 +7,25 @@ pose2d:
   input_size: [256, 192]
   keypoint_count: 133
   score_threshold: 0.30
+  flip_test: true
+  temporal_filter_enabled: true
+  temporal_stabilize_left_right: true
+
+person_detector:
+  enabled: true
+  backend: rfdetr
+  model_variant: small
+  threshold: 0.25
+  target_confidence_threshold: 0.65
+  person_class_id: 1
+  bbox_padding: 0.18
+  bbox_stationary_alpha: 0.35
+  bbox_motion_scale_ratio: 0.12
+  track_activation_threshold: 0.25
+  minimum_matching_threshold: 0.80
+  lost_track_buffer: 30
+  reacquire_after_frames: 12
+  optimize_for_inference: false
 
 pose3d_single_view:
   model_name: RTMW3D-x

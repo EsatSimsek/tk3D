@@ -19,10 +19,12 @@ from src.coordinate_system import (
     transform_points,
 )
 from src.config_validation import validate_model_config
-from src.data_structures import CameraCalibration
+from src.data_structures import CameraCalibration, PersonPose2D
 from src.exporter import export_keypoints2d_csv, export_keypoints3d_csv, export_session_json
-from src.multiview_sync import synchronized_frame_map
+from src.multiview_sync import SynchronizedFrame, synchronized_frame_map
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
+from src.person_tracking import person_detector_config_from_mapping
+from src.pose2d_sequence import pose2d_at_frame
 from src.pose_reliability import filter_unreliable_pose
 from src.progress import ProgressBar
 from src.run_outputs import create_run_output_tree, mark_run_complete
@@ -142,6 +144,15 @@ def main() -> None:
             device=pose2d_config.get("device", "cuda:0"),
             score_threshold=float(pose2d_config.get("score_threshold", 0.30)),
             input_size=tuple(int(value) for value in pose2d_config.get("input_size", [256, 192])),
+            flip_test=bool(pose2d_config.get("flip_test", True)),
+            temporal_filter_enabled=bool(pose2d_config.get("temporal_filter_enabled", True)),
+            temporal_stabilize_left_right=bool(
+                pose2d_config.get("temporal_stabilize_left_right", True)
+            ),
+            person_detector=person_detector_config_from_mapping(
+                model_config.get("person_detector"),
+                frame_rate=session.fps / max(args.stride, 1),
+            ),
         )
     )
 
@@ -173,25 +184,10 @@ def main() -> None:
         "[3/4] Running 2D pose + 3D triangulation",
         flush=True,
     )
-    overlay_writers = []
+    overlay_paths: dict[str, Path] = {}
     for camera, capture in zip(cameras, captures):
-        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         output_path = output_paths["videos"] / f"{camera.camera_id}_vitpose_2d_overlay.mp4"
-        writer = cv2.VideoWriter(
-            str(output_path),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            max(float(args.output_fps or fps), 1.0),
-            (width, height),
-        )
-        if not writer.isOpened():
-            writer.release()
-            for opened_writer in overlay_writers:
-                opened_writer.release()
-            for opened_capture in captures:
-                opened_capture.release()
-            raise SystemExit(f"Could not open overlay video writer: {output_path}")
-        overlay_writers.append(writer)
+        overlay_paths[camera.camera_id] = output_path
 
     triangulated = []
     poses_2d_by_frame: dict[int, dict[str, object]] = {}
@@ -212,6 +208,8 @@ def main() -> None:
     source_frame_count = len(synced_frames)
     target_frames = _target_sample_count(source_frame_count, args.max_frames, args.stride)
     output_repeats: list[int] = []
+    sampled_poses_by_camera = {camera.camera_id: [] for camera in cameras}
+    processed_overlap_count = 0
     progress = ProgressBar("2D + 3D", target_frames)
     try:
         written = 0
@@ -247,11 +245,9 @@ def main() -> None:
                 for camera in cameras
             ]
             poses = estimator.predict_many(frames, camera_ids, local_frame_indices)
-            for camera, frame, writer, pose in zip(cameras, frames, overlay_writers, poses):
+            for camera, pose in zip(cameras, poses, strict=True):
                 poses_by_camera[camera.camera_id] = pose
-                overlay = draw_pose2d(frame, pose)
-                for _ in range(repeat_count):
-                    writer.write(overlay)
+                sampled_poses_by_camera[camera.camera_id].append(pose)
             poses_2d_by_frame[global_frame_idx] = dict(poses_by_camera)
 
             triangulated.append(
@@ -265,17 +261,29 @@ def main() -> None:
                 )
             )
             output_repeats.append(repeat_count)
+            processed_overlap_count = min(overlap_idx + repeat_count, source_frame_count)
             written += 1
             if written == 1 or written == target_frames or written % max(args.progress_every, 1) == 0:
                 progress.print(written, extra=f"global frame {global_frame_idx}")
     finally:
         for capture in captures:
             capture.release()
-        for writer in overlay_writers:
-            writer.release()
         if triangulated:
             progress.done()
             print("[4/4] Saving 3D outputs", flush=True)
+
+    if triangulated:
+        render_frames = synced_frames[:processed_overlap_count]
+        for camera in cameras:
+            _write_synced_pose_overlay(
+                video_path=camera.video_path,
+                output_path=overlay_paths[camera.camera_id],
+                camera_id=camera.camera_id,
+                sampled_poses=sampled_poses_by_camera[camera.camera_id],
+                synchronized_frames=render_frames,
+                output_fps=max(float(args.output_fps or fps), 1.0),
+                progress_every=max(args.progress_every, 1),
+            )
 
     arrays = stack_triangulated(triangulated)
     arrays["keypoints_3d_world"] = transform_points(arrays["keypoints_3d_world"], source_to_analysis)
@@ -476,6 +484,50 @@ def _read_frame_sequential(
     return frame
 
 
+def _write_synced_pose_overlay(
+    video_path: Path,
+    output_path: Path,
+    camera_id: str,
+    sampled_poses: list[PersonPose2D],
+    synchronized_frames: list[SynchronizedFrame],
+    output_fps: float,
+    progress_every: int,
+) -> None:
+    if not sampled_poses or not synchronized_frames:
+        return
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise FileNotFoundError(f"Could not open video for overlay rendering: {video_path}")
+    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        output_fps,
+        (width, height),
+    )
+    if not writer.isOpened():
+        capture.release()
+        raise RuntimeError(f"Could not open overlay video writer: {output_path}")
+    next_frame = {camera_id: 0}
+    progress = ProgressBar(f"{camera_id} overlay render", len(synchronized_frames))
+    try:
+        for output_idx, sync_frame in enumerate(synchronized_frames):
+            local_idx = int(sync_frame.local_frame_indices[camera_id])
+            frame = _read_frame_sequential(capture, camera_id, local_idx, next_frame)
+            if frame is None:
+                break
+            pose = pose2d_at_frame(sampled_poses, local_idx)
+            writer.write(draw_pose2d(frame, pose))
+            if output_idx == 0 or output_idx + 1 >= len(synchronized_frames) or (output_idx + 1) % progress_every == 0:
+                progress.print(output_idx + 1, extra=f"src frame {local_idx}")
+    finally:
+        capture.release()
+        writer.release()
+        progress.done()
+
+
 def _target_sample_count(source_frames: int, max_frames: int | None, stride: int) -> int:
     if source_frames <= 0:
         return max(max_frames or 0, 0)
@@ -501,7 +553,11 @@ def _effective_smoothing_window(configured_window: int, stride: int, override: i
 
 def _repeat_arrays_for_video(arrays: dict[str, np.ndarray], repeats: list[int]) -> dict[str, np.ndarray]:
     return {
-        key: _repeat_array_for_video(value, repeats)
+        key: (
+            _repeat_array_for_video(value, repeats)
+            if key == "used_cameras"
+            else _interpolate_array_for_video(value, repeats)
+        )
         if key in {"keypoints_3d_world", "triangulation_score", "reprojection_error", "used_cameras"}
         else value
         for key, value in arrays.items()
@@ -514,6 +570,24 @@ def _repeat_array_for_video(values: np.ndarray, repeats: list[int]) -> np.ndarra
     safe_repeats = np.asarray(repeats[: values.shape[0]], dtype=int)
     safe_repeats = np.maximum(safe_repeats, 1)
     return np.repeat(values[: safe_repeats.shape[0]], safe_repeats, axis=0)
+
+
+def _interpolate_array_for_video(values: np.ndarray, repeats: list[int]) -> np.ndarray:
+    if values.size == 0 or not repeats:
+        return values
+    sample_count = min(values.shape[0], len(repeats))
+    output: list[np.ndarray] = []
+    for sample_idx in range(sample_count):
+        count = max(int(repeats[sample_idx]), 1)
+        current = np.asarray(values[sample_idx])
+        if sample_idx + 1 >= sample_count:
+            output.extend(current.copy() for _ in range(count))
+            continue
+        following = np.asarray(values[sample_idx + 1])
+        for offset in range(count):
+            weight = offset / count
+            output.append((1.0 - weight) * current + weight * following)
+    return np.stack(output, axis=0)
 
 
 if __name__ == "__main__":

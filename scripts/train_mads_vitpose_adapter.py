@@ -10,6 +10,7 @@ from typing import Any
 
 import cv2
 import numpy as np
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -23,6 +24,8 @@ from src.mads_dataset import (
     load_mads_ground_truth,
     resolve_mads_roots,
 )
+from src.config_validation import validate_model_config
+from src.person_tracking import RFDETRPersonTracker, person_detector_config_from_mapping
 from src.vitpose_plus_runtime import ViTPosePlusWholeBodyInferencer
 
 
@@ -80,6 +83,12 @@ def main() -> None:
     parser.add_argument("--train-scope", choices=["final_layer", "head"], default="final_layer")
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument(
+        "--model-config",
+        type=Path,
+        default=ROOT / "config" / "model_config.yaml",
+        help="Detector settings used to reproduce production crops during training.",
+    )
+    parser.add_argument(
         "--base-checkpoint",
         type=Path,
         default=ROOT / "weights" / "vitpose_huge_wholebody_256x192.pth",
@@ -87,17 +96,17 @@ def main() -> None:
     parser.add_argument(
         "--cache-dir",
         type=Path,
-        default=ROOT / "outputs" / "mads_adapter" / "feature_cache",
+        default=ROOT / "outputs" / "mads_adapter" / "rfdetr_feature_cache",
     )
     parser.add_argument(
         "--output-checkpoint",
         type=Path,
-        default=ROOT / "weights" / "vitpose_huge_wholebody_mads_head.pth",
+        default=ROOT / "weights" / "vitpose_huge_wholebody_mads_rfdetr_head.pth",
     )
     parser.add_argument(
         "--report",
         type=Path,
-        default=ROOT / "outputs" / "mads_adapter" / "training_report.json",
+        default=ROOT / "outputs" / "mads_adapter" / "rfdetr_training_report.json",
     )
     parser.add_argument("--rebuild-cache", action="store_true")
     args = parser.parse_args()
@@ -124,6 +133,15 @@ def main() -> None:
         checkpoint_path=args.base_checkpoint.resolve(),
         device=args.device,
     )
+    with args.model_config.open("r", encoding="utf-8") as file:
+        model_config = validate_model_config(yaml.safe_load(file))
+    detector_config = person_detector_config_from_mapping(
+        model_config.get("person_detector"),
+        frame_rate=30.0 / max(args.frame_stride, 1),
+    )
+    if not detector_config.enabled:
+        raise SystemExit("person_detector.enabled must be true for production-crop adapter training")
+    person_tracker = RFDETRPersonTracker(detector_config, device=args.device)
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     train_caches = [
         cache_sequence_features(
@@ -131,6 +149,7 @@ def main() -> None:
             sequence,
             args.cache_dir,
             args.frame_stride,
+            person_tracker,
             rebuild=args.rebuild_cache,
         )
         for sequence in train_sequences
@@ -141,6 +160,7 @@ def main() -> None:
             sequence,
             args.cache_dir,
             args.frame_stride,
+            person_tracker,
             rebuild=args.rebuild_cache,
         )
         for sequence in validation_sequences
@@ -164,6 +184,7 @@ def main() -> None:
         "dataset_root": str(roots.dataset_root),
         "frame_stride": args.frame_stride,
         "train_scope": args.train_scope,
+        "crop_source": f"{detector_config.backend}:{detector_config.model_variant}:tracked",
         "train_sequences": [sequence_label(item) for item in train_sequences],
         "validation_sequences": [sequence_label(item) for item in validation_sequences],
         "held_out_test_sequences": sorted(set(args.test_sequences)),
@@ -233,12 +254,13 @@ def cache_sequence_features(
     sequence: MadsSequence,
     cache_dir: Path,
     frame_stride: int,
+    person_tracker: RFDETRPersonTracker,
     *,
     rebuild: bool,
 ) -> CachedFeatures:
     import torch
 
-    cache_path = cache_dir / f"{sequence.action}_{sequence.sequence}_stride{frame_stride}.pt"
+    cache_path = cache_dir / f"{sequence.action}_{sequence.sequence}_rfdetr_stride{frame_stride}.pt"
     if cache_path.exists() and not rebuild:
         payload = torch.load(cache_path, map_location="cpu", weights_only=True)
         return CachedFeatures(
@@ -283,7 +305,15 @@ def cache_sequence_features(
                     calibration.distortion_coefficients,
                 )
                 projected = projected.reshape(-1, 2)
-                bbox = _bbox_from_projected_pose(projected)
+                tracked_person = person_tracker.track(
+                    frame,
+                    f"{sequence_label(sequence)}:{camera_id}",
+                    frame_idx,
+                )
+                if tracked_person is None:
+                    frame_idx += 1
+                    continue
+                bbox = tracked_person.bbox_xyxy
                 tensor, crop = runtime._preprocess(frame, bbox_xyxy=bbox)
                 with torch.no_grad():
                     source = torch.full(
@@ -305,6 +335,8 @@ def cache_sequence_features(
                             "camera_id": camera_id,
                             "frame_idx": frame_idx,
                             "valid_target_count": int(np.count_nonzero(target_weights)),
+                            "detector_confidence": tracked_person.confidence,
+                            "track_id": tracked_person.track_id,
                         }
                     )
                     kept += 1
@@ -322,6 +354,7 @@ def cache_sequence_features(
             "sequence": sequence_label(sequence),
             "frame_stride": frame_stride,
             "sample_count": len(features),
+            "crop_source": "rfdetr_tracked_person",
             "samples": sample_rows,
         },
     }
