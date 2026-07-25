@@ -157,8 +157,13 @@ class ViTPosePlusWholeBodyInferencer:
         frame: np.ndarray,
         bbox_xyxy: np.ndarray | None = None,
     ) -> tuple[Any, tuple[float, float, float, float]]:
-        if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
-            raise ValueError(f"Expected a BGR image with shape HxWx3, got {getattr(frame, 'shape', None)}")
+        if (
+            not isinstance(frame, np.ndarray)
+            or frame.ndim != 3
+            or frame.shape[2] != 3
+            or frame.size == 0
+        ):
+            raise ValueError(f"Expected a non-empty BGR image with shape HxWx3, got {getattr(frame, 'shape', None)}")
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         initial_bbox = _initial_person_bbox(frame) if bbox_xyxy is None else bbox_xyxy
         crop = _aspect_correct_bbox(initial_bbox, frame.shape[1], frame.shape[0], self.input_width / self.input_height)
@@ -188,10 +193,31 @@ class ViTPosePlusWholeBodyInferencer:
         heatmaps: np.ndarray,
         crop: tuple[float, float, float, float],
     ) -> tuple[np.ndarray, np.ndarray]:
+        values = np.asarray(heatmaps, dtype=float)
+        if (
+            values.ndim != 3
+            or values.shape[0] != COCO_WHOLEBODY_KEYPOINTS
+            or values.shape[1] < 1
+            or values.shape[2] < 1
+        ):
+            raise ModelRuntimeError(
+                f"ViTPose heatmaps must have shape [133, H, W] with positive dimensions, got {values.shape}"
+            )
+        crop_values = np.asarray(crop, dtype=float)
+        if (
+            crop_values.shape != (4,)
+            or not np.all(np.isfinite(crop_values))
+            or crop_values[2] <= crop_values[0]
+            or crop_values[3] <= crop_values[1]
+        ):
+            raise ValueError(f"Invalid ViTPose decode crop: {crop}")
         keypoints = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
         scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
-        heatmap_height, heatmap_width = heatmaps.shape[1:]
-        flat = heatmaps.reshape(COCO_WHOLEBODY_KEYPOINTS, -1)
+        heatmap_height, heatmap_width = values.shape[1:]
+        finite = np.isfinite(values)
+        joint_has_finite_response = np.any(finite, axis=(1, 2))
+        safe_values = np.where(finite, values, -np.inf)
+        flat = safe_values.reshape(COCO_WHOLEBODY_KEYPOINTS, -1)
         indices = np.argmax(flat, axis=1)
         raw_scores = flat[np.arange(COCO_WHOLEBODY_KEYPOINTS), indices]
         peak_xy = np.column_stack(
@@ -200,15 +226,17 @@ class ViTPosePlusWholeBodyInferencer:
                 (indices // heatmap_width).astype(float),
             ]
         )
-        refined_xy = _refine_heatmap_peaks_udp(heatmaps, peak_xy, kernel_size=11)
+        refinement_values = np.where(finite, values, 0.0)
+        refined_xy = _refine_heatmap_peaks_udp(refinement_values, peak_xy, kernel_size=11)
         refined_xy += getattr(self, "heatmap_offsets_xy", np.zeros_like(refined_xy))
-        x1, y1, x2, y2 = crop
+        x1, y1, x2, y2 = crop_values
         keypoints[:, 0] = x1 + refined_xy[:, 0] * (x2 - x1) / max(heatmap_width - 1.0, 1.0)
         keypoints[:, 1] = y1 + refined_xy[:, 1] * (y2 - y1) / max(heatmap_height - 1.0, 1.0)
+        keypoints[~joint_has_finite_response] = np.nan
         # The checkpoint is trained with Gaussian MSE heatmap targets. Applying a
         # sigmoid makes a zero response look like 0.5 confidence and validates
         # every joint; retain the calibrated heatmap peak instead.
-        scores[:] = np.clip(raw_scores, 0.0, 1.0)
+        scores[:] = np.where(joint_has_finite_response, np.clip(raw_scores, 0.0, 1.0), 0.0)
         return keypoints, scores
 
     def _resolve_device(self, requested: str) -> str:
@@ -307,6 +335,12 @@ def _aspect_correct_bbox(
     target_aspect: float,
     padding: float = 1.25,
 ) -> tuple[float, float, float, float]:
+    if image_width < 1 or image_height < 1:
+        raise ValueError("image dimensions must be positive")
+    if not np.isfinite(target_aspect) or target_aspect <= 0.0:
+        raise ValueError("target_aspect must be finite and positive")
+    if not np.isfinite(padding) or padding <= 0.0:
+        raise ValueError("padding must be finite and positive")
     if bbox_xyxy is None:
         # Poomsae/AIST recordings are staged around the image center. Use a
         # centered, aspect-correct initial crop; subsequent frames use the

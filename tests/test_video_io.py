@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.video_io import ensure_output_tree, load_session
+from src.video_io import ensure_output_tree, iter_video_frames, load_session
 
 
 def test_session_rejects_duplicate_camera_ids(tmp_path) -> None:
@@ -25,3 +25,8 @@ cameras:
 def test_output_tree_rejects_session_path_traversal(tmp_path) -> None:
     with pytest.raises(ValueError):
         ensure_output_tree(tmp_path, "../outside")
+
+
+def test_video_iterator_rejects_nonpositive_stride_before_opening_video() -> None:
+    with pytest.raises(ValueError, match="stride"):
+        next(iter_video_frames("missing.mp4", stride=0))

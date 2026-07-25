@@ -22,9 +22,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     adapter_path = pose.get("adapter_checkpoint_path")
     if adapter_path is not None and not str(adapter_path).strip():
         raise ValueError("pose2d.adapter_checkpoint_path must be a non-empty path when provided")
-    if "allow_unapproved_adapter" in pose and not isinstance(
-        pose["allow_unapproved_adapter"], bool
-    ):
+    if "allow_unapproved_adapter" in pose and not isinstance(pose["allow_unapproved_adapter"], bool):
         raise ValueError("pose2d.allow_unapproved_adapter must be boolean")
     threshold = float(pose.get("score_threshold", 0.30))
     if not 0.0 <= threshold <= 1.0:
@@ -32,6 +30,19 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     for option in ("flip_test", "temporal_filter_enabled", "temporal_stabilize_left_right"):
         if option in pose and not isinstance(pose[option], bool):
             raise ValueError(f"pose2d.{option} must be boolean")
+    offline = pose.get("offline_stabilization", {})
+    if not isinstance(offline, dict):
+        raise ValueError("pose2d.offline_stabilization must be a mapping")
+    if "enabled" in offline and not isinstance(offline["enabled"], bool):
+        raise ValueError("pose2d.offline_stabilization.enabled must be boolean")
+    offline_window = int(offline.get("window_size", 9))
+    if offline_window < 1 or offline_window % 2 == 0:
+        raise ValueError("pose2d.offline_stabilization.window_size must be a positive odd integer")
+    offline_order = int(offline.get("polynomial_order", 2))
+    if offline_order < 1 or (offline_window > 1 and offline_order >= offline_window):
+        raise ValueError("pose2d.offline_stabilization.polynomial_order must be positive and smaller than window_size")
+    if float(offline.get("min_outlier_distance_px", 6.0)) < 0.0:
+        raise ValueError("pose2d.offline_stabilization.min_outlier_distance_px must be non-negative")
 
     detector = config.get("person_detector", {})
     if not isinstance(detector, dict):
@@ -80,11 +91,16 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("triangulation.max_hypotheses must be positive")
 
     smoothing = _mapping(config, "smoothing")
-    if smoothing.get("method") != "moving_average":
-        raise ValueError("Only smoothing.method=moving_average is currently supported")
+    if smoothing.get("method") not in {"moving_average", "robust_savgol"}:
+        raise ValueError("smoothing.method must be moving_average or robust_savgol")
     window = int(smoothing.get("window_size", 5))
     if window < 1 or window % 2 == 0:
         raise ValueError("smoothing.window_size must be a positive odd integer")
+    polynomial_order = int(smoothing.get("polynomial_order", 2))
+    if polynomial_order < 1 or (window > 1 and polynomial_order >= window):
+        raise ValueError("smoothing.polynomial_order must be positive and smaller than window_size")
+    if float(smoothing.get("min_outlier_distance_m", 0.04)) < 0.0:
+        raise ValueError("smoothing.min_outlier_distance_m must be non-negative")
 
     reliability = config.get("reliability", {})
     if not isinstance(reliability, dict):

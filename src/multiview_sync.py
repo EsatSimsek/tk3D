@@ -30,15 +30,20 @@ def synchronized_frame_map(
     if not frame_counts:
         return []
     camera_ids = list(frame_counts)
-    missing_fps = [camera_id for camera_id in camera_ids if fps_by_camera.get(camera_id, 0.0) <= 0.0]
+    missing_fps = [
+        camera_id
+        for camera_id in camera_ids
+        if not math.isfinite(float(fps_by_camera.get(camera_id, 0.0)))
+        or float(fps_by_camera.get(camera_id, 0.0)) <= 0.0
+    ]
     if missing_fps:
         raise ValueError(f"Valid FPS is required for every camera: {missing_fps}")
     offsets = frame_offsets or {}
     seconds = time_offsets_sec or {}
     rates = [float(fps_by_camera[camera_id]) for camera_id in camera_ids]
     timeline_fps = float(target_fps or min(rates))
-    if timeline_fps <= 0.0:
-        raise ValueError("target_fps must be positive")
+    if not math.isfinite(timeline_fps) or timeline_fps <= 0.0:
+        raise ValueError("target_fps must be finite and positive")
 
     starts: list[float] = []
     ends: list[float] = []
@@ -46,6 +51,8 @@ def synchronized_frame_map(
     for camera_id in camera_ids:
         fps = float(fps_by_camera[camera_id])
         offset_sec = float(seconds.get(camera_id, 0.0)) + int(offsets.get(camera_id, 0)) / fps
+        if not math.isfinite(offset_sec):
+            raise ValueError(f"Synchronization offset must be finite for camera {camera_id}")
         total_offsets[camera_id] = offset_sec
         count = max(int(frame_counts[camera_id]), 0)
         if count == 0:

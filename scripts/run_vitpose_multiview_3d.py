@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import cv2
@@ -25,10 +26,17 @@ from src.multiview_sync import SynchronizedFrame, synchronized_frame_map
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.person_tracking import person_detector_config_from_mapping
 from src.pose2d_sequence import pose2d_at_frame
+from src.pose2d_stabilization import (
+    Pose2DStabilizationConfig,
+    pose2d_stability_metrics,
+    stabilize_pose2d_sequence,
+)
+from src.pose3d_stability import pose3d_stability_metrics
+from src.pose3d_html_viewer import write_pose3d_html_viewer
 from src.pose_reliability import filter_unreliable_pose
 from src.progress import ProgressBar
 from src.run_outputs import create_run_output_tree, mark_run_complete
-from src.smoothing_3d import moving_average_pose
+from src.smoothing_3d import smooth_pose_sequence
 from src.triangulation import stack_triangulated, triangulate_frame
 from src.video_io import load_session
 from src.visualization_2d import draw_pose2d
@@ -47,7 +55,9 @@ def main() -> None:
     parser.add_argument("--session", required=True)
     parser.add_argument("--model-config", default="config/model_config.yaml")
     parser.add_argument("--output-root", default="outputs")
-    parser.add_argument("--max-frames", type=int, default=None, help="Maximum sampled inference frames. Omit for full video duration.")
+    parser.add_argument(
+        "--max-frames", type=int, default=None, help="Maximum sampled inference frames. Omit for full video duration."
+    )
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument(
         "--smoothing-window",
@@ -58,9 +68,16 @@ def main() -> None:
             "while sparse stride runs use window=1 to avoid blending distant moments."
         ),
     )
-    parser.add_argument("--max-cameras", type=int, default=None, help="Optional limit for faster tests; default uses all session cameras.")
+    parser.add_argument(
+        "--max-cameras",
+        type=int,
+        default=None,
+        help="Optional limit for faster tests; default uses all session cameras.",
+    )
     parser.add_argument("--progress-every", type=int, default=1, help="Print progress every N written frames.")
-    parser.add_argument("--output-fps", type=float, default=None, help="Playback FPS. Defaults to the source video FPS.")
+    parser.add_argument(
+        "--output-fps", type=float, default=None, help="Playback FPS. Defaults to the source video FPS."
+    )
     parser.add_argument("--run-id", default=None, help="Unique output run identifier; defaults to a UTC timestamp.")
     parser.add_argument(
         "--allow-approximate-calibration",
@@ -73,6 +90,10 @@ def main() -> None:
         help="Keep diagnostic files when quality gates fail; the run is not promoted as latest.",
     )
     args = parser.parse_args()
+    if args.stride < 1:
+        parser.error("--stride must be a positive integer")
+    if args.max_frames is not None and args.max_frames < 1:
+        parser.error("--max-frames must be positive when provided")
 
     session = load_session(args.session)
     if len(session.cameras) < 2:
@@ -85,10 +106,23 @@ def main() -> None:
     with (ROOT / args.model_config).open("r", encoding="utf-8") as file:
         model_config = validate_model_config(yaml.safe_load(file))
     pose2d_config = model_config["pose2d"]
+    min_views = int(model_config["triangulation"].get("min_views", 2))
+    min_keypoint_score = float(model_config["triangulation"].get("min_keypoint_score", 0.30))
+    smoothing_config = model_config.get("smoothing", {})
+    smoothing_method = str(smoothing_config.get("method", "robust_savgol"))
     smoothing_window = _effective_smoothing_window(
-        configured_window=int(model_config.get("smoothing", {}).get("window_size", 5)),
+        configured_window=int(smoothing_config.get("window_size", 11)),
         stride=args.stride,
         override=args.smoothing_window,
+    )
+    smoothing_polynomial_order = int(smoothing_config.get("polynomial_order", 2))
+    smoothing_min_outlier_distance_m = float(smoothing_config.get("min_outlier_distance_m", 0.04))
+    offline_2d_config = pose2d_config.get("offline_stabilization", {})
+    pose2d_stabilization_config = Pose2DStabilizationConfig(
+        enabled=bool(offline_2d_config.get("enabled", True)) and args.stride == 1,
+        window_size=int(offline_2d_config.get("window_size", 9)),
+        polynomial_order=int(offline_2d_config.get("polynomial_order", 2)),
+        min_outlier_distance_px=float(offline_2d_config.get("min_outlier_distance_px", 6.0)),
     )
     calibrations_path = output_root / session.session_id / "calibration" / "cameras.json"
     if calibrations_path.exists():
@@ -121,67 +155,77 @@ def main() -> None:
         calibration_mode = "approximate_test_calibration"
         source_to_analysis = opencv_reference_to_analysis()
 
+    if min_views > len(cameras):
+        raise SystemExit(
+            f"triangulation.min_views={min_views} requires at least {min_views} selected cameras; got {len(cameras)}"
+        )
     run_id, output_paths = create_run_output_tree(output_root, session.session_id, args.run_id)
     production_ready_calibration = calibration_mode in PRODUCTION_CALIBRATION_MODES
 
-    print("=" * 72, flush=True)
-    print("TK3D VITPOSE MULTI-VIEW 3D", flush=True)
-    print("=" * 72, flush=True)
-    print("[1/4] Loading ViTPose model", flush=True)
-    print(f"      model : {pose2d_config['model_name']}", flush=True)
-    print(f"      device: {pose2d_config.get('device', 'cuda:0')}", flush=True)
-    estimator = ViTPose2DEstimator(
-        Pose2DConfig(
-            model_name=pose2d_config["model_name"],
-            config_path=(ROOT / pose2d_config["config_path"]).resolve(),
-            checkpoint_path=(ROOT / pose2d_config["checkpoint_path"]).resolve(),
-            adapter_checkpoint_path=(
-                (ROOT / pose2d_config["adapter_checkpoint_path"]).resolve()
-                if pose2d_config.get("adapter_checkpoint_path")
-                else None
-            ),
-            allow_unapproved_adapter=bool(pose2d_config.get("allow_unapproved_adapter", False)),
-            device=pose2d_config.get("device", "cuda:0"),
-            score_threshold=float(pose2d_config.get("score_threshold", 0.30)),
-            input_size=tuple(int(value) for value in pose2d_config.get("input_size", [256, 192])),
-            flip_test=bool(pose2d_config.get("flip_test", True)),
-            temporal_filter_enabled=bool(pose2d_config.get("temporal_filter_enabled", True)),
-            temporal_stabilize_left_right=bool(
-                pose2d_config.get("temporal_stabilize_left_right", True)
-            ),
-            person_detector=person_detector_config_from_mapping(
-                model_config.get("person_detector"),
-                frame_rate=session.fps / max(args.stride, 1),
-            ),
-        )
-    )
-
     captures = [cv2.VideoCapture(str(camera.video_path)) for camera in cameras]
     if not all(capture.isOpened() for capture in captures):
+        for capture in captures:
+            capture.release()
         raise SystemExit("Could not open all selected videos.")
 
     fps_by_camera = {
         camera.camera_id: float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
         for camera, capture in zip(cameras, captures, strict=True)
     }
-    if any(value <= 0 for value in fps_by_camera.values()):
+    if any(not np.isfinite(value) or value <= 0 for value in fps_by_camera.values()):
+        for capture in captures:
+            capture.release()
         raise SystemExit(f"Every video must report a valid FPS: {fps_by_camera}")
-    fps = float(session.fps or min(fps_by_camera.values()))
+    fps = _effective_timeline_fps(session.fps, fps_by_camera.values())
     for camera, capture in zip(cameras, captures, strict=True):
         actual_size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         expected_size = tuple(calibrations[camera.camera_id].image_size)
         if actual_size != expected_size and calibration_mode != "approximate_test_calibration":
-            raise SystemExit(
-                f"{camera.camera_id}: video size {actual_size} does not match calibration {expected_size}"
+            for opened_capture in captures:
+                opened_capture.release()
+            raise SystemExit(f"{camera.camera_id}: video size {actual_size} does not match calibration {expected_size}")
+    print("=" * 72, flush=True)
+    print("TK3D VITPOSE MULTI-VIEW 3D", flush=True)
+    print("=" * 72, flush=True)
+    print("[1/5] Loading ViTPose model", flush=True)
+    print(f"      model : {pose2d_config['model_name']}", flush=True)
+    print(f"      device: {pose2d_config.get('device', 'cuda:0')}", flush=True)
+    try:
+        estimator = ViTPose2DEstimator(
+            Pose2DConfig(
+                model_name=pose2d_config["model_name"],
+                config_path=(ROOT / pose2d_config["config_path"]).resolve(),
+                checkpoint_path=(ROOT / pose2d_config["checkpoint_path"]).resolve(),
+                adapter_checkpoint_path=(
+                    (ROOT / pose2d_config["adapter_checkpoint_path"]).resolve()
+                    if pose2d_config.get("adapter_checkpoint_path")
+                    else None
+                ),
+                allow_unapproved_adapter=bool(pose2d_config.get("allow_unapproved_adapter", False)),
+                device=pose2d_config.get("device", "cuda:0"),
+                score_threshold=float(pose2d_config.get("score_threshold", 0.30)),
+                input_size=tuple(int(value) for value in pose2d_config.get("input_size", [256, 192])),
+                flip_test=bool(pose2d_config.get("flip_test", True)),
+                temporal_filter_enabled=bool(pose2d_config.get("temporal_filter_enabled", True)),
+                temporal_stabilize_left_right=bool(pose2d_config.get("temporal_stabilize_left_right", True)),
+                person_detector=person_detector_config_from_mapping(
+                    model_config.get("person_detector"),
+                    frame_rate=fps / args.stride,
+                ),
             )
+        )
+    except Exception:
+        for capture in captures:
+            capture.release()
+        raise
     print(
-        "[2/4] Preparing videos and calibration\n"
+        "[2/5] Preparing videos and calibration\n"
         f"      cameras         : {len(cameras)}\n"
         f"      target frames   : {args.max_frames or 'full video'}\n"
         f"      stride          : {max(args.stride, 1)}\n"
-        f"      smoothing window: {smoothing_window}\n"
+        f"      smoothing       : {smoothing_method}, window {smoothing_window}\n"
         f"      calibration     : {calibration_mode}\n"
-        "[3/4] Running 2D pose + 3D triangulation",
+        "[3/5] Running 2D pose inference",
         flush=True,
     )
     overlay_paths: dict[str, Path] = {}
@@ -190,7 +234,8 @@ def main() -> None:
         overlay_paths[camera.camera_id] = output_path
 
     triangulated = []
-    poses_2d_by_frame: dict[int, dict[str, object]] = {}
+    poses_2d_by_frame: dict[int, dict[str, PersonPose2D]] = {}
+    raw_poses_2d_by_frame: dict[int, dict[str, PersonPose2D]] = {}
     frame_counts = {
         camera.camera_id: int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         for camera, capture in zip(cameras, captures, strict=True)
@@ -204,13 +249,16 @@ def main() -> None:
         target_fps=fps,
     )
     if not synced_frames:
+        for capture in captures:
+            capture.release()
         raise SystemExit("Selected camera videos have no overlapping synchronized timeline")
     source_frame_count = len(synced_frames)
     target_frames = _target_sample_count(source_frame_count, args.max_frames, args.stride)
     output_repeats: list[int] = []
-    sampled_poses_by_camera = {camera.camera_id: [] for camera in cameras}
+    raw_sampled_poses_by_camera = {camera.camera_id: [] for camera in cameras}
+    sampled_global_frame_indices: list[int] = []
     processed_overlap_count = 0
-    progress = ProgressBar("2D + 3D", target_frames)
+    progress = ProgressBar("2D pose", target_frames)
     try:
         written = 0
         next_local_frame_by_camera = {camera.camera_id: 0 for camera in cameras}
@@ -221,7 +269,6 @@ def main() -> None:
             if overlap_idx % args.stride != 0:
                 continue
 
-            poses_by_camera = {}
             repeat_count = _repeat_count(overlap_idx, source_frame_count, args.stride)
             frames: list[np.ndarray] = []
             for camera, capture in zip(cameras, captures):
@@ -240,26 +287,11 @@ def main() -> None:
                 break
 
             camera_ids = [camera.camera_id for camera in cameras]
-            local_frame_indices = [
-                sync_frame.local_frame_indices[camera.camera_id]
-                for camera in cameras
-            ]
+            local_frame_indices = [sync_frame.local_frame_indices[camera.camera_id] for camera in cameras]
             poses = estimator.predict_many(frames, camera_ids, local_frame_indices)
             for camera, pose in zip(cameras, poses, strict=True):
-                poses_by_camera[camera.camera_id] = pose
-                sampled_poses_by_camera[camera.camera_id].append(pose)
-            poses_2d_by_frame[global_frame_idx] = dict(poses_by_camera)
-
-            triangulated.append(
-                triangulate_frame(
-                    frame_idx=global_frame_idx,
-                    poses_by_camera=poses_by_camera,
-                    calibrations=calibrations,
-                    min_views=2,
-                    max_reprojection_error_px=float(model_config["triangulation"].get("max_reprojection_error_px", 25.0)),
-                    max_hypotheses=int(model_config["triangulation"].get("max_hypotheses", 16)),
-                )
-            )
+                raw_sampled_poses_by_camera[camera.camera_id].append(pose)
+            sampled_global_frame_indices.append(global_frame_idx)
             output_repeats.append(repeat_count)
             processed_overlap_count = min(overlap_idx + repeat_count, source_frame_count)
             written += 1
@@ -268,9 +300,44 @@ def main() -> None:
     finally:
         for capture in captures:
             capture.release()
-        if triangulated:
+        if sampled_global_frame_indices:
             progress.done()
-            print("[4/4] Saving 3D outputs", flush=True)
+            print("[4/5] Stabilizing 2D trajectories and triangulating 3D", flush=True)
+
+    sampled_poses_by_camera = {
+        camera.camera_id: stabilize_pose2d_sequence(
+            raw_sampled_poses_by_camera[camera.camera_id],
+            config=pose2d_stabilization_config,
+        )
+        for camera in cameras
+    }
+    pose2d_stability_report = {
+        camera.camera_id: pose2d_stability_metrics(
+            raw_sampled_poses_by_camera[camera.camera_id],
+            sampled_poses_by_camera[camera.camera_id],
+        )
+        for camera in cameras
+    }
+    for sample_idx, global_frame_idx in enumerate(sampled_global_frame_indices):
+        raw_by_camera = {
+            camera.camera_id: raw_sampled_poses_by_camera[camera.camera_id][sample_idx] for camera in cameras
+        }
+        poses_by_camera = {
+            camera.camera_id: sampled_poses_by_camera[camera.camera_id][sample_idx] for camera in cameras
+        }
+        raw_poses_2d_by_frame[global_frame_idx] = raw_by_camera
+        poses_2d_by_frame[global_frame_idx] = poses_by_camera
+        triangulated.append(
+            triangulate_frame(
+                frame_idx=global_frame_idx,
+                poses_by_camera=poses_by_camera,
+                calibrations=calibrations,
+                min_views=min_views,
+                min_keypoint_score=min_keypoint_score,
+                max_reprojection_error_px=float(model_config["triangulation"].get("max_reprojection_error_px", 25.0)),
+                max_hypotheses=int(model_config["triangulation"].get("max_hypotheses", 16)),
+            )
+        )
 
     if triangulated:
         render_frames = synced_frames[:processed_overlap_count]
@@ -293,12 +360,14 @@ def main() -> None:
         np.isfinite(arrays["reprojection_error"])
         & (arrays["reprojection_error"] <= max_error)
         & (arrays["triangulation_score"] >= min_quality)
-        & (arrays["used_cameras"] >= int(model_config["triangulation"].get("min_views", 2)))
+        & (arrays["used_cameras"] >= min_views)
     )
     sampled_timestamps = np.asarray(
-        [sync_frame.timestamp_sec for index, sync_frame in enumerate(synced_frames) if index % max(args.stride, 1) == 0][
-            : arrays["frame_idx"].shape[0]
-        ],
+        [
+            sync_frame.timestamp_sec
+            for index, sync_frame in enumerate(synced_frames)
+            if index % max(args.stride, 1) == 0
+        ][: arrays["frame_idx"].shape[0]],
         dtype=float,
     )
     reliability_config = model_config.get("reliability", {})
@@ -307,25 +376,30 @@ def main() -> None:
         accepted,
         sampled_timestamps,
         confidence=arrays["triangulation_score"],
-        max_bone_relative_deviation=float(
-            reliability_config.get("max_bone_relative_deviation", 0.25)
-        ),
-        max_bone_absolute_deviation_m=float(
-            reliability_config.get("max_bone_absolute_deviation_m", 0.08)
-        ),
+        max_bone_relative_deviation=float(reliability_config.get("max_bone_relative_deviation", 0.25)),
+        max_bone_absolute_deviation_m=float(reliability_config.get("max_bone_absolute_deviation_m", 0.08)),
         min_temporal_residual_m=float(reliability_config.get("min_temporal_residual_m", 0.08)),
-        max_temporal_acceleration_mps2=float(
-            reliability_config.get("max_temporal_acceleration_mps2", 70.0)
-        ),
+        max_temporal_acceleration_mps2=float(reliability_config.get("max_temporal_acceleration_mps2", 70.0)),
         minimum_bone_samples=int(reliability_config.get("minimum_bone_samples", 5)),
     )
-    arrays["keypoints_3d_world"] = moving_average_pose(
+    print("[5/5] Saving stabilized 2D and 3D outputs", flush=True)
+    reliable_unsmoothed_3d = np.where(
+        reliability.valid_mask[..., None],
         reliability.keypoints_3d,
+        np.nan,
+    )
+    arrays["keypoints_3d_world"] = smooth_pose_sequence(
+        reliable_unsmoothed_3d,
+        method=smoothing_method,
         window_size=smoothing_window,
         valid_mask=reliability.valid_mask,
+        polynomial_order=smoothing_polynomial_order,
+        min_outlier_distance_m=smoothing_min_outlier_distance_m,
     )
-    arrays["keypoints_3d_world"] = np.where(
-        reliability.valid_mask[..., None], arrays["keypoints_3d_world"], np.nan
+    arrays["keypoints_3d_world"] = np.where(reliability.valid_mask[..., None], arrays["keypoints_3d_world"], np.nan)
+    pose3d_stability_report = pose3d_stability_metrics(
+        reliable_unsmoothed_3d,
+        arrays["keypoints_3d_world"],
     )
     export_session_json(
         reliability.summary,
@@ -338,7 +412,38 @@ def main() -> None:
         frame_indices=arrays["frame_idx"],
         timestamps_sec=sampled_timestamps,
     )
+    export_keypoints3d_csv(
+        reliable_unsmoothed_3d,
+        output_paths["csv"] / "vitpose_keypoints_3d_world_unsmoothed_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
     export_keypoints2d_csv(poses_2d_by_frame, output_paths["csv"] / "vitpose_keypoints_2d_flat.csv")
+    export_keypoints2d_csv(
+        raw_poses_2d_by_frame,
+        output_paths["csv"] / "vitpose_keypoints_2d_raw_flat.csv",
+    )
+    export_session_json(
+        {
+            "algorithm": "zero_phase_robust_savgol",
+            "enabled": pose2d_stabilization_config.enabled,
+            "window_size": pose2d_stabilization_config.window_size,
+            "polynomial_order": pose2d_stabilization_config.polynomial_order,
+            "min_outlier_distance_px": (pose2d_stabilization_config.min_outlier_distance_px),
+            "cameras": pose2d_stability_report,
+        },
+        output_paths["json"] / "pose2d_stability_report.json",
+    )
+    export_session_json(
+        {
+            "algorithm": smoothing_method,
+            "window_size": smoothing_window,
+            "polynomial_order": smoothing_polynomial_order,
+            "min_outlier_distance_m": smoothing_min_outlier_distance_m,
+            **pose3d_stability_report,
+        },
+        output_paths["json"] / "pose3d_stability_report.json",
+    )
     export_session_json(
         {
             "session_id": session.session_id,
@@ -351,7 +456,16 @@ def main() -> None:
             "timestamps_sec": sampled_timestamps,
             "sample_fps": fps / max(args.stride, 1),
             "smoothing_applied": smoothing_window > 1,
+            "smoothing_method": smoothing_method,
             "smoothing_window": smoothing_window,
+            "smoothing_polynomial_order": smoothing_polynomial_order,
+            "smoothing_min_outlier_distance_m": (smoothing_min_outlier_distance_m),
+            "pose2d_offline_stabilization": {
+                "enabled": pose2d_stabilization_config.enabled,
+                "window_size": pose2d_stabilization_config.window_size,
+                "polynomial_order": pose2d_stabilization_config.polynomial_order,
+                "min_outlier_distance_px": (pose2d_stabilization_config.min_outlier_distance_px),
+            },
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
             "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
@@ -363,6 +477,7 @@ def main() -> None:
             "reliability_valid_mask": reliability.valid_mask,
             "reliability_rejection_reasons": reliability.rejection_reasons,
             "reliability_summary": reliability.summary,
+            "pose3d_stability": pose3d_stability_report,
         },
         output_paths["json"] / "vitpose_session_3d.json",
     )
@@ -403,10 +518,17 @@ def main() -> None:
         output_paths["videos"] / "vitpose_skeleton_3d_world.mp4",
         fps=max(float(args.output_fps or fps), 1.0),
     )
+    viewer_path = write_pose3d_html_viewer(
+        arrays["keypoints_3d_world"],
+        output_paths["root"] / "viewer" / "pose3d_viewer.html",
+        fps=fps / max(args.stride, 1),
+        title=run_id,
+    )
     if quality_passed:
         mark_run_complete(output_root, session.session_id, run_id, output_paths["root"])
 
     print(f"saved: {output_paths['videos'] / 'vitpose_skeleton_3d_world.mp4'}")
+    print(f"saved: {viewer_path}")
     print(f"keypoints_3d_world shape: {video_arrays['keypoints_3d_world'].shape}")
     print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
@@ -420,6 +542,7 @@ def main() -> None:
             "but this run was not promoted as latest. Inspect run_quality_report.json."
         )
 
+
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
     intrinsic = np.array([[1200.0, 0.0, 960.0], [0.0, 1200.0, 540.0], [0.0, 0.0, 1.0]], dtype=float)
     return {
@@ -428,7 +551,9 @@ def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, Came
     }
 
 
-def _calibration(camera_id: str, intrinsic: np.ndarray, rotation: np.ndarray, translation: np.ndarray) -> CameraCalibration:
+def _calibration(
+    camera_id: str, intrinsic: np.ndarray, rotation: np.ndarray, translation: np.ndarray
+) -> CameraCalibration:
     import cv2
 
     projection = intrinsic @ np.hstack([rotation, translation.reshape(3, 1)])
@@ -549,6 +674,23 @@ def _effective_smoothing_window(configured_window: int, stride: int, override: i
     if window < 1 or window % 2 == 0:
         raise SystemExit("--smoothing-window must be a positive odd integer")
     return window
+
+
+def _effective_timeline_fps(
+    declared_fps: float | None,
+    camera_fps_values: Iterable[float],
+) -> float:
+    """Choose a common FPS that never duplicates frames from the slowest camera."""
+    actual_rates = np.asarray(list(camera_fps_values), dtype=float)
+    if actual_rates.size == 0 or np.any(~np.isfinite(actual_rates)) or np.any(actual_rates <= 0.0):
+        raise ValueError("Every camera FPS must be finite and positive")
+    slowest_camera_fps = float(np.min(actual_rates))
+    if declared_fps is None:
+        return slowest_camera_fps
+    requested = float(declared_fps)
+    if not np.isfinite(requested) or requested <= 0.0:
+        raise ValueError("Session FPS must be finite and positive")
+    return min(requested, slowest_camera_fps)
 
 
 def _repeat_arrays_for_video(arrays: dict[str, np.ndarray], repeats: list[int]) -> dict[str, np.ndarray]:

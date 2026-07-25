@@ -10,6 +10,11 @@ pose2d:
   flip_test: true
   temporal_filter_enabled: true
   temporal_stabilize_left_right: true
+  offline_stabilization:
+    enabled: true
+    window_size: 9
+    polynomial_order: 2
+    min_outlier_distance_px: 6.0
 
 person_detector:
   enabled: true
@@ -44,8 +49,10 @@ triangulation:
   max_hypotheses: 16
 
 smoothing:
-  method: moving_average
-  window_size: 5
+  method: robust_savgol
+  window_size: 11
+  polynomial_order: 2
+  min_outlier_distance_m: 0.04
 
 reliability:
   max_bone_relative_deviation: 0.25

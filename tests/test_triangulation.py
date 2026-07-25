@@ -45,3 +45,22 @@ def test_robust_triangulation_rejects_one_bad_camera_observation() -> None:
     np.testing.assert_allclose(pose.keypoints_3d_world[0], world[0, 0], atol=1e-5)
     assert pose.used_cameras[0] == 2
     assert pose.reprojection_error[0] < 1e-5
+
+
+def test_triangulation_honors_minimum_keypoint_score() -> None:
+    calibrations = build_synthetic_calibrations()
+    world = build_synthetic_world_sequence(frame_count=1, valid_joint_count=1)
+    projected = project_world_sequence(world, calibrations)
+    projected[0]["cam_front"].scores[0] = 0.2
+    projected[0]["cam_back"].scores[0] = 0.2
+
+    pose = triangulate_frame(
+        0,
+        projected[0],
+        calibrations,
+        min_views=2,
+        min_keypoint_score=0.5,
+    )
+
+    assert pose.used_cameras[0] == 0
+    assert np.all(np.isnan(pose.keypoints_3d_world[0]))

@@ -33,8 +33,27 @@ def load_session(session_path: str | Path) -> Session:
 
     root_dir = path.parent
     sync = raw.get("sync", {})
+    if not isinstance(sync, dict):
+        raise ValueError("Session sync must be a mapping")
     offsets = sync.get("offsets", {})
     time_offsets = sync.get("offsets_sec", {})
+    if not isinstance(offsets, dict) or not isinstance(time_offsets, dict):
+        raise ValueError("Session sync offsets and offsets_sec must be mappings")
+    unknown_offset_cameras = (set(offsets) | set(time_offsets)) - set(camera_ids)
+    if unknown_offset_cameras:
+        raise ValueError(f"Session sync offsets reference unknown cameras: {sorted(unknown_offset_cameras)}")
+    normalized_frame_offsets: dict[str, int] = {}
+    normalized_time_offsets: dict[str, float] = {}
+    for camera_id in camera_ids:
+        raw_frame_offset = offsets.get(camera_id, 0)
+        frame_offset = int(raw_frame_offset)
+        if isinstance(raw_frame_offset, float) and not raw_frame_offset.is_integer():
+            raise ValueError(f"{camera_id} frame offset must be an integer")
+        time_offset = float(time_offsets.get(camera_id, 0.0))
+        if not math.isfinite(time_offset):
+            raise ValueError(f"{camera_id} time offset must be finite")
+        normalized_frame_offsets[camera_id] = frame_offset
+        normalized_time_offsets[camera_id] = time_offset
     cameras = [
         CameraView(
             camera_id=item["camera_id"],
@@ -42,8 +61,8 @@ def load_session(session_path: str | Path) -> Session:
             calibration_video_path=(root_dir / item["calibration_video_path"]).resolve()
             if item.get("calibration_video_path")
             else None,
-            frame_offset=int(offsets.get(item["camera_id"], 0)),
-            time_offset_sec=float(time_offsets.get(item["camera_id"], 0.0)),
+            frame_offset=normalized_frame_offsets[item["camera_id"]],
+            time_offset_sec=normalized_time_offsets[item["camera_id"]],
         )
         for item in raw_cameras
     ]
@@ -76,6 +95,8 @@ def ensure_output_tree(output_root: str | Path, session_id: str) -> dict[str, Pa
 def iter_video_frames(video_path: str | Path, stride: int = 1) -> Iterator[tuple[int, float, object]]:
     import cv2
 
+    if not isinstance(stride, int) or isinstance(stride, bool) or stride < 1:
+        raise ValueError("stride must be a positive integer")
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")

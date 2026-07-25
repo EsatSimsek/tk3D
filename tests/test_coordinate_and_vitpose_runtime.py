@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from src.coordinate_system import aist_world_to_analysis, opencv_reference_to_analysis, transform_points
-from src.pose2d_estimator import _bbox_from_pose, pose2d_from_arrays
+from src.model_runtime import ModelRuntimeError
+from src.pose2d_estimator import _bbox_from_pose, _extract_mmpose_wholebody, pose2d_from_arrays
 from src.vitpose_plus_runtime import (
     ViTPosePlusWholeBodyInferencer,
     _aspect_correct_bbox,
@@ -45,6 +47,21 @@ def test_zero_heatmap_response_is_zero_confidence_not_half() -> None:
     assert np.all(scores == 0.0)
 
 
+def test_nonfinite_heatmap_response_is_rejected_without_poisoning_other_joints() -> None:
+    runtime = object.__new__(ViTPosePlusWholeBodyInferencer)
+    runtime.heatmap_offsets_xy = np.zeros((133, 2), dtype=float)
+    heatmaps = np.zeros((133, 64, 48), dtype=float)
+    heatmaps[0] = np.nan
+    heatmaps[1, 20, 12] = 0.8
+
+    keypoints, scores = runtime._decode_heatmaps(heatmaps, (0.0, 0.0, 94.0, 126.0))
+
+    assert np.all(np.isnan(keypoints[0]))
+    assert scores[0] == 0.0
+    assert np.all(np.isfinite(keypoints[1]))
+    assert scores[1] == pytest.approx(0.8)
+
+
 def test_udp_peak_refinement_recovers_subpixel_gaussian_center() -> None:
     height, width = 32, 24
     target = np.asarray([10.35, 18.60])
@@ -69,6 +86,30 @@ def test_tracked_pose_bbox_preserves_fast_motion_margin() -> None:
 
     assert bbox is not None
     np.testing.assert_allclose(bbox, [82.5, 15.0, 217.5, 285.0])
+
+
+def test_pose2d_boundary_sanitizes_nonfinite_model_output() -> None:
+    keypoints = np.zeros((133, 2), dtype=float)
+    scores = np.full(133, 0.9, dtype=float)
+    keypoints[3, 0] = np.nan
+    scores[4] = np.inf
+    scores[5] = 2.0
+
+    pose = pose2d_from_arrays("C0", 7, keypoints, scores, score_threshold=0.3, person_id=12)
+
+    assert not pose.valid_mask[3]
+    assert not pose.valid_mask[4]
+    assert np.all(np.isnan(pose.keypoints_xy[3]))
+    assert pose.scores[4] == 0.0
+    assert pose.scores[5] == 1.0
+    assert pose.person_id == 12
+
+
+def test_mmpose_extraction_rejects_malformed_wholebody_output() -> None:
+    result = {"predictions": [[{"keypoints": [1.0, 2.0], "keypoint_scores": [0.9]}]]}
+
+    with pytest.raises(ModelRuntimeError, match="unsupported shape"):
+        _extract_mmpose_wholebody(result, allow_padding=False)
 
 
 def test_heatmap_offsets_are_applied_in_heatmap_coordinates() -> None:

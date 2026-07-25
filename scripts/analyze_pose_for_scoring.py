@@ -18,17 +18,28 @@ from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM
 from src.run_outputs import resolve_latest_run
 from src.scoring_engine import build_provisional_score
 from src.scoring_readiness import build_scoring_readiness
-from src.smoothing_3d import moving_average_pose
+from src.smoothing_3d import smooth_pose_sequence
 from src.validation_3d import quality_summary, validate_triangulation
 from src.video_io import load_session
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create scoring-readiness quality, smoothing, biomechanics and segment reports from 3D pose output.")
+    parser = argparse.ArgumentParser(
+        description="Create scoring-readiness quality, smoothing, biomechanics and segment reports from 3D pose output."
+    )
     parser.add_argument("--session", required=True)
-    parser.add_argument("--input-json", default=None, help="Defaults to outputs/<session_id>/json/vitpose_session_3d.json")
+    parser.add_argument(
+        "--input-json", default=None, help="Defaults to outputs/<session_id>/json/vitpose_session_3d.json"
+    )
     parser.add_argument("--output-root", default="outputs")
-    parser.add_argument("--smoothing-window", type=int, default=5)
+    parser.add_argument("--smoothing-window", type=int, default=11)
+    parser.add_argument(
+        "--smoothing-method",
+        choices=("robust_savgol", "moving_average"),
+        default="robust_savgol",
+    )
+    parser.add_argument("--smoothing-polynomial-order", type=int, default=2)
+    parser.add_argument("--smoothing-min-outlier-distance-m", type=float, default=0.04)
     parser.add_argument("--fps", type=float, default=None)
     parser.add_argument("--max-reprojection-error-px", type=float, default=25.0)
     parser.add_argument("--min-triangulation-score", type=float, default=0.20)
@@ -78,9 +89,7 @@ def main() -> None:
     frame_indices = np.asarray(payload.get("frame_indices", np.arange(keypoints.shape[0])), dtype=int)
     timestamps = np.asarray(payload.get("timestamps_sec", frame_indices / fps), dtype=float)
     if frame_indices.shape != (keypoints.shape[0],) or timestamps.shape != (keypoints.shape[0],):
-        raise SystemExit(
-            "frame_indices ve timestamps_sec, keypoints_3d_world kare sayısıyla birebir eşleşmeli"
-        )
+        raise SystemExit("frame_indices ve timestamps_sec, keypoints_3d_world kare sayısıyla birebir eşleşmeli")
     _require_quality_shape(triangulation_score, keypoints.shape[:2], "triangulation_score")
     _require_quality_shape(reprojection_error, keypoints.shape[:2], "reprojection_error")
     _require_quality_shape(used_cameras, keypoints.shape[:2], "used_cameras")
@@ -92,10 +101,23 @@ def main() -> None:
         accepted &= np.isfinite(reprojection_error) & (reprojection_error <= args.max_reprojection_error_px)
     if used_cameras is not None:
         accepted &= used_cameras >= 2
-    smoothed = keypoints.copy() if payload.get("smoothing_applied") else moving_average_pose(
-        keypoints, window_size=args.smoothing_window, valid_mask=accepted
+    smoothed = (
+        keypoints.copy()
+        if payload.get("smoothing_applied")
+        else smooth_pose_sequence(
+            keypoints,
+            method=args.smoothing_method,
+            window_size=args.smoothing_window,
+            valid_mask=accepted,
+            polynomial_order=args.smoothing_polynomial_order,
+            min_outlier_distance_m=args.smoothing_min_outlier_distance_m,
+        )
     )
-    validation = validate_triangulation(smoothed, reprojection_error if reprojection_error is not None else np.full(smoothed.shape[:2], np.nan), args.max_reprojection_error_px)
+    validation = validate_triangulation(
+        smoothed,
+        reprojection_error if reprojection_error is not None else np.full(smoothed.shape[:2], np.nan),
+        args.max_reprojection_error_px,
+    )
     summary = quality_summary(
         smoothed,
         triangulation_score if triangulation_score is not None else np.full(smoothed.shape[:2], np.nan),
@@ -146,6 +168,9 @@ def main() -> None:
             "session_id": session.session_id,
             "source": str(input_path),
             "smoothing_window": args.smoothing_window,
+            "smoothing_method": (
+                payload.get("smoothing_method") if payload.get("smoothing_applied") else args.smoothing_method
+            ),
             "fps": fps,
             "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
             "frame_indices": frame_indices,
@@ -182,6 +207,9 @@ def main() -> None:
         "source": str(input_path),
         "fps": fps,
         "smoothing_window": args.smoothing_window,
+        "smoothing_method": (
+            payload.get("smoothing_method") if payload.get("smoothing_applied") else args.smoothing_method
+        ),
         "quality_summary": summary,
         "scoring_readiness": readiness.report,
         "provisional_scoring": {
@@ -204,15 +232,19 @@ def main() -> None:
         },
     }
     export_session_json(report, readiness_json)
-    _write_excel(report, {
-        "frame_quality": frame_quality_csv,
-        "joint_quality": joint_quality_csv,
-        "biomechanics": biomechanics_csv,
-        "segments": segments_csv,
-        "frame_scores": frame_scores_csv,
-        "step_scores": step_scores_csv,
-        "technical_errors": technical_errors_csv,
-    }, excel_path)
+    _write_excel(
+        report,
+        {
+            "frame_quality": frame_quality_csv,
+            "joint_quality": joint_quality_csv,
+            "biomechanics": biomechanics_csv,
+            "segments": segments_csv,
+            "frame_scores": frame_scores_csv,
+            "step_scores": step_scores_csv,
+            "technical_errors": technical_errors_csv,
+        },
+        excel_path,
+    )
 
     print(f"saved: {readiness_json}")
     print(f"smoothed: {smoothed_json}")
@@ -313,6 +345,8 @@ def _attach_readiness_timeline(readiness: Any, frame_indices: np.ndarray, timest
         segment["source_end_frame_idx"] = int(frame_indices[end])
         segment["start_time_sec"] = float(timestamps[start])
         segment["end_time_sec"] = float(timestamps[end])
+
+
 def _write_csv(rows: list[dict[str, Any]], output_path: Path, columns: list[str] | None = None) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows, columns=columns).to_csv(output_path, index=False)

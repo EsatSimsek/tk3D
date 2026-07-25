@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from src.person_tracking import (
     PersonDetectorConfig,
@@ -79,3 +80,21 @@ def test_bbox_stabilizer_follows_large_motion_without_lag() -> None:
     )
 
     np.testing.assert_allclose(stabilized, current)
+
+
+def test_initial_track_ignores_nonfinite_and_degenerate_boxes() -> None:
+    boxes = np.asarray(
+        [
+            [np.nan, 0.0, 100.0, 200.0],
+            [20.0, 20.0, 20.0, 80.0],
+            [40.0, 30.0, 140.0, 230.0],
+        ]
+    )
+    confidences = np.asarray([0.99, 0.98, 0.85])
+
+    assert _best_initial_track_index(boxes, confidences, minimum_confidence=0.65) == 2
+
+
+def test_person_detector_config_rejects_nonfinite_frame_rate() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        person_detector_config_from_mapping({"enabled": True}, frame_rate=float("nan"))

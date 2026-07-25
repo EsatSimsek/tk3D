@@ -35,16 +35,16 @@ class PersonDetectorConfig:
             ("track_activation_threshold", self.track_activation_threshold),
             ("minimum_matching_threshold", self.minimum_matching_threshold),
         ):
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
+            if not np.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be finite and between 0 and 1")
         if self.person_class_id < 0:
             raise ValueError("person_class_id must be non-negative")
-        if not 0.0 <= self.bbox_padding <= 1.0:
-            raise ValueError("bbox_padding must be between 0 and 1")
-        if not 0.0 < self.bbox_stationary_alpha <= 1.0:
-            raise ValueError("bbox_stationary_alpha must be between 0 and 1")
-        if self.bbox_motion_scale_ratio <= 0.0:
-            raise ValueError("bbox_motion_scale_ratio must be positive")
+        if not np.isfinite(self.bbox_padding) or not 0.0 <= self.bbox_padding <= 1.0:
+            raise ValueError("bbox_padding must be finite and between 0 and 1")
+        if not np.isfinite(self.bbox_stationary_alpha) or not 0.0 < self.bbox_stationary_alpha <= 1.0:
+            raise ValueError("bbox_stationary_alpha must be finite and between 0 and 1")
+        if not np.isfinite(self.bbox_motion_scale_ratio) or self.bbox_motion_scale_ratio <= 0.0:
+            raise ValueError("bbox_motion_scale_ratio must be finite and positive")
         if self.lost_track_buffer < 1 or self.reacquire_after_frames < 1 or self.frame_rate < 1:
             raise ValueError("tracking frame counts must be positive")
 
@@ -90,11 +90,15 @@ class RFDETRPersonTracker:
 
     def track(self, frame: np.ndarray, camera_id: str, frame_idx: int) -> TrackedPerson | None:
         del frame_idx  # ByteTrack advances once for each supplied video sample.
+        if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3 or frame.size == 0:
+            raise ValueError(f"Expected a non-empty BGR frame with shape HxWx3, got {getattr(frame, 'shape', None)}")
         detections = self._model.predict(frame, threshold=self.config.threshold)
         if isinstance(detections, list):
             if len(detections) != 1:
                 raise RuntimeError(f"RF-DETR returned {len(detections)} outputs for one frame")
             detections = detections[0]
+        if getattr(detections, "class_id", None) is None:
+            raise RuntimeError("RF-DETR returned detections without class IDs")
         person_detections = detections[detections.class_id == self.config.person_class_id]
         tracker = self._trackers.get(camera_id)
         if tracker is None:
@@ -117,8 +121,29 @@ class RFDETRPersonTracker:
         camera_id: str,
     ) -> TrackedPerson | None:
         boxes = np.asarray(tracked.xyxy, dtype=float).reshape(-1, 4)
-        confidences = np.asarray(tracked.confidence, dtype=float).reshape(-1)
-        track_ids = np.asarray(tracked.tracker_id, dtype=int).reshape(-1)
+        raw_confidences = getattr(tracked, "confidence", None)
+        raw_track_ids = getattr(tracked, "tracker_id", None)
+        if raw_confidences is None or raw_track_ids is None:
+            if boxes.shape[0] == 0:
+                confidences = np.empty((0,), dtype=float)
+                track_ids = np.empty((0,), dtype=int)
+            else:
+                raise RuntimeError("ByteTrack returned tracked boxes without confidence or track IDs")
+        else:
+            confidences = np.asarray(raw_confidences, dtype=float).reshape(-1)
+            track_ids = np.asarray(raw_track_ids, dtype=int).reshape(-1)
+        if not (boxes.shape[0] == confidences.shape[0] == track_ids.shape[0]):
+            raise RuntimeError("ByteTrack returned inconsistent box, confidence, and track ID counts")
+        usable = (
+            np.all(np.isfinite(boxes), axis=1)
+            & np.isfinite(confidences)
+            & (track_ids >= 0)
+            & (boxes[:, 2] > boxes[:, 0])
+            & (boxes[:, 3] > boxes[:, 1])
+        )
+        boxes = boxes[usable]
+        confidences = confidences[usable]
+        track_ids = track_ids[usable]
         active_track_id = self._active_track_ids.get(camera_id)
 
         selected_index: int | None = None
@@ -182,6 +207,8 @@ def person_detector_config_from_mapping(
     *,
     frame_rate: float,
 ) -> PersonDetectorConfig:
+    if not np.isfinite(frame_rate) or frame_rate <= 0.0:
+        raise ValueError("frame_rate must be finite and positive")
     values = raw or {}
     return PersonDetectorConfig(
         enabled=bool(values.get("enabled", False)),
@@ -207,9 +234,22 @@ def _best_initial_track_index(
     confidences: np.ndarray,
     minimum_confidence: float,
 ) -> int | None:
+    boxes = np.asarray(boxes, dtype=float)
+    confidences = np.asarray(confidences, dtype=float).reshape(-1)
+    if boxes.ndim != 2 or boxes.shape[1:] != (4,):
+        raise ValueError(f"boxes must have shape [N, 4], got {boxes.shape}")
+    if confidences.shape != (boxes.shape[0],):
+        raise ValueError("confidences must contain one value per box")
     if boxes.size == 0 or confidences.size == 0:
         return None
-    eligible = np.flatnonzero(np.isfinite(confidences) & (confidences >= minimum_confidence))
+    valid_boxes = (
+        np.all(np.isfinite(boxes), axis=1)
+        & (boxes[:, 2] > boxes[:, 0])
+        & (boxes[:, 3] > boxes[:, 1])
+    )
+    eligible = np.flatnonzero(
+        valid_boxes & np.isfinite(confidences) & (confidences >= minimum_confidence)
+    )
     if eligible.size == 0:
         return None
     sizes = np.maximum(boxes[:, 2:] - boxes[:, :2], 0.0)
@@ -226,7 +266,13 @@ def _pad_bbox(
     image_height: int,
     padding: float,
 ) -> np.ndarray:
+    if image_width < 1 or image_height < 1:
+        raise ValueError("image dimensions must be positive")
+    if not np.isfinite(padding) or not 0.0 <= padding <= 1.0:
+        raise ValueError("padding must be finite and between 0 and 1")
     values = np.asarray(bbox, dtype=float).reshape(4)
+    if not np.all(np.isfinite(values)) or values[2] <= values[0] or values[3] <= values[1]:
+        raise ValueError(f"bbox must be finite and non-empty, got {values.tolist()}")
     center = (values[:2] + values[2:]) / 2.0
     size = np.maximum(values[2:] - values[:2], 2.0) * (1.0 + 2.0 * padding)
     padded = np.r_[center - size / 2.0, center + size / 2.0]
@@ -245,6 +291,19 @@ def _stabilize_bbox(
     """Suppress detector-box jitter while following genuine athlete motion quickly."""
     current_values = np.asarray(current, dtype=float).reshape(4)
     previous_values = np.asarray(previous, dtype=float).reshape(4)
+    if not np.all(np.isfinite(current_values)) or not np.all(np.isfinite(previous_values)):
+        raise ValueError("current and previous boxes must be finite")
+    if (
+        current_values[2] <= current_values[0]
+        or current_values[3] <= current_values[1]
+        or previous_values[2] <= previous_values[0]
+        or previous_values[3] <= previous_values[1]
+    ):
+        raise ValueError("current and previous boxes must be non-empty")
+    if not np.isfinite(stationary_alpha) or not 0.0 < stationary_alpha <= 1.0:
+        raise ValueError("stationary_alpha must be finite and between 0 and 1")
+    if not np.isfinite(motion_scale_ratio) or motion_scale_ratio <= 0.0:
+        raise ValueError("motion_scale_ratio must be finite and positive")
     current_center = (current_values[:2] + current_values[2:]) / 2.0
     previous_center = (previous_values[:2] + previous_values[2:]) / 2.0
     current_size = np.maximum(current_values[2:] - current_values[:2], 2.0)

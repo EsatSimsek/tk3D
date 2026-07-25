@@ -56,6 +56,7 @@ def export_keypoints2d_csv(poses_2d_by_frame: dict[int, dict[str, Any]], output_
                     {
                         "frame_idx": frame_idx,
                         "camera_id": camera_id,
+                        "person_id": int(pose.person_id),
                         "joint_idx": joint_idx,
                         "x": x,
                         "y": y,

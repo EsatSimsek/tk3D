@@ -14,6 +14,7 @@ from .model_runtime import ModelRuntimeError
 from .person_tracking import PersonDetectorConfig, RFDETRPersonTracker
 from .pose_temporal import TemporalPose2DConfig, TemporalPose2DFilter
 
+
 @dataclass(slots=True)
 class Pose2DConfig:
     model_name: str
@@ -28,6 +29,21 @@ class Pose2DConfig:
     temporal_filter_enabled: bool = True
     temporal_stabilize_left_right: bool = True
     person_detector: PersonDetectorConfig | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.model_name, str) or not self.model_name.strip():
+            raise ValueError("model_name cannot be empty")
+        if not isinstance(self.device, str) or not self.device.strip():
+            raise ValueError("device cannot be empty")
+        if not np.isfinite(self.score_threshold) or not 0.0 <= self.score_threshold <= 1.0:
+            raise ValueError("score_threshold must be finite and between 0 and 1")
+        if not isinstance(self.input_size, (list, tuple)) or len(self.input_size) != 2:
+            raise ValueError("input_size must contain height and width")
+        normalized_size = tuple(int(value) for value in self.input_size)
+        if any(value <= 0 or value % 16 for value in normalized_size):
+            raise ValueError("input_size values must be positive multiples of 16")
+        self.input_size = normalized_size
+
 
 class RTMW2DEstimator:
     """RTMW adapter. The MMPose initialization is intentionally isolated here."""
@@ -145,6 +161,7 @@ class ViTPose2DEstimator:
         self._bbox_frame_idx_by_camera: dict[str, int] = {}
         self._missed_bbox_updates_by_camera: dict[str, int] = {}
         self._previous_frame_by_camera: dict[str, np.ndarray] = {}
+        self._person_track_id_by_camera: dict[str, int] = {}
         self._person_tracker: RFDETRPersonTracker | None = None
         self._temporal_filter = TemporalPose2DFilter(
             TemporalPose2DConfig(
@@ -164,13 +181,26 @@ class ViTPose2DEstimator:
             raise RuntimeError("ViTPose2DEstimator model is not initialized")
 
         bbox = self._person_bbox_by_camera.get(camera_id)
+        person_id = 0
         if self._person_tracker is not None:
             tracked_person = self._person_tracker.track(frame, camera_id, frame_idx)
             if tracked_person is not None:
+                previous_track_id = self._person_track_id_by_camera.get(camera_id)
+                if previous_track_id != tracked_person.track_id:
+                    self._temporal_filter.reset(camera_id)
+                self._person_track_id_by_camera[camera_id] = tracked_person.track_id
+                person_id = tracked_person.track_id
                 bbox = tracked_person.bbox_xyxy.copy()
                 self._person_bbox_by_camera[camera_id] = bbox.copy()
                 self._bbox_frame_idx_by_camera[camera_id] = frame_idx
                 self._missed_bbox_updates_by_camera[camera_id] = 0
+            else:
+                previous_track_id = self._person_track_id_by_camera.pop(camera_id, None)
+                if previous_track_id is not None:
+                    self._temporal_filter.reset(camera_id)
+                self._person_bbox_by_camera.pop(camera_id, None)
+                self._bbox_frame_idx_by_camera.pop(camera_id, None)
+                bbox = None
         else:
             previous_frame = self._previous_frame_by_camera.get(camera_id)
             motion_bbox = _motion_person_bbox(previous_frame, frame)
@@ -195,6 +225,7 @@ class ViTPose2DEstimator:
             keypoints_xy=keypoints_xy,
             scores=scores,
             score_threshold=self.config.score_threshold,
+            person_id=person_id,
         )
         # Keep crop tracking tied to the current observation.  Feeding the
         # smoothed pose back into the crop creates a lag-amplifying loop.
@@ -274,20 +305,34 @@ def pose2d_from_arrays(
     keypoints_xy: np.ndarray,
     scores: np.ndarray,
     score_threshold: float,
+    person_id: int = 0,
 ) -> PersonPose2D:
-    if keypoints_xy.shape != (COCO_WHOLEBODY_KEYPOINTS, 2):
-        raise ValueError(f"Expected keypoints shape {(COCO_WHOLEBODY_KEYPOINTS, 2)}, got {keypoints_xy.shape}")
-    valid_mask = np.asarray(scores) >= score_threshold
+    points = np.asarray(keypoints_xy, dtype=float)
+    confidence = np.asarray(scores, dtype=float)
+    if points.shape != (COCO_WHOLEBODY_KEYPOINTS, 2):
+        raise ValueError(f"Expected keypoints shape {(COCO_WHOLEBODY_KEYPOINTS, 2)}, got {points.shape}")
+    if confidence.shape != (COCO_WHOLEBODY_KEYPOINTS,):
+        raise ValueError(f"Expected scores shape {(COCO_WHOLEBODY_KEYPOINTS,)}, got {confidence.shape}")
+    if not np.isfinite(score_threshold) or not 0.0 <= score_threshold <= 1.0:
+        raise ValueError("score_threshold must be finite and between 0 and 1")
+    finite_points = np.all(np.isfinite(points), axis=1)
+    finite_scores = np.isfinite(confidence)
+    confidence = np.where(finite_scores, np.clip(confidence, 0.0, 1.0), 0.0)
+    points = np.where(finite_points[:, None], points, np.nan)
+    valid_mask = finite_points & finite_scores & (confidence >= score_threshold)
     return PersonPose2D(
         camera_id=camera_id,
         frame_idx=frame_idx,
-        keypoints_xy=keypoints_xy,
-        scores=scores,
+        keypoints_xy=points,
+        scores=confidence,
         valid_mask=valid_mask,
+        person_id=int(person_id),
     )
 
+
 def _prediction_score(item: dict[str, Any]) -> float:
-    scores = np.asarray(item.get("keypoint_scores", [0.0]), dtype=float)
+    scores = np.asarray(item.get("keypoint_scores", [0.0]), dtype=float).reshape(-1)
+    scores = scores[: min(17, scores.size)]
     finite = scores[np.isfinite(scores)]
     if finite.size == 0:
         return 0.0
@@ -295,8 +340,16 @@ def _prediction_score(item: dict[str, Any]) -> float:
 
 def _extract_mmpose_wholebody(result: Any, allow_padding: bool = True) -> tuple[np.ndarray, np.ndarray]:
     if not isinstance(result, dict):
-        result = next(result)
+        try:
+            result = next(result)
+        except (StopIteration, TypeError) as exc:
+            raise ModelRuntimeError("MMPose returned no readable inference result") from exc
+    if not isinstance(result, dict):
+        raise ModelRuntimeError(f"MMPose result must be a mapping, got {type(result).__name__}")
     predictions = result.get("predictions", [])
+    if not isinstance(predictions, (list, tuple)):
+        raise ModelRuntimeError("MMPose predictions must be a sequence of mappings")
+    predictions = list(predictions)
     if predictions and isinstance(predictions[0], list):
         predictions = predictions[0]
     if not predictions:
@@ -304,20 +357,29 @@ def _extract_mmpose_wholebody(result: Any, allow_padding: bool = True) -> tuple[
             np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float),
             np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float),
         )
+    if not isinstance(predictions, list) or not all(isinstance(item, dict) for item in predictions):
+        raise ModelRuntimeError("MMPose predictions must be a list of mappings")
     best = max(predictions, key=_prediction_score)
+    if "keypoints" not in best:
+        raise ModelRuntimeError("MMPose prediction is missing keypoints")
     keypoints = np.asarray(best["keypoints"], dtype=float)
-    scores = np.asarray(best.get("keypoint_scores", np.ones(keypoints.shape[0])), dtype=float)
-    if keypoints.shape[0] < COCO_WHOLEBODY_KEYPOINTS:
+    if keypoints.ndim == 3 and keypoints.shape[0] == 1:
+        keypoints = keypoints[0]
+    if keypoints.ndim != 2 or keypoints.shape[1] < 2:
+        raise ModelRuntimeError(f"MMPose keypoints have unsupported shape: {keypoints.shape}")
+    scores = np.asarray(best.get("keypoint_scores", np.ones(keypoints.shape[0])), dtype=float).reshape(-1)
+    output_count = min(keypoints.shape[0], scores.shape[0])
+    if output_count < COCO_WHOLEBODY_KEYPOINTS:
         if not allow_padding:
             raise ModelRuntimeError(
                 f"Expected ViTPose whole-body output with {COCO_WHOLEBODY_KEYPOINTS} keypoints, "
-                f"got {keypoints.shape[0]}. Check that the configured model is a whole-body "
+                f"got {output_count}. Check that the configured model is a whole-body "
                 "ViTPose-Huge checkpoint, not a COCO body-only checkpoint."
             )
         padded_xy = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
         padded_scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
-        padded_xy[: keypoints.shape[0]] = keypoints[:, :2]
-        padded_scores[: scores.shape[0]] = scores
+        padded_xy[:output_count] = keypoints[:output_count, :2]
+        padded_scores[:output_count] = scores[:output_count]
         return padded_xy, padded_scores
     return keypoints[:COCO_WHOLEBODY_KEYPOINTS, :2], scores[:COCO_WHOLEBODY_KEYPOINTS]
 

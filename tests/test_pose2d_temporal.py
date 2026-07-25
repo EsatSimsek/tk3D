@@ -5,6 +5,11 @@ import numpy as np
 from src.data_structures import PersonPose2D
 from src.pose2d_estimator import _motion_person_bbox, _motion_requires_reacquisition, _update_tracked_bbox
 from src.pose2d_sequence import interpolate_pose2d, pose2d_at_frame
+from src.pose2d_stabilization import (
+    Pose2DStabilizationConfig,
+    pose2d_stability_metrics,
+    stabilize_pose2d_sequence,
+)
 from src.pose_temporal import TemporalPose2DConfig, TemporalPose2DFilter
 
 
@@ -13,12 +18,18 @@ def _pose(frame_idx: int, noise_x: float = 0.0, score: float = 1.0) -> PersonPos
     scores = np.zeros(133, dtype=float)
     valid = np.zeros(133, dtype=bool)
     base = {
-        5: (100.0, 100.0), 6: (200.0, 100.0),
-        7: (80.0, 150.0), 8: (220.0, 150.0),
-        9: (60.0, 200.0), 10: (240.0, 200.0),
-        11: (120.0, 220.0), 12: (180.0, 220.0),
-        13: (120.0, 300.0), 14: (180.0, 300.0),
-        15: (120.0, 380.0), 16: (180.0, 380.0),
+        5: (100.0, 100.0),
+        6: (200.0, 100.0),
+        7: (80.0, 150.0),
+        8: (220.0, 150.0),
+        9: (60.0, 200.0),
+        10: (240.0, 200.0),
+        11: (120.0, 220.0),
+        12: (180.0, 220.0),
+        13: (120.0, 300.0),
+        14: (180.0, 300.0),
+        15: (120.0, 380.0),
+        16: (180.0, 380.0),
     }
     for joint_idx, point in base.items():
         xy[joint_idx] = [point[0] + noise_x, point[1]]
@@ -69,6 +80,20 @@ def test_temporal_filter_corrects_left_right_identity_flip() -> None:
     np.testing.assert_allclose(filtered.keypoints_xy[6], [200.0, 100.0])
 
 
+def test_temporal_filter_resets_when_tracked_person_changes() -> None:
+    pose_filter = TemporalPose2DFilter(TemporalPose2DConfig(stationary_alpha=0.1, motion_alpha=0.2))
+    first = _pose(0)
+    first.person_id = 4
+    second = _pose(1, noise_x=180.0)
+    second.person_id = 9
+
+    pose_filter.filter(first)
+    filtered = pose_filter.filter(second)
+
+    np.testing.assert_allclose(filtered.keypoints_xy, second.keypoints_xy, equal_nan=True)
+    assert filtered.person_id == 9
+
+
 def test_tracked_bbox_changes_scale_slowly() -> None:
     previous = np.asarray([100.0, 50.0, 300.0, 350.0])
     candidate = np.asarray([130.0, 100.0, 230.0, 250.0])
@@ -114,3 +139,75 @@ def test_pose_interpolation_uses_real_in_between_position() -> None:
     selected = pose2d_at_frame([first, second], 5)
     np.testing.assert_allclose(middle.keypoints_xy[5], [150.0, 100.0])
     np.testing.assert_allclose(selected.keypoints_xy[5], middle.keypoints_xy[5])
+
+
+def test_pose_interpolation_never_blends_different_tracked_people() -> None:
+    first = _pose(0)
+    first.person_id = 4
+    second = _pose(10, noise_x=100.0)
+    second.person_id = 9
+
+    before_switch = interpolate_pose2d(first, second, 4)
+    after_switch = interpolate_pose2d(first, second, 5)
+
+    np.testing.assert_allclose(before_switch.keypoints_xy, first.keypoints_xy, equal_nan=True)
+    np.testing.assert_allclose(after_switch.keypoints_xy, second.keypoints_xy, equal_nan=True)
+    assert before_switch.person_id == 4
+    assert after_switch.person_id == 9
+
+
+def test_offline_stabilizer_reduces_jitter_without_lagging_linear_motion() -> None:
+    poses = []
+    expected = []
+    for frame_idx in range(31):
+        true_offset = 2.5 * frame_idx
+        noise = 3.5 if frame_idx % 2 else -3.5
+        poses.append(_pose(frame_idx, noise_x=true_offset + noise))
+        expected.append(100.0 + true_offset)
+
+    stabilized = stabilize_pose2d_sequence(
+        poses,
+        Pose2DStabilizationConfig(window_size=7, polynomial_order=2),
+    )
+
+    raw_error = np.asarray([pose.keypoints_xy[5, 0] for pose in poses]) - expected
+    stable_error = np.asarray([pose.keypoints_xy[5, 0] for pose in stabilized]) - expected
+    assert np.std(stable_error[3:-3]) < 0.25 * np.std(raw_error[3:-3])
+    assert abs(float(np.mean(stable_error[3:-3]))) < 0.25
+
+
+def test_offline_stabilizer_never_smooths_across_person_change() -> None:
+    poses = []
+    for frame_idx in range(14):
+        offset = float(frame_idx) if frame_idx < 7 else 250.0 + frame_idx
+        pose = _pose(frame_idx, noise_x=offset)
+        pose.person_id = 4 if frame_idx < 7 else 9
+        poses.append(pose)
+
+    stabilized = stabilize_pose2d_sequence(poses)
+
+    assert stabilized[6].person_id == 4
+    assert stabilized[7].person_id == 9
+    assert stabilized[6].keypoints_xy[5, 0] < 120.0
+    assert stabilized[7].keypoints_xy[5, 0] > 340.0
+
+
+def test_offline_stabilizer_accepts_repeated_source_frame_index() -> None:
+    poses = [_pose(499), _pose(500), _pose(500), _pose(501), _pose(502)]
+
+    stabilized = stabilize_pose2d_sequence(poses)
+
+    assert len(stabilized) == len(poses)
+    assert [pose.frame_idx for pose in stabilized] == [499, 500, 500, 501, 502]
+
+
+def test_pose_stability_report_quantifies_reduction() -> None:
+    poses = [_pose(frame_idx, noise_x=4.0 if frame_idx % 2 else -4.0) for frame_idx in range(21)]
+    stabilized = stabilize_pose2d_sequence(poses)
+
+    report = pose2d_stability_metrics(poses, stabilized)
+
+    assert report["comparable_body_samples"] > 0
+    assert report["raw_high_frequency_ratio"] is not None
+    assert report["stabilized_high_frequency_ratio"] is not None
+    assert report["high_frequency_reduction_percent"] > 50.0

@@ -16,6 +16,16 @@ def interpolate_pose2d(first: PersonPose2D, second: PersonPose2D, frame_idx: int
         weight = 0.0
     else:
         weight = float(np.clip((frame_idx - first.frame_idx) / (second.frame_idx - first.frame_idx), 0.0, 1.0))
+    if first.person_id != second.person_id:
+        selected = first if weight < 0.5 else second
+        return PersonPose2D(
+            camera_id=selected.camera_id,
+            frame_idx=int(frame_idx),
+            keypoints_xy=np.asarray(selected.keypoints_xy, dtype=float).copy(),
+            scores=np.asarray(selected.scores, dtype=float).copy(),
+            valid_mask=np.asarray(selected.valid_mask, dtype=bool).copy(),
+            person_id=selected.person_id,
+        )
     both_valid = np.asarray(first.valid_mask, dtype=bool) & np.asarray(second.valid_mask, dtype=bool)
     xy = np.full_like(first.keypoints_xy, np.nan, dtype=float)
     xy[both_valid] = (1.0 - weight) * first.keypoints_xy[both_valid] + weight * second.keypoints_xy[both_valid]
@@ -43,8 +53,13 @@ def interpolate_pose2d(first: PersonPose2D, second: PersonPose2D, frame_idx: int
 def pose2d_at_frame(sampled_poses: list[PersonPose2D], frame_idx: int) -> PersonPose2D:
     if not sampled_poses:
         raise ValueError("sampled_poses cannot be empty")
+    camera_ids = {pose.camera_id for pose in sampled_poses}
+    if len(camera_ids) != 1:
+        raise ValueError("sampled_poses must all belong to one camera")
     ordered = sampled_poses
     indices = [pose.frame_idx for pose in ordered]
+    if any(second <= first for first, second in zip(indices, indices[1:])):
+        raise ValueError("sampled_poses must have strictly increasing frame indices")
     position = bisect_right(indices, int(frame_idx))
     if position <= 0:
         return interpolate_pose2d(ordered[0], ordered[0], frame_idx)

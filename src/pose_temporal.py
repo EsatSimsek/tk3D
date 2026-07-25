@@ -30,6 +30,17 @@ class TemporalPose2DConfig:
     minimum_scale_px: float = 48.0
 
     def __post_init__(self) -> None:
+        values = (
+            self.stationary_alpha,
+            self.motion_alpha,
+            self.motion_scale_ratio,
+            self.max_jump_ratio,
+            self.swap_cost_ratio,
+            self.velocity_alpha,
+            self.minimum_scale_px,
+        )
+        if not all(np.isfinite(value) for value in values):
+            raise ValueError("Temporal filter parameters must be finite")
         if not 0.0 < self.stationary_alpha <= self.motion_alpha <= 1.0:
             raise ValueError("Temporal alpha values must satisfy 0 < stationary <= motion <= 1")
         if self.motion_scale_ratio <= 0.0 or self.max_jump_ratio <= 0.0:
@@ -45,6 +56,7 @@ class TemporalPose2DConfig:
 @dataclass(slots=True)
 class _PoseState:
     frame_idx: int
+    person_id: int
     xy: np.ndarray
     velocity: np.ndarray
     scores: np.ndarray
@@ -77,9 +89,11 @@ class TemporalPose2DFilter:
         raw_xy = np.asarray(pose.keypoints_xy, dtype=float).copy()
         raw_scores = np.asarray(pose.scores, dtype=float).copy()
         raw_valid = np.asarray(pose.valid_mask, dtype=bool).copy()
-        raw_valid &= np.all(np.isfinite(raw_xy), axis=1)
+        finite_scores = np.isfinite(raw_scores)
+        raw_scores = np.where(finite_scores, np.clip(raw_scores, 0.0, 1.0), 0.0)
+        raw_valid &= np.all(np.isfinite(raw_xy), axis=1) & finite_scores
 
-        if state is None or pose.frame_idx <= state.frame_idx:
+        if state is None or pose.person_id != state.person_id or pose.frame_idx <= state.frame_idx:
             return self._initialize(pose, raw_xy, raw_scores, raw_valid)
 
         dt = max(int(pose.frame_idx - state.frame_idx), 1)
@@ -142,6 +156,7 @@ class TemporalPose2DFilter:
 
         self._states[pose.camera_id] = _PoseState(
             frame_idx=pose.frame_idx,
+            person_id=pose.person_id,
             xy=filtered_xy.copy(),
             velocity=velocity,
             scores=filtered_scores.copy(),
@@ -165,6 +180,7 @@ class TemporalPose2DFilter:
     ) -> PersonPose2D:
         self._states[pose.camera_id] = _PoseState(
             frame_idx=pose.frame_idx,
+            person_id=pose.person_id,
             xy=xy.copy(),
             velocity=np.zeros((COCO_WHOLEBODY_KEYPOINTS, 2), dtype=float),
             scores=scores.copy(),

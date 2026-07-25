@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from scripts.run_vitpose_multiview_3d import (
     _effective_smoothing_window,
+    _effective_timeline_fps,
     _interpolate_array_for_video,
     _repeat_array_for_video,
     _repeat_count,
@@ -71,3 +73,31 @@ def test_timestamp_sync_handles_different_camera_fps_without_drift() -> None:
     time_a = last.local_frame_indices["cam_a"] / 30.0
     time_b = last.local_frame_indices["cam_b"] / 29.97
     assert abs(time_a - time_b) <= 1.0 / 29.97
+
+
+def test_full_aist_timeline_does_not_duplicate_5994_fps_frames() -> None:
+    timeline_fps = _effective_timeline_fps(
+        declared_fps=60.0,
+        camera_fps_values=[59.94005994005994, 59.94005994005994],
+    )
+    frames = synchronized_frame_map(
+        frame_counts={"c01": 719, "c02": 719},
+        fps_by_camera={
+            "c01": 59.94005994005994,
+            "c02": 59.94005994005994,
+        },
+        target_fps=timeline_fps,
+    )
+
+    assert len(frames) == 719
+    for camera_id in ("c01", "c02"):
+        local_indices = [frame.local_frame_indices[camera_id] for frame in frames]
+        assert local_indices == list(range(719))
+
+
+def test_timestamp_sync_rejects_nonfinite_camera_fps() -> None:
+    with pytest.raises(ValueError, match="Valid FPS"):
+        synchronized_frame_map(
+            frame_counts={"cam_a": 10, "cam_b": 10},
+            fps_by_camera={"cam_a": 30.0, "cam_b": float("nan")},
+        )

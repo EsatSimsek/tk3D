@@ -23,7 +23,24 @@ def test_draw_pose2d_draws_body_edges() -> None:
     assert output[20, 40].sum() > 0
 
 
-def test_draw_pose2d_hides_wholebody_detail_by_default() -> None:
+def test_draw_pose2d_draws_hand_detail_by_default() -> None:
+    frame = np.zeros((80, 80, 3), dtype=np.uint8)
+    keypoints = np.full((133, 2), np.nan, dtype=float)
+    scores = np.zeros(133, dtype=float)
+    valid = np.zeros(133, dtype=bool)
+    keypoints[91] = [20, 40]
+    keypoints[92] = [40, 40]
+    scores[[91, 92]] = 1.0
+    valid[[91, 92]] = True
+    pose = PersonPose2D("c01", 0, keypoints, scores, valid)
+
+    output = draw_pose2d(frame, pose)
+
+    assert output.sum() > 0
+    assert output[40, 30].sum() > 0
+
+
+def test_draw_pose2d_can_hide_hand_detail() -> None:
     frame = np.zeros((80, 80, 3), dtype=np.uint8)
     keypoints = np.full((133, 2), np.nan, dtype=float)
     scores = np.zeros(133, dtype=float)
@@ -33,5 +50,4 @@ def test_draw_pose2d_hides_wholebody_detail_by_default() -> None:
     valid[100] = True
     pose = PersonPose2D("c01", 0, keypoints, scores, valid)
 
-    assert draw_pose2d(frame, pose).sum() == 0
-    assert draw_pose2d(frame, pose, draw_wholebody_points=True).sum() > 0
+    assert draw_pose2d(frame, pose, draw_hands=False).sum() == 0

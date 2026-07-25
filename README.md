@@ -543,20 +543,58 @@ Bekleyenler / sıradaki büyük işler:
 
 ViTPose gerçek video inference `.venv312` ortamında çalışır. Ayrıntılı Windows sürüm notu: `docs/vitpose_windows_setup.md`.
 
+En güçlü tam test için proje klasöründe yalnız şu komutu çalıştır:
+
+```powershell
+.\scripts\run_full_aist_pose.ps1
+```
+
+Bu komut dokuz kamerayı, bütün kareleri (`stride 1`) ve ViTPose-Huge WholeBody modelinin 133 noktasını kullanır.
+Her çalıştırmada yerel tarih ve saat içeren yeni bir klasör oluşturur; eski sonuçların üzerine yazmaz:
+
+```text
+outputs/aist_test/runs/pose_YYYY-MM-DD_HH-mm-ss_fff/
+```
+
+Tam hat; RF-DETR kişi tespiti ve kimlik takibi, gerçek video FPS değerleriyle kamera senkronizasyonu, ileri-geri
+çalışan sıfır-fazlı 2B yörünge stabilizasyonu, güven ve reprojection hatasına dayanıklı çok-kameralı 3B
+triangulation ve 3B zamansal stabilizasyon uygular. Gövdeyle birlikte yüz, ayak ve el/parmak noktaları veri
+dosyalarında korunur; el ve ayak bağlantıları 2B/3B görselleştirmelerde çizilir. Stabilizasyon kare atarak veya
+eklem sayısını azaltarak yapılmaz.
+
+Her yeni çalışma klasöründe başlıca şu sonuçlar oluşur:
+
+- `videos/c01_vitpose_2d_overlay.mp4` ... `videos/c09_vitpose_2d_overlay.mp4`
+- `videos/vitpose_skeleton_3d_world.mp4`
+- `viewer/pose3d_viewer.html` — tarayıcıda döndürme, yakınlaştırma, oynatma ve kare seçme
+- `csv/vitpose_keypoints_2d_raw_flat.csv` ve `csv/vitpose_keypoints_2d_flat.csv`
+- `csv/vitpose_keypoints_3d_world_unsmoothed_flat.csv` ve `csv/vitpose_keypoints_3d_world_flat.csv`
+- `json/pose2d_stability_report.json`, `json/pose3d_stability_report.json` ve `json/run_quality_report.json`
+
+HTML dosyasını çift tıklayarak açabilirsin; ayrıca bir web sunucusu çalıştırmak gerekmez. Son başarıyla tamamlanan
+çalışmanın konumu `outputs/aist_test/latest_run.json` içinde tutulur.
+
+Model ve tek kamera kontrollerini ayrı çalıştırmak veya daha hızlı önizleme almak için:
+
 ```powershell
 cd C:\Users\WWWW\Desktop\tk3d
 .\.venv312\Scripts\Activate.ps1
 python scripts\check_models.py --session data\aist_test\session.yaml
 python scripts\run_pose2d_overlays.py --session data\aist_test\session.yaml --camera c01 --stride 10
-python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10
+python scripts\run_vitpose_multiview_3d.py --session data\aist_test\session.yaml --stride 10 --run-id preview-01
 ```
 
-Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video ile aynı süreli çıktı istiyorsan `--max-frames` verme. `--stride` modelin kaç karede bir çalışacağını belirler; çıktı videosunun süresi korunur. Kameralar arası zaman farkları `session.yaml` içindeki `sync.offsets` alanından okunur.
+Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video ile aynı süreli çıktı istiyorsan
+`--max-frames` verme. `--stride` modelin kaç karede bir çalışacağını belirler; çıktı videosunun süresi korunur.
+Kameralar arası zaman farkları `session.yaml` içindeki `sync.offsets` alanından okunur. Elle verdiğin `--run-id`
+daha önce kullanıldıysa veri kaybını önlemek için işlem başlamaz; yeni bir ad kullan veya tarihli klasörü otomatik
+üreten `run_full_aist_pose.ps1` komutunu çalıştır.
 
 Ana çıktılar:
 
-- `outputs/aist_test/runs/<run_id>/videos/c01_vitpose_2d_overlay.mp4`
+- `outputs/aist_test/runs/<run_id>/videos/c01_vitpose_2d_overlay.mp4` ... `c09_vitpose_2d_overlay.mp4`
 - `outputs/aist_test/runs/<run_id>/videos/vitpose_skeleton_3d_world.mp4`
+- `outputs/aist_test/runs/<run_id>/viewer/pose3d_viewer.html`
 - `outputs/aist_test/runs/<run_id>/json/vitpose_session_3d.json`
 - `outputs/aist_test/runs/<run_id>/csv/vitpose_keypoints_3d_world_flat.csv`
 

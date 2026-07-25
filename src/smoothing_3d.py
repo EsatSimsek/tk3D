@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from .temporal_smoothing import robust_savgol_keypoints
+
 
 def moving_average_nan(keypoints_3d: np.ndarray, window_size: int = 5) -> np.ndarray:
     """NaN-aware temporal moving average for 3D keypoint sequences.
@@ -85,3 +87,54 @@ def moving_average_pose(
         out=np.full_like(values, np.nan),
         where=(sample_counts >= min_valid_samples)[..., None],
     )
+
+
+def robust_savgol_pose(
+    keypoints_3d: np.ndarray,
+    window_size: int = 7,
+    polynomial_order: int = 2,
+    valid_mask: np.ndarray | None = None,
+    min_outlier_distance_m: float = 0.04,
+) -> np.ndarray:
+    """Zero-phase robust smoothing for stable joints and joint angles.
+
+    Unlike a moving average, a centered polynomial fit preserves constant
+    velocity and acceleration. This avoids phase lag at fast kicks and blocks
+    while suppressing the high-frequency depth noise produced by triangulation.
+    """
+    values = np.asarray(keypoints_3d, dtype=float)
+    if values.ndim != 3 or values.shape[-1] != 3:
+        raise ValueError(f"Expected [frames, joints, 3], got {values.shape}")
+    return robust_savgol_keypoints(
+        values,
+        window_size=window_size,
+        polynomial_order=polynomial_order,
+        valid_mask=valid_mask,
+        min_outlier_distance=min_outlier_distance_m,
+    )
+
+
+def smooth_pose_sequence(
+    keypoints_3d: np.ndarray,
+    *,
+    method: str,
+    window_size: int,
+    valid_mask: np.ndarray | None = None,
+    polynomial_order: int = 2,
+    min_outlier_distance_m: float = 0.04,
+) -> np.ndarray:
+    if method == "moving_average":
+        return moving_average_pose(
+            keypoints_3d,
+            window_size=window_size,
+            valid_mask=valid_mask,
+        )
+    if method == "robust_savgol":
+        return robust_savgol_pose(
+            keypoints_3d,
+            window_size=window_size,
+            polynomial_order=polynomial_order,
+            valid_mask=valid_mask,
+            min_outlier_distance_m=min_outlier_distance_m,
+        )
+    raise ValueError(f"Unsupported smoothing method: {method}")
