@@ -9,6 +9,12 @@ import yaml
 
 DEFAULT_SEQUENCE = "gBR_sBM_cAll_d04_mBR0_ch01"
 DOWNLOADER_URL = "https://raw.githubusercontent.com/google/aistplusplus_api/main/downloader.py"
+KNOWN_FRAME_OFFSETS = {
+    # Full-sequence geometry gives +268 local frames and independent
+    # whole-body/hand motion gives +269.  The session convention is the
+    # negative of that local lead.
+    DEFAULT_SEQUENCE: {"c05": -268},
+}
 
 
 def main() -> None:
@@ -35,6 +41,12 @@ def main() -> None:
             "annotations": str(annotations_dir),
         },
         "expected_videos": expected_videos,
+        "sync_offsets": {
+            camera_id: int(
+                KNOWN_FRAME_OFFSETS.get(args.sequence, {}).get(camera_id, 0)
+            )
+            for camera_id in args.cameras
+        },
         "annotation_targets": [
             "annotations/cameras/",
             "annotations/keypoints3d/",
@@ -75,7 +87,12 @@ def write_session_yaml(path: Path, root: Path, sequence: str, cameras: list[str]
         ],
         "sync": {
             "method": "frame_index",
-            "offsets": {camera_id: 0 for camera_id in cameras},
+            "offsets": {
+                camera_id: int(
+                    KNOWN_FRAME_OFFSETS.get(sequence, {}).get(camera_id, 0)
+                )
+                for camera_id in cameras
+            },
         },
         "aist": {
             "sequence": sequence,

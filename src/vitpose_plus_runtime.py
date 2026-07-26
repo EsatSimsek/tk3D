@@ -74,6 +74,54 @@ class ViTPosePlusWholeBodyInferencer:
         frame: np.ndarray,
         bbox_xyxy: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
+        heatmaps, crop = self._infer_heatmaps(frame, bbox_xyxy=bbox_xyxy)
+        return self._decode_heatmaps(heatmaps, crop)
+
+    def predict_arrays_guided(
+        self,
+        frame: np.ndarray,
+        priors_xy: np.ndarray,
+        prior_valid: np.ndarray,
+        bbox_xyxy: np.ndarray | None = None,
+        search_radius_px: float = 40.0,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Decode a second image-supported peak near multi-view 2D priors.
+
+        The prior only limits the heatmap search area.  Returned joint positions
+        remain ViTPose heatmap maxima; the 3D projection is never copied into
+        the image-evidence result.
+        """
+        if not np.isfinite(search_radius_px) or search_radius_px <= 0.0:
+            raise ValueError("search_radius_px must be finite and positive")
+        prior_points = np.asarray(priors_xy, dtype=float)
+        valid = np.asarray(prior_valid, dtype=bool)
+        if prior_points.shape != (COCO_WHOLEBODY_KEYPOINTS, 2):
+            raise ValueError(
+                f"priors_xy must have shape {(COCO_WHOLEBODY_KEYPOINTS, 2)}, got {prior_points.shape}"
+            )
+        if valid.shape != (COCO_WHOLEBODY_KEYPOINTS,):
+            raise ValueError(
+                f"prior_valid must have shape {(COCO_WHOLEBODY_KEYPOINTS,)}, got {valid.shape}"
+            )
+        valid &= np.all(np.isfinite(prior_points), axis=1)
+        heatmaps, crop = self._infer_heatmaps(frame, bbox_xyxy=bbox_xyxy)
+        global_keypoints, global_scores = self._decode_heatmaps(heatmaps, crop)
+        guided_keypoints, guided_scores = self._decode_heatmaps_near_priors(
+            heatmaps,
+            crop,
+            prior_points,
+            valid,
+            search_radius_px,
+        )
+        guided_keypoints[~valid] = global_keypoints[~valid]
+        guided_scores[~valid] = global_scores[~valid]
+        return guided_keypoints, guided_scores, global_keypoints, global_scores
+
+    def _infer_heatmaps(
+        self,
+        frame: np.ndarray,
+        bbox_xyxy: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, tuple[float, float, float, float]]:
         tensor, crop = self._preprocess(frame, bbox_xyxy=bbox_xyxy)
         with self._torch.no_grad():
             heatmaps = self._model(tensor)[0].detach().cpu().numpy()
@@ -81,7 +129,7 @@ class ViTPosePlusWholeBodyInferencer:
                 flipped_tensor = self._torch.flip(tensor, dims=[3])
                 flipped_heatmaps = self._model(flipped_tensor)[0].detach().cpu().numpy()
                 heatmaps = 0.5 * (heatmaps + _flip_back_heatmaps(flipped_heatmaps))
-        return self._decode_heatmaps(heatmaps, crop)
+        return heatmaps, crop
 
     def _build_model(self) -> Any:
         torch = self._torch
@@ -237,6 +285,65 @@ class ViTPosePlusWholeBodyInferencer:
         # sigmoid makes a zero response look like 0.5 confidence and validates
         # every joint; retain the calibrated heatmap peak instead.
         scores[:] = np.where(joint_has_finite_response, np.clip(raw_scores, 0.0, 1.0), 0.0)
+        return keypoints, scores
+
+    def _decode_heatmaps_near_priors(
+        self,
+        heatmaps: np.ndarray,
+        crop: tuple[float, float, float, float],
+        priors_xy: np.ndarray,
+        prior_valid: np.ndarray,
+        search_radius_px: float,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        values = np.asarray(heatmaps, dtype=float)
+        if values.ndim != 3 or values.shape[0] != COCO_WHOLEBODY_KEYPOINTS:
+            raise ModelRuntimeError(
+                f"ViTPose heatmaps must have shape [133, H, W], got {values.shape}"
+            )
+        crop_values = np.asarray(crop, dtype=float)
+        x1, y1, x2, y2 = crop_values
+        heatmap_height, heatmap_width = values.shape[1:]
+        scale_x = max(heatmap_width - 1.0, 1.0) / max(x2 - x1, 1e-6)
+        scale_y = max(heatmap_height - 1.0, 1.0) / max(y2 - y1, 1e-6)
+        grid_y, grid_x = np.mgrid[0:heatmap_height, 0:heatmap_width]
+        peak_xy = np.zeros((COCO_WHOLEBODY_KEYPOINTS, 2), dtype=float)
+        raw_scores = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=float)
+        has_response = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=bool)
+
+        for joint_idx in range(COCO_WHOLEBODY_KEYPOINTS):
+            heatmap = values[joint_idx]
+            finite = np.isfinite(heatmap)
+            if not np.any(finite):
+                continue
+            if prior_valid[joint_idx]:
+                center_x = (priors_xy[joint_idx, 0] - x1) * scale_x
+                center_y = (priors_xy[joint_idx, 1] - y1) * scale_y
+                distance_px = np.sqrt(
+                    ((grid_x - center_x) / scale_x) ** 2
+                    + ((grid_y - center_y) / scale_y) ** 2
+                )
+                eligible = finite & (distance_px <= search_radius_px)
+            else:
+                eligible = finite
+            if not np.any(eligible):
+                continue
+            safe = np.where(eligible, heatmap, -np.inf)
+            index = int(np.argmax(safe))
+            peak_xy[joint_idx] = (
+                float(index % heatmap_width),
+                float(index // heatmap_width),
+            )
+            raw_scores[joint_idx] = float(safe.reshape(-1)[index])
+            has_response[joint_idx] = True
+
+        refinement_values = np.where(np.isfinite(values), values, 0.0)
+        refined_xy = _refine_heatmap_peaks_udp(refinement_values, peak_xy, kernel_size=11)
+        refined_xy += getattr(self, "heatmap_offsets_xy", np.zeros_like(refined_xy))
+        keypoints = np.full((COCO_WHOLEBODY_KEYPOINTS, 2), np.nan, dtype=float)
+        keypoints[:, 0] = x1 + refined_xy[:, 0] / scale_x
+        keypoints[:, 1] = y1 + refined_xy[:, 1] / scale_y
+        keypoints[~has_response] = np.nan
+        scores = np.where(has_response, np.clip(raw_scores, 0.0, 1.0), 0.0)
         return keypoints, scores
 
     def _resolve_device(self, requested: str) -> str:

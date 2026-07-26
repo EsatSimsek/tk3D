@@ -90,6 +90,35 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     if int(triangulation.get("max_hypotheses", 16)) < 1:
         raise ValueError("triangulation.max_hypotheses must be positive")
 
+    feedback = config.get("crossview_2d_feedback", {})
+    if not isinstance(feedback, dict):
+        raise ValueError("crossview_2d_feedback must be a mapping")
+    for option in ("enabled", "projected_fallback_for_visualization"):
+        if option in feedback and not isinstance(feedback[option], bool):
+            raise ValueError(f"crossview_2d_feedback.{option} must be boolean")
+    if int(feedback.get("min_supporting_views", 4)) < 2:
+        raise ValueError("crossview_2d_feedback.min_supporting_views must be at least 2")
+    if int(feedback.get("max_hypotheses", 16)) < 1:
+        raise ValueError("crossview_2d_feedback.max_hypotheses must be positive")
+    for key, default in (
+        ("trigger_error_px", 24.0),
+        ("search_radius_px", 42.0),
+        ("max_candidate_error_px", 20.0),
+        ("min_geometric_improvement_px", 12.0),
+        ("max_reprojection_error_px", 25.0),
+    ):
+        if float(feedback.get(key, default)) <= 0.0:
+            raise ValueError(f"crossview_2d_feedback.{key} must be positive")
+    for key, default in (
+        ("min_observation_score", 0.30),
+        ("max_error_ratio", 0.50),
+        ("min_image_score", 0.30),
+        ("min_peak_score_ratio", 0.08),
+    ):
+        value = float(feedback.get(key, default))
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"crossview_2d_feedback.{key} must be between 0 and 1")
+
     global_optimization = config.get("global_optimization", {})
     if not isinstance(global_optimization, dict):
         raise ValueError("global_optimization must be a mapping")

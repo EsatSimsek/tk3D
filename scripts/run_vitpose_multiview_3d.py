@@ -21,10 +21,27 @@ from src.coordinate_system import (
     transform_points,
 )
 from src.config_validation import validate_model_config
-from src.data_structures import CameraCalibration, PersonPose2D
+from src.data_structures import (
+    COCO_BODY_JOINT_NAMES,
+    COCO_WHOLEBODY_KEYPOINTS,
+    CameraCalibration,
+    PersonPose2D,
+)
+from src.crossview_pose2d_feedback import (
+    PROVENANCE_CROSSVIEW_PROJECTED,
+    PROVENANCE_IMAGE_GUIDED,
+    CrossView2DFeedbackConfig,
+    CrossViewFeedbackPlan,
+    build_feedback_plan,
+    copy_pose,
+    decide_guided_candidate,
+    feedback_config_from_mapping,
+    finalize_feedback_report,
+)
 from src.exporter import (
     export_keypoints2d_csv,
     export_keypoints3d_csv,
+    export_pose2d_feedback_provenance_csv,
     export_pose3d_provenance_csv,
     export_session_json,
 )
@@ -121,6 +138,9 @@ def main() -> None:
     min_views = int(model_config["triangulation"].get("min_views", 2))
     min_keypoint_score = float(model_config["triangulation"].get("min_keypoint_score", 0.30))
     global_optimization_config = optimization_config_from_mapping(model_config.get("global_optimization"))
+    crossview_feedback_config = feedback_config_from_mapping(
+        model_config.get("crossview_2d_feedback")
+    )
     if args.stride != 1 and global_optimization_config.enabled:
         global_optimization_config = replace(global_optimization_config, enabled=False)
     smoothing_config = model_config.get("smoothing", {})
@@ -238,6 +258,7 @@ def main() -> None:
         f"      cameras         : {len(cameras)}\n"
         f"      target frames   : {args.max_frames or 'full video'}\n"
         f"      stride          : {max(args.stride, 1)}\n"
+        f"      cross-view 2D   : {crossview_feedback_config.enabled}\n"
         f"      global body opt : {global_optimization_config.enabled}\n"
         f"      smoothing       : {smoothing_method}, window {smoothing_window}\n"
         f"      calibration     : {calibration_mode}\n"
@@ -273,6 +294,7 @@ def main() -> None:
     output_repeats: list[int] = []
     raw_sampled_poses_by_camera = {camera.camera_id: [] for camera in cameras}
     sampled_global_frame_indices: list[int] = []
+    sampled_sync_frames: list[SynchronizedFrame] = []
     processed_overlap_count = 0
     progress = ProgressBar("2D pose", target_frames)
     try:
@@ -308,6 +330,7 @@ def main() -> None:
             for camera, pose in zip(cameras, poses, strict=True):
                 raw_sampled_poses_by_camera[camera.camera_id].append(pose)
             sampled_global_frame_indices.append(global_frame_idx)
+            sampled_sync_frames.append(sync_frame)
             output_repeats.append(repeat_count)
             processed_overlap_count = min(overlap_idx + repeat_count, source_frame_count)
             written += 1
@@ -355,6 +378,84 @@ def main() -> None:
             )
         )
 
+    prefeedback_poses_2d_by_frame = poses_2d_by_frame
+    initial_triangulated = triangulated
+    initial_arrays_source = stack_triangulated(initial_triangulated)
+    selected_calibrations = {
+        camera.camera_id: calibrations[camera.camera_id]
+        for camera in cameras
+    }
+    feedback_plan = build_feedback_plan(
+        initial_arrays_source["frame_idx"],
+        prefeedback_poses_2d_by_frame,
+        initial_arrays_source["keypoints_3d_world"],
+        selected_calibrations,
+        crossview_feedback_config,
+    )
+    (
+        feedback_geometry_by_camera,
+        feedback_display_by_camera,
+        feedback_provenance_by_camera,
+        crossview_feedback_report,
+    ) = _run_crossview_2d_feedback(
+        estimator=estimator,
+        cameras=cameras,
+        sampled_sync_frames=sampled_sync_frames,
+        sampled_global_frame_indices=sampled_global_frame_indices,
+        baseline_by_camera=sampled_poses_by_camera,
+        plan=feedback_plan,
+        config=crossview_feedback_config,
+        stabilization_config=pose2d_stabilization_config,
+        progress_every=max(args.progress_every, 1),
+    )
+    geometry_poses_2d_by_frame = _poses_by_global_frame(
+        sampled_global_frame_indices,
+        cameras,
+        feedback_geometry_by_camera,
+    )
+    display_poses_2d_by_frame = _poses_by_global_frame(
+        sampled_global_frame_indices,
+        cameras,
+        feedback_display_by_camera,
+    )
+    geometry_change_count = int(
+        crossview_feedback_report.get("geometry_changed_count", 0)
+    )
+    feedback_gate = {
+        "passed": True,
+        "reason": "no_image_guided_candidates",
+    }
+    if geometry_change_count:
+        feedback_triangulated = _triangulate_sampled_poses(
+            sampled_global_frame_indices,
+            geometry_poses_2d_by_frame,
+            selected_calibrations,
+            min_views=min_views,
+            min_keypoint_score=min_keypoint_score,
+            max_reprojection_error_px=float(
+                model_config["triangulation"].get("max_reprojection_error_px", 25.0)
+            ),
+            max_hypotheses=int(model_config["triangulation"].get("max_hypotheses", 16)),
+        )
+        feedback_gate = _feedback_triangulation_gate(
+            initial_triangulated,
+            feedback_triangulated,
+        )
+        if feedback_gate["passed"]:
+            triangulated = feedback_triangulated
+            sampled_poses_by_camera = feedback_geometry_by_camera
+            poses_2d_by_frame = geometry_poses_2d_by_frame
+        else:
+            triangulated = initial_triangulated
+            poses_2d_by_frame = prefeedback_poses_2d_by_frame
+    else:
+        triangulated = initial_triangulated
+        poses_2d_by_frame = prefeedback_poses_2d_by_frame
+    crossview_feedback_report["geometry_feedback_gate"] = feedback_gate
+    crossview_feedback_report["geometry_feedback_applied"] = bool(
+        geometry_change_count and feedback_gate["passed"]
+    )
+
     if triangulated:
         render_frames = synced_frames[:processed_overlap_count]
         for camera in cameras:
@@ -362,7 +463,8 @@ def main() -> None:
                 video_path=camera.video_path,
                 output_path=overlay_paths[camera.camera_id],
                 camera_id=camera.camera_id,
-                sampled_poses=sampled_poses_by_camera[camera.camera_id],
+                sampled_poses=feedback_display_by_camera[camera.camera_id],
+                sampled_provenance=feedback_provenance_by_camera[camera.camera_id],
                 synchronized_frames=render_frames,
                 output_fps=max(float(args.output_fps or fps), 1.0),
                 progress_every=max(args.progress_every, 1),
@@ -395,7 +497,7 @@ def main() -> None:
         arrays["frame_idx"],
         sampled_timestamps,
         poses_2d_by_frame,
-        calibrations,
+        selected_calibrations,
         np.linalg.inv(source_to_analysis),
         global_optimization_config,
     )
@@ -480,10 +582,37 @@ def main() -> None:
         frame_indices=arrays["frame_idx"],
         timestamps_sec=sampled_timestamps,
     )
-    export_keypoints2d_csv(poses_2d_by_frame, output_paths["csv"] / "vitpose_keypoints_2d_flat.csv")
+    export_keypoints2d_csv(
+        display_poses_2d_by_frame,
+        output_paths["csv"] / "vitpose_keypoints_2d_flat.csv",
+    )
+    export_keypoints2d_csv(
+        poses_2d_by_frame,
+        output_paths["csv"] / "vitpose_keypoints_2d_geometry_flat.csv",
+    )
+    export_keypoints2d_csv(
+        prefeedback_poses_2d_by_frame,
+        output_paths["csv"] / "vitpose_keypoints_2d_prefeedback_flat.csv",
+    )
     export_keypoints2d_csv(
         raw_poses_2d_by_frame,
         output_paths["csv"] / "vitpose_keypoints_2d_raw_flat.csv",
+    )
+    export_pose2d_feedback_provenance_csv(
+        feedback_provenance_by_camera,
+        output_paths["csv"] / "vitpose_keypoints_2d_feedback_provenance.csv",
+        frame_indices=arrays["frame_idx"],
+    )
+    export_session_json(
+        crossview_feedback_report,
+        output_paths["json"] / "crossview_2d_feedback_report.json",
+    )
+    export_session_json(
+        {
+            "algorithm": crossview_feedback_report["algorithm"],
+            "cameras": crossview_feedback_report["cameras"],
+        },
+        output_paths["json"] / "camera_health_report.json",
     )
     export_session_json(
         {
@@ -528,6 +657,7 @@ def main() -> None:
                 "polynomial_order": pose2d_stabilization_config.polynomial_order,
                 "min_outlier_distance_px": (pose2d_stabilization_config.min_outlier_distance_px),
             },
+            "crossview_2d_feedback": crossview_feedback_report,
             "global_body17_optimization": global_optimization.report,
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
@@ -588,6 +718,28 @@ def main() -> None:
                 "camera_weights": global_optimization.camera_weights,
                 "acceptance_gate": global_optimization.report.get("acceptance_gate"),
             },
+            "crossview_2d_feedback": {
+                "target_count": crossview_feedback_report.get("target_count", 0),
+                "image_guided_accepted_count": crossview_feedback_report.get(
+                    "image_guided_accepted_count",
+                    0,
+                ),
+                "geometry_outlier_rejected_count": crossview_feedback_report.get(
+                    "geometry_outlier_rejected_count",
+                    0,
+                ),
+                "crossview_projected_visualization_count": crossview_feedback_report.get(
+                    "crossview_projected_visualization_count",
+                    0,
+                ),
+                "geometry_feedback_applied": crossview_feedback_report.get(
+                    "geometry_feedback_applied",
+                    False,
+                ),
+                "geometry_feedback_gate": crossview_feedback_report.get(
+                    "geometry_feedback_gate"
+                ),
+            },
             "minimum_required_body17_valid_ratio": minimum_body_valid_ratio,
         },
         output_paths["json"] / "run_quality_report.json",
@@ -611,6 +763,12 @@ def main() -> None:
     print(f"keypoints_3d_world shape: {video_arrays['keypoints_3d_world'].shape}")
     print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
+    print(
+        "crossview_2d_feedback: "
+        f"{crossview_feedback_report.get('image_guided_accepted_count', 0)} image-guided, "
+        f"{crossview_feedback_report.get('crossview_projected_visualization_count', 0)} "
+        "visualization-only"
+    )
     print(f"global_body17_optimization: {'applied' if global_optimization.applied else 'fallback'}")
     if not global_optimization.applied:
         print(f"global_body17_fallback_reason: {global_optimization.report.get('fallback_reason')}")
@@ -623,6 +781,378 @@ def main() -> None:
             "3D output failed production quality gates. Diagnostic files were kept, "
             "but this run was not promoted as latest. Inspect run_quality_report.json."
         )
+
+
+def _run_crossview_2d_feedback(
+    estimator: ViTPose2DEstimator,
+    cameras: list,
+    sampled_sync_frames: list[SynchronizedFrame],
+    sampled_global_frame_indices: list[int],
+    baseline_by_camera: dict[str, list[PersonPose2D]],
+    plan: CrossViewFeedbackPlan,
+    config: CrossView2DFeedbackConfig,
+    stabilization_config: Pose2DStabilizationConfig,
+    progress_every: int,
+) -> tuple[
+    dict[str, list[PersonPose2D]],
+    dict[str, list[PersonPose2D]],
+    dict[str, np.ndarray],
+    dict,
+]:
+    geometry = {
+        camera.camera_id: [copy_pose(pose) for pose in baseline_by_camera[camera.camera_id]]
+        for camera in cameras
+    }
+    provenance = {
+        camera.camera_id: np.zeros(
+            (len(sampled_global_frame_indices), COCO_WHOLEBODY_KEYPOINTS),
+            dtype=np.uint8,
+        )
+        for camera in cameras
+    }
+    decisions: list[dict] = []
+    target_frame_count = sum(
+        int(np.count_nonzero(np.any(plan.target_mask[camera.camera_id], axis=1)))
+        for camera in cameras
+    )
+    if not config.enabled or target_frame_count == 0:
+        display = {
+            camera_id: [copy_pose(pose) for pose in poses]
+            for camera_id, poses in geometry.items()
+        }
+        return (
+            geometry,
+            display,
+            provenance,
+            finalize_feedback_report(plan, provenance, decisions),
+        )
+
+    print(
+        f"      cross-view 2D feedback: {plan.target_count} joint targets "
+        f"across {target_frame_count} camera-frames",
+        flush=True,
+    )
+    progress = ProgressBar("2D feedback", target_frame_count)
+    completed = 0
+    for camera in cameras:
+        camera_id = camera.camera_id
+        target_frames = np.flatnonzero(np.any(plan.target_mask[camera_id], axis=1))
+        if target_frames.size == 0:
+            continue
+        capture = cv2.VideoCapture(str(camera.video_path))
+        if not capture.isOpened():
+            for sample_idx in target_frames:
+                _record_unavailable_feedback_targets(
+                    decisions,
+                    plan,
+                    camera_id,
+                    int(sample_idx),
+                    sampled_global_frame_indices,
+                    sampled_sync_frames,
+                    "video_reopen_failed",
+                    config.projected_fallback_for_visualization,
+                )
+            continue
+        next_frame = {camera_id: 0}
+        try:
+            for sample_idx_value in target_frames:
+                sample_idx = int(sample_idx_value)
+                local_frame_idx = int(
+                    sampled_sync_frames[sample_idx].local_frame_indices[camera_id]
+                )
+                frame = _read_frame_sequential(
+                    capture,
+                    camera_id,
+                    local_frame_idx,
+                    next_frame,
+                )
+                if frame is None:
+                    _record_unavailable_feedback_targets(
+                        decisions,
+                        plan,
+                        camera_id,
+                        sample_idx,
+                        sampled_global_frame_indices,
+                        sampled_sync_frames,
+                        "frame_read_failed",
+                        config.projected_fallback_for_visualization,
+                    )
+                    completed += 1
+                    continue
+                prior_points = np.full(
+                    (COCO_WHOLEBODY_KEYPOINTS, 2),
+                    np.nan,
+                    dtype=float,
+                )
+                prior_valid = np.zeros(COCO_WHOLEBODY_KEYPOINTS, dtype=bool)
+                body_count = plan.priors_xy[camera_id].shape[1]
+                prior_points[:body_count] = plan.priors_xy[camera_id][sample_idx]
+                prior_valid[:body_count] = plan.target_mask[camera_id][sample_idx]
+                baseline_pose = baseline_by_camera[camera_id][sample_idx]
+                guided = estimator.predict_guided(
+                    frame,
+                    camera_id,
+                    local_frame_idx,
+                    baseline_pose,
+                    prior_points,
+                    prior_valid,
+                    config.search_radius_px,
+                )
+                for joint_idx_value in np.flatnonzero(prior_valid):
+                    joint_idx = int(joint_idx_value)
+                    decision = decide_guided_candidate(
+                        baseline_pose.keypoints_xy[joint_idx],
+                        prior_points[joint_idx],
+                        guided.guided_pose.keypoints_xy[joint_idx],
+                        float(guided.guided_pose.scores[joint_idx]),
+                        float(guided.unconstrained_pose.scores[joint_idx]),
+                        config,
+                    )
+                    item = {
+                        "sample_index": sample_idx,
+                        "global_frame_idx": int(sampled_global_frame_indices[sample_idx]),
+                        "local_frame_idx": local_frame_idx,
+                        "camera_id": camera_id,
+                        "joint_idx": joint_idx,
+                        "joint_name": (
+                            COCO_BODY_JOINT_NAMES[joint_idx]
+                            if joint_idx < len(COCO_BODY_JOINT_NAMES)
+                            else f"joint_{joint_idx}"
+                        ),
+                        "accepted": decision.accepted,
+                        "reason": decision.reason,
+                        "initial_error_px": decision.initial_error_px,
+                        "candidate_error_px": decision.candidate_error_px,
+                        "improvement_px": decision.improvement_px,
+                        "guided_score": decision.guided_score,
+                        "unconstrained_score": decision.unconstrained_score,
+                        "supporting_views": int(
+                            plan.supporting_views[camera_id][sample_idx, joint_idx]
+                        ),
+                        "visualization_fallback": bool(
+                            not decision.accepted
+                            and config.projected_fallback_for_visualization
+                        ),
+                    }
+                    decisions.append(item)
+                    if not decision.accepted:
+                        continue
+                    corrected = geometry[camera_id][sample_idx]
+                    corrected.keypoints_xy[joint_idx] = (
+                        guided.guided_pose.keypoints_xy[joint_idx]
+                    )
+                    corrected.scores[joint_idx] = guided.guided_pose.scores[joint_idx]
+                    corrected.valid_mask[joint_idx] = True
+                    provenance[camera_id][sample_idx, joint_idx] = (
+                        PROVENANCE_IMAGE_GUIDED
+                    )
+                completed += 1
+                if (
+                    completed == 1
+                    or completed == target_frame_count
+                    or completed % max(progress_every, 1) == 0
+                ):
+                    progress.print(completed, extra=f"{camera_id} frame {local_frame_idx}")
+        finally:
+            capture.release()
+    progress.done()
+
+    for camera in cameras:
+        camera_id = camera.camera_id
+        body_count = plan.target_mask[camera_id].shape[1]
+        rejected = (
+            plan.target_mask[camera_id]
+            & (provenance[camera_id][:, :body_count] != PROVENANCE_IMAGE_GUIDED)
+        )
+        for sample_idx, joint_idx in zip(*np.nonzero(rejected), strict=True):
+            geometry[camera_id][sample_idx].valid_mask[joint_idx] = False
+
+    if plan.target_count:
+        geometry = {
+            camera.camera_id: stabilize_pose2d_sequence(
+                geometry[camera.camera_id],
+                config=stabilization_config,
+            )
+            for camera in cameras
+        }
+    display = {
+        camera_id: [copy_pose(pose) for pose in poses]
+        for camera_id, poses in geometry.items()
+    }
+    if config.projected_fallback_for_visualization:
+        for camera in cameras:
+            camera_id = camera.camera_id
+            fallback = (
+                plan.target_mask[camera_id]
+                & (provenance[camera_id][:, : plan.target_mask[camera_id].shape[1]] == 0)
+            )
+            for sample_idx, joint_idx in zip(*np.nonzero(fallback), strict=True):
+                prior = plan.priors_xy[camera_id][sample_idx, joint_idx]
+                if not np.all(np.isfinite(prior)):
+                    continue
+                pose = display[camera_id][sample_idx]
+                pose.keypoints_xy[joint_idx] = prior
+                pose.scores[joint_idx] = float(
+                    np.clip(plan.prior_score[camera_id][sample_idx, joint_idx], 0.0, 1.0)
+                )
+                pose.valid_mask[joint_idx] = True
+                provenance[camera_id][sample_idx, joint_idx] = (
+                    PROVENANCE_CROSSVIEW_PROJECTED
+                )
+    else:
+        for camera in cameras:
+            camera_id = camera.camera_id
+            body_count = plan.target_mask[camera_id].shape[1]
+            rejected = (
+                plan.target_mask[camera_id]
+                & (provenance[camera_id][:, :body_count] != PROVENANCE_IMAGE_GUIDED)
+            )
+            for sample_idx, joint_idx in zip(*np.nonzero(rejected), strict=True):
+                original = baseline_by_camera[camera_id][sample_idx]
+                pose = display[camera_id][sample_idx]
+                pose.keypoints_xy[joint_idx] = original.keypoints_xy[joint_idx]
+                pose.scores[joint_idx] = original.scores[joint_idx]
+                pose.valid_mask[joint_idx] = original.valid_mask[joint_idx]
+    return (
+        geometry,
+        display,
+        provenance,
+        finalize_feedback_report(plan, provenance, decisions),
+    )
+
+
+def _record_unavailable_feedback_targets(
+    decisions: list[dict],
+    plan: CrossViewFeedbackPlan,
+    camera_id: str,
+    sample_idx: int,
+    sampled_global_frame_indices: list[int],
+    sampled_sync_frames: list[SynchronizedFrame],
+    reason: str,
+    visualization_fallback: bool,
+) -> None:
+    local_frame_idx = int(
+        sampled_sync_frames[sample_idx].local_frame_indices[camera_id]
+    )
+    for joint_idx_value in np.flatnonzero(plan.target_mask[camera_id][sample_idx]):
+        joint_idx = int(joint_idx_value)
+        decisions.append(
+            {
+                "sample_index": sample_idx,
+                "global_frame_idx": int(sampled_global_frame_indices[sample_idx]),
+                "local_frame_idx": local_frame_idx,
+                "camera_id": camera_id,
+                "joint_idx": joint_idx,
+                "joint_name": (
+                    COCO_BODY_JOINT_NAMES[joint_idx]
+                    if joint_idx < len(COCO_BODY_JOINT_NAMES)
+                    else f"joint_{joint_idx}"
+                ),
+                "accepted": False,
+                "reason": reason,
+                "initial_error_px": float(
+                    plan.initial_error_px[camera_id][sample_idx, joint_idx]
+                ),
+                "candidate_error_px": None,
+                "improvement_px": None,
+                "guided_score": 0.0,
+                "unconstrained_score": 0.0,
+                "supporting_views": int(
+                    plan.supporting_views[camera_id][sample_idx, joint_idx]
+                ),
+                "visualization_fallback": visualization_fallback,
+            }
+        )
+
+
+def _poses_by_global_frame(
+    global_frame_indices: list[int],
+    cameras: list,
+    poses_by_camera: dict[str, list[PersonPose2D]],
+) -> dict[int, dict[str, PersonPose2D]]:
+    return {
+        int(global_frame_idx): {
+            camera.camera_id: poses_by_camera[camera.camera_id][sample_idx]
+            for camera in cameras
+        }
+        for sample_idx, global_frame_idx in enumerate(global_frame_indices)
+    }
+
+
+def _triangulate_sampled_poses(
+    global_frame_indices: list[int],
+    poses_by_frame: dict[int, dict[str, PersonPose2D]],
+    calibrations: dict[str, CameraCalibration],
+    min_views: int,
+    min_keypoint_score: float,
+    max_reprojection_error_px: float,
+    max_hypotheses: int,
+) -> list:
+    return [
+        triangulate_frame(
+            frame_idx=int(frame_idx),
+            poses_by_camera=poses_by_frame[int(frame_idx)],
+            calibrations=calibrations,
+            min_views=min_views,
+            min_keypoint_score=min_keypoint_score,
+            max_reprojection_error_px=max_reprojection_error_px,
+            max_hypotheses=max_hypotheses,
+        )
+        for frame_idx in global_frame_indices
+    ]
+
+
+def _feedback_triangulation_gate(before: list, after: list) -> dict:
+    before_arrays = stack_triangulated(before)
+    after_arrays = stack_triangulated(after)
+    body_count = min(17, before_arrays["keypoints_3d_world"].shape[1])
+    before_valid = np.all(
+        np.isfinite(before_arrays["keypoints_3d_world"][:, :body_count]),
+        axis=-1,
+    )
+    after_valid = np.all(
+        np.isfinite(after_arrays["keypoints_3d_world"][:, :body_count]),
+        axis=-1,
+    )
+    before_errors = before_arrays["reprojection_error"][:, :body_count]
+    after_errors = after_arrays["reprojection_error"][:, :body_count]
+    before_errors = before_errors[np.isfinite(before_errors)]
+    after_errors = after_errors[np.isfinite(after_errors)]
+    before_median = float(np.median(before_errors)) if before_errors.size else None
+    after_median = float(np.median(after_errors)) if after_errors.size else None
+    before_p95 = float(np.percentile(before_errors, 95.0)) if before_errors.size else None
+    after_p95 = float(np.percentile(after_errors, 95.0)) if after_errors.size else None
+    before_ratio = float(np.mean(before_valid)) if before_valid.size else 0.0
+    after_ratio = float(np.mean(after_valid)) if after_valid.size else 0.0
+    checks = {
+        "body_valid_ratio_not_degraded": after_ratio + 0.01 >= before_ratio,
+        "median_reprojection_not_degraded": (
+            before_median is None
+            or after_median is None
+            or after_median <= max(before_median * 1.05, before_median + 1.0)
+        ),
+        "p95_reprojection_not_degraded": (
+            before_p95 is None
+            or after_p95 is None
+            or after_p95 <= max(before_p95 * 1.10, before_p95 + 2.0)
+        ),
+    }
+    passed = all(checks.values())
+    return {
+        "passed": passed,
+        "reason": None if passed else "triangulation_quality_degraded",
+        "checks": checks,
+        "before": {
+            "body_valid_ratio": before_ratio,
+            "median_reprojection_error_px": before_median,
+            "p95_reprojection_error_px": before_p95,
+        },
+        "after": {
+            "body_valid_ratio": after_ratio,
+            "median_reprojection_error_px": after_median,
+            "p95_reprojection_error_px": after_p95,
+        },
+    }
 
 
 def build_pair_test_calibrations(camera_a: str, camera_b: str) -> dict[str, CameraCalibration]:
@@ -696,6 +1226,7 @@ def _write_synced_pose_overlay(
     output_path: Path,
     camera_id: str,
     sampled_poses: list[PersonPose2D],
+    sampled_provenance: np.ndarray | None,
     synchronized_frames: list[SynchronizedFrame],
     output_fps: float,
     progress_every: int,
@@ -726,13 +1257,45 @@ def _write_synced_pose_overlay(
             if frame is None:
                 break
             pose = pose2d_at_frame(sampled_poses, local_idx)
-            writer.write(draw_pose2d(frame, pose))
+            provenance = _provenance_at_frame(
+                sampled_poses,
+                sampled_provenance,
+                local_idx,
+            )
+            writer.write(draw_pose2d(frame, pose, provenance=provenance))
             if output_idx == 0 or output_idx + 1 >= len(synchronized_frames) or (output_idx + 1) % progress_every == 0:
                 progress.print(output_idx + 1, extra=f"src frame {local_idx}")
     finally:
         capture.release()
         writer.release()
         progress.done()
+
+
+def _provenance_at_frame(
+    sampled_poses: list[PersonPose2D],
+    sampled_provenance: np.ndarray | None,
+    local_frame_idx: int,
+) -> np.ndarray | None:
+    if sampled_provenance is None or not sampled_poses:
+        return None
+    values = np.asarray(sampled_provenance, dtype=np.uint8)
+    if values.ndim != 2 or values.shape[0] != len(sampled_poses):
+        raise ValueError("sampled_provenance must match sampled_poses")
+    frame_indices = np.asarray([pose.frame_idx for pose in sampled_poses], dtype=int)
+    insertion = int(np.searchsorted(frame_indices, int(local_frame_idx), side="left"))
+    if insertion <= 0:
+        selected = 0
+    elif insertion >= frame_indices.size:
+        selected = frame_indices.size - 1
+    else:
+        before = insertion - 1
+        selected = (
+            before
+            if abs(local_frame_idx - frame_indices[before])
+            <= abs(frame_indices[insertion] - local_frame_idx)
+            else insertion
+        )
+    return values[selected]
 
 
 def _target_sample_count(source_frames: int, max_frames: int | None, stride: int) -> int:

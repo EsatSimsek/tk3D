@@ -512,6 +512,8 @@ Hazır olanlar:
 - Arka/yan dönüşlerde anatomik sağ-sol eklem kimliğini koruyan sıçrama düzeltmesi
 - BODY-17 odaklı 2B görselleştirme ve stride çıktılarında gerçek kare zaman çizelgesi enterpolasyonu
 - Aykırı kamerayı eleyen, pozitif derinlik ve triangulation açısı kontrolü yapan robust multi-view triangulation
+- Hedef kamerayı üçgenlemeden çıkaran, ViTPose ısı haritasını bağımsız çok-kamera öncülüyle ikinci kez arayan 2B geri besleme
+- Görüntü kanıtı bulunmayan kamera-eklem aykırılarını 3B geometriden çıkarıp yalnız videoda turuncu, izlenebilir çok-kamera kurtarması olarak gösterme
 - Robust reprojection optimizasyonu; reprojection error ve inlier kamera sayısına dayalı kalite skoru
 - Sentetik 3 kamera dry-run pipeline
 - JSON/CSV/Excel/PNG/MP4 output üretimi; CSV export eksik sayıları `NaN` stringi yerine boş hücre yazar
@@ -549,7 +551,8 @@ En güçlü tam test için proje klasöründe yalnız şu komutu çalıştır:
 .\scripts\run_full_aist_pose.ps1
 ```
 
-Bu komut dokuz kamerayı, bütün kareleri (`stride 1`) ve ViTPose-Huge WholeBody modelinin 133 noktasını kullanır.
+Bu komut dokuz kamerayı, bütün geçerli ortak zaman çizelgesi karelerini (`stride 1`) ve ViTPose-Huge WholeBody
+modelinin 133 noktasını kullanır.
 Her çalıştırmada yerel tarih ve saat içeren yeni bir klasör oluşturur; eski sonuçların üzerine yazmaz:
 
 ```text
@@ -558,7 +561,12 @@ outputs/aist_test/runs/pose_YYYY-MM-DD_HH-mm-ss_fff/
 
 Tam hat; RF-DETR kişi tespiti ve kimlik takibi, gerçek video FPS değerleriyle kamera senkronizasyonu, ileri-geri
 çalışan sıfır-fazlı 2B yörünge stabilizasyonu, güven ve reprojection hatasına dayanıklı çok-kameralı 3B
-triangulation uygular. Ardından BODY-17, bütün senkronize video boyunca tek bir global optimizasyonda çözülür:
+triangulation uygular. İlk üçgenlemeden sonra her kamera ayrı ayrı dışarıda bırakılır; diğer kameralardan gelen
+bağımsız 3B sonuç hedef görüntüye izdüşürülür. Yalnız büyük hata gösteren eklemler için ViTPose ısı haritası ikinci
+kez aranır. Yeni nokta hem gerçek bir ısı-haritası tepesine sahip olmalı hem de bağımsız geometri hatasını belirlenen
+sınırda azaltmalıdır. Bu iki koşulu geçemeyen ölçüm 3B hesaptan çıkarılır; görüntü videosunda ise turuncu renkle
+`cross-view recovered` olarak gösterilir. Böylece izdüşürülen nokta yeni kamera ölçümü gibi tekrar üçgenlemeye
+sokulmaz ve veri döngüsü oluşturmaz. Ardından BODY-17, bütün senkronize video boyunca tek bir global optimizasyonda çözülür:
 dokuz kameranın yeniden izdüşüm hatası, kişiye özel sabit kemik uzunlukları, güvenli dirsek/diz limitleri,
 harekete uyarlanan ivme ve jerk sürekliliği, kamera güvenleri ve kısa kapanmalar aynı çözümde kullanılır.
 Gövdeyle birlikte yüz, ayak ve el/parmak noktaları veri dosyalarında korunur; el ve ayak bağlantıları 2B/3B
@@ -575,11 +583,16 @@ Her yeni çalışma klasöründe başlıca şu sonuçlar oluşur:
 - `videos/vitpose_skeleton_3d_world.mp4`
 - `viewer/pose3d_viewer.html` — tarayıcıda döndürme, yakınlaştırma, oynatma ve kare seçme
 - `csv/vitpose_keypoints_2d_raw_flat.csv` ve `csv/vitpose_keypoints_2d_flat.csv`
+- `csv/vitpose_keypoints_2d_prefeedback_flat.csv` — geri besleme öncesi stabilize 2B
+- `csv/vitpose_keypoints_2d_geometry_flat.csv` — yalnız gerçek görüntü kanıtı taşıyan 3B giriş gözlemleri
+- `csv/vitpose_keypoints_2d_feedback_provenance.csv` — özgün, ısı-haritasıyla düzeltilmiş veya yalnız videoda çok-kameradan kurtarılmış
 - `csv/vitpose_keypoints_3d_world_triangulated_flat.csv` — değiştirilmeyen ham 3B başlangıç
 - `csv/vitpose_keypoints_3d_world_global_optimized_flat.csv` — global optimizasyon sonucu
 - `csv/vitpose_keypoints_3d_provenance.csv` — gözlenmiş, kısa kapanmadan tamamlanmış veya kullanılamaz
 - `csv/vitpose_keypoints_3d_world_unsmoothed_flat.csv` ve `csv/vitpose_keypoints_3d_world_flat.csv`
 - `json/global_pose_optimization_report.json` — önce/sonra ölçümleri, kamera ağırlıkları ve güvenlik kapısı
+- `json/crossview_2d_feedback_report.json` — her düzeltme kararı, kabul/red nedeni ve geometri geri dönüş kapısı
+- `json/camera_health_report.json` — kamera/eklem hata dağılımı; sol-sağ, senkron, kalibrasyon ve 2B algılama hipotezleri
 - `json/pose2d_stability_report.json`, `json/pose3d_stability_report.json` ve `json/run_quality_report.json`
 
 HTML dosyasını çift tıklayarak açabilirsin; ayrıca bir web sunucusu çalıştırmak gerekmez. Son başarıyla tamamlanan
@@ -600,6 +613,24 @@ Not: `--max-frames` sadece kısa preview üretmek için kullanılır. Tam video 
 Kameralar arası zaman farkları `session.yaml` içindeki `sync.offsets` alanından okunur. Elle verdiğin `--run-id`
 daha önce kullanıldıysa veri kaybını önlemek için işlem başlamaz; yeni bir ad kullan veya tarihli klasörü otomatik
 üreten `run_full_aist_pose.ps1` komutunu çalıştır.
+
+Var olan bir tam çalışmada belirli kameranın sol-sağ kimliği, görüntü hizası ve zaman kayması hipotezlerini ayrıca
+incelemek için:
+
+```powershell
+python scripts\diagnose_camera_consistency.py `
+  --run outputs\aist_test\runs\<run_id> `
+  --camera c05 `
+  --max-shift 350
+```
+
+AIST örnek dosyasında c05 videosunun dans bölümü diğer kameralardan 268 kare geç başlar. Geometri taraması
+`+268`, görüntüden bağımsız el/gövde hareketi taraması `+269` verdiği için oturum sözleşmesine göre
+`sync.offsets.c05: -268` kullanılır. Bu düzeltme c05 medyan uzlaşma hatasını kısa dokuz-kamera testinde
+`45,57 px` değerinden `4,58 px` değerine, c05 düzeltme hedefi sayısını `300` değerinden `0` değerine indirdi.
+Dokuz kameranın gerçek ortak bölgesi 451 karedir; sistem eşzamanlı olmayan 268 kareyi aynı anmış gibi
+üçgenleştirmez. Başka veri setlerinde ofset otomatik yazılmaz; iki bağımsız sinyal uyuşmuyorsa tanı aracı
+`ambiguous_periodic_motion` bildirir.
 
 Ana çıktılar:
 

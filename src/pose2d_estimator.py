@@ -45,6 +45,12 @@ class Pose2DConfig:
         self.input_size = normalized_size
 
 
+@dataclass(slots=True)
+class GuidedPose2DResult:
+    guided_pose: PersonPose2D
+    unconstrained_pose: PersonPose2D
+
+
 class RTMW2DEstimator:
     """RTMW adapter. The MMPose initialization is intentionally isolated here."""
 
@@ -281,6 +287,68 @@ class ViTPose2DEstimator:
             for frame, camera_id, frame_idx in zip(frames, camera_ids, frame_indices, strict=True)
         ]
 
+    def predict_guided(
+        self,
+        frame: np.ndarray,
+        camera_id: str,
+        frame_idx: int,
+        baseline_pose: PersonPose2D,
+        priors_xy: np.ndarray,
+        prior_valid: np.ndarray,
+        search_radius_px: float,
+    ) -> GuidedPose2DResult:
+        """Run a fresh heatmap decode near independent multi-view priors."""
+        if self.dry_run:
+            empty = empty_pose_2d(camera_id, frame_idx)
+            return GuidedPose2DResult(empty, empty)
+        if self._model is None:
+            raise RuntimeError("ViTPose2DEstimator model is not initialized")
+        if not hasattr(self._model, "predict_arrays_guided"):
+            raise ModelRuntimeError("Configured ViTPose runtime does not support guided heatmap decoding")
+        prior_points = np.asarray(priors_xy, dtype=float)
+        valid = np.asarray(prior_valid, dtype=bool)
+        if prior_points.shape != (COCO_WHOLEBODY_KEYPOINTS, 2):
+            raise ValueError(
+                f"priors_xy must have shape {(COCO_WHOLEBODY_KEYPOINTS, 2)}, got {prior_points.shape}"
+            )
+        if valid.shape != (COCO_WHOLEBODY_KEYPOINTS,):
+            raise ValueError(
+                f"prior_valid must have shape {(COCO_WHOLEBODY_KEYPOINTS,)}, got {valid.shape}"
+            )
+        bbox = _bbox_from_pose_and_priors(
+            baseline_pose,
+            prior_points,
+            valid,
+            image_width=frame.shape[1],
+            image_height=frame.shape[0],
+        )
+        guided_xy, guided_scores, unconstrained_xy, unconstrained_scores = (
+            self._model.predict_arrays_guided(
+                frame,
+                priors_xy=prior_points,
+                prior_valid=valid,
+                bbox_xyxy=bbox,
+                search_radius_px=search_radius_px,
+            )
+        )
+        guided_pose = pose2d_from_arrays(
+            camera_id,
+            frame_idx,
+            guided_xy,
+            guided_scores,
+            self.config.score_threshold,
+            person_id=baseline_pose.person_id,
+        )
+        unconstrained_pose = pose2d_from_arrays(
+            camera_id,
+            frame_idx,
+            unconstrained_xy,
+            unconstrained_scores,
+            self.config.score_threshold,
+            person_id=baseline_pose.person_id,
+        )
+        return GuidedPose2DResult(guided_pose, unconstrained_pose)
+
     def _build_model(self) -> Any:
         if not self.config.config_path.exists():
             raise FileNotFoundError(f"ViTPose config not found: {self.config.config_path}")
@@ -402,6 +470,46 @@ def _bbox_from_pose(pose: PersonPose2D, image_width: int, image_height: int) -> 
          center[0] + expanded[0] / 2.0, center[1] + expanded[1] / 2.0],
         dtype=float,
     )
+    bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0.0, max(float(image_width - 1), 0.0))
+    bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0.0, max(float(image_height - 1), 0.0))
+    return bbox if bbox[2] > bbox[0] and bbox[3] > bbox[1] else None
+
+
+def _bbox_from_pose_and_priors(
+    pose: PersonPose2D,
+    priors_xy: np.ndarray,
+    prior_valid: np.ndarray,
+    image_width: int,
+    image_height: int,
+) -> np.ndarray | None:
+    body_count = min(17, pose.keypoints_xy.shape[0], priors_xy.shape[0])
+    observed_valid = (
+        pose.valid_mask[:body_count]
+        & np.all(np.isfinite(pose.keypoints_xy[:body_count]), axis=1)
+    )
+    guided_valid = (
+        np.asarray(prior_valid[:body_count], dtype=bool)
+        & np.all(np.isfinite(priors_xy[:body_count]), axis=1)
+    )
+    point_groups = []
+    if np.any(observed_valid):
+        point_groups.append(pose.keypoints_xy[:body_count][observed_valid])
+    if np.any(guided_valid):
+        point_groups.append(np.asarray(priors_xy[:body_count], dtype=float)[guided_valid])
+    if not point_groups:
+        return _bbox_from_pose(pose, image_width, image_height)
+    points = np.concatenate(point_groups, axis=0)
+    if points.shape[0] < 5:
+        return _bbox_from_pose(pose, image_width, image_height)
+    mins = np.min(points, axis=0)
+    maxs = np.max(points, axis=0)
+    span = np.maximum(maxs - mins, 32.0)
+    center = (mins + maxs) / 2.0
+    expanded = span * 1.35
+    bbox = np.r_[
+        center - expanded / 2.0,
+        center + expanded / 2.0,
+    ]
     bbox[[0, 2]] = np.clip(bbox[[0, 2]], 0.0, max(float(image_width - 1), 0.0))
     bbox[[1, 3]] = np.clip(bbox[[1, 3]], 0.0, max(float(image_height - 1), 0.0))
     return bbox if bbox[2] > bbox[0] and bbox[3] > bbox[1] else None

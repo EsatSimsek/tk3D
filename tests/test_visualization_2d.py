@@ -51,3 +51,20 @@ def test_draw_pose2d_can_hide_hand_detail() -> None:
     pose = PersonPose2D("c01", 0, keypoints, scores, valid)
 
     assert draw_pose2d(frame, pose, draw_hands=False).sum() == 0
+
+
+def test_draw_pose2d_marks_crossview_recovered_points_in_orange() -> None:
+    frame = np.zeros((80, 240, 3), dtype=np.uint8)
+    keypoints = np.full((133, 2), np.nan, dtype=float)
+    scores = np.zeros(133, dtype=float)
+    valid = np.zeros(133, dtype=bool)
+    keypoints[5] = [100, 60]
+    scores[5] = 0.8
+    valid[5] = True
+    provenance = np.zeros(133, dtype=np.uint8)
+    provenance[5] = 2
+    pose = PersonPose2D("c05", 0, keypoints, scores, valid)
+
+    output = draw_pose2d(frame, pose, provenance=provenance)
+
+    np.testing.assert_array_equal(output[60, 100], np.array([0, 165, 255], dtype=np.uint8))

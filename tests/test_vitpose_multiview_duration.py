@@ -11,6 +11,7 @@ from scripts.run_vitpose_multiview_3d import (
     _repeat_count,
     _target_sample_count,
 )
+from scripts.setup_aist_test import DEFAULT_SEQUENCE, KNOWN_FRAME_OFFSETS
 from src.multiview_sync import global_frame_range, local_frame_for_global, synchronized_frame_map
 
 
@@ -93,6 +94,21 @@ def test_full_aist_timeline_does_not_duplicate_5994_fps_frames() -> None:
     for camera_id in ("c01", "c02"):
         local_indices = [frame.local_frame_indices[camera_id] for frame in frames]
         assert local_indices == list(range(719))
+
+
+def test_aist_c05_verified_offset_maps_local_268_to_common_frame_zero() -> None:
+    offset = KNOWN_FRAME_OFFSETS[DEFAULT_SEQUENCE]["c05"]
+    frames = synchronized_frame_map(
+        frame_counts={"c01": 719, "c05": 719},
+        fps_by_camera={"c01": 59.94005994005994, "c05": 59.94005994005994},
+        frame_offsets={"c01": 0, "c05": offset},
+        target_fps=59.94005994005994,
+    )
+
+    assert offset == -268
+    assert frames[0].global_frame_idx == 0
+    assert frames[0].local_frame_indices == {"c01": 0, "c05": 268}
+    assert len(frames) == 451
 
 
 def test_timestamp_sync_rejects_nonfinite_camera_fps() -> None:

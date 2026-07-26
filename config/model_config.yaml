@@ -48,6 +48,21 @@ triangulation:
   max_reprojection_error_px: 25.0
   max_hypotheses: 16
 
+crossview_2d_feedback:
+  enabled: true
+  min_supporting_views: 4
+  min_observation_score: 0.30
+  trigger_error_px: 24.0
+  search_radius_px: 42.0
+  max_candidate_error_px: 20.0
+  min_geometric_improvement_px: 12.0
+  max_error_ratio: 0.50
+  min_image_score: 0.30
+  min_peak_score_ratio: 0.08
+  max_hypotheses: 16
+  max_reprojection_error_px: 25.0
+  projected_fallback_for_visualization: true
+
 global_optimization:
   enabled: true
   min_observation_score: 0.30

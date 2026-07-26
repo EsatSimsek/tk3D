@@ -104,6 +104,39 @@ def export_pose3d_provenance_csv(
     _write_csv(rows, output_path)
 
 
+def export_pose2d_feedback_provenance_csv(
+    provenance_by_camera: dict[str, np.ndarray],
+    output_path: str | Path,
+    frame_indices: np.ndarray,
+) -> None:
+    indices = np.asarray(frame_indices, dtype=int)
+    labels = {
+        0: "original_observation",
+        1: "image_guided_heatmap_peak",
+        2: "leave_one_camera_out_crossview_projection_visualization_only",
+    }
+    rows = []
+    for camera_id, provenance in provenance_by_camera.items():
+        values = np.asarray(provenance, dtype=np.uint8)
+        if values.ndim != 2 or values.shape[0] != indices.size:
+            raise ValueError(
+                f"{camera_id}: provenance must have shape [frames, joints] with {indices.size} frames"
+            )
+        for array_idx, frame_idx in enumerate(indices):
+            for joint_idx in range(values.shape[1]):
+                code = int(values[array_idx, joint_idx])
+                rows.append(
+                    {
+                        "frame_idx": int(frame_idx),
+                        "camera_id": camera_id,
+                        "joint_idx": joint_idx,
+                        "provenance_code": code,
+                        "provenance": labels.get(code, "unknown"),
+                    }
+                )
+    _write_csv(rows, output_path)
+
+
 def export_quality_csv(
     triangulation_score: np.ndarray,
     reprojection_error: np.ndarray,
