@@ -41,3 +41,26 @@ def build_sequence(start_angle, end_angle, frame_count):
         angle = start_angle + (end_angle - start_angle) * t
         frames.append(build_frame(angle))
     return np.stack(frames)
+
+def build_torso_frame(lean_deg):
+    """Build a frame with hips and shoulders, torso leaning forward by lean_deg."""
+    frame = np.full((133, 3), np.nan)
+
+    torso_length = 0.5
+    hip_center_y = 0.9
+
+    lean_rad = np.radians(lean_deg)
+    up = torso_length * np.cos(lean_rad)
+    forward = torso_length * np.sin(lean_rad)
+
+    # Hips at the same height, small gap left/right
+    frame[11] = [0.1, hip_center_y, 0.0]   # left_hip
+    frame[12] = [-0.1, hip_center_y, 0.0]  # right_hip
+
+    # Shoulders: torso center goes up and forward
+    shoulder_center_y = hip_center_y + up
+    shoulder_center_z = forward
+    frame[5] = [0.1, shoulder_center_y, shoulder_center_z]   # left_shoulder
+    frame[6] = [-0.1, shoulder_center_y, shoulder_center_z]  # right_shoulder
+
+    return frame

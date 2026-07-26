@@ -2,7 +2,8 @@ import numpy as np
 
 from src.biomechanics_3d import angle_deg
 from src.synthetic_poses import build_frame, build_leg, build_sequence
-
+from src.synthetic_poses import build_torso_frame
+from src.scoring_metrics import torso_lean_from_vertical_deg
 
 def test_build_leg_produces_requested_knee_angle():
     for requested in [180, 150, 130, 90, 45]:
@@ -33,3 +34,15 @@ def test_sequence_shape_and_endpoints():
     assert seq.shape == (60, 133, 3)
     np.testing.assert_allclose(seq[0, 15], [0.0, 0.1, 0.0], atol=1e-6)
     np.testing.assert_allclose(seq[-1, 15], [0.0, 0.5, -0.4], atol=1e-6)
+
+def test_upright_torso_has_zero_lean():
+    frame = build_torso_frame(0)
+    measured = torso_lean_from_vertical_deg(frame)
+    assert abs(measured) < 0.01
+
+
+def test_torso_lean_matches_requested_angle():
+    for requested in [12, 30, 45, 60]:
+        frame = build_torso_frame(requested)
+        measured = torso_lean_from_vertical_deg(frame)
+        assert abs(measured - requested) < 0.01
