@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from src.data_structures import PersonPose2D
-from src.exporter import export_keypoints2d_csv, export_session_json
+from src.exporter import export_keypoints2d_csv, export_pose3d_provenance_csv, export_session_json
 from src.biomechanics_3d import angle_deg
 from src.pose3d_stability import pose3d_stability_metrics
 from src.smoothing_3d import (
@@ -65,6 +65,26 @@ def test_keypoints2d_export_preserves_tracked_person_identity(tmp_path) -> None:
     exported = pd.read_csv(output_path)
 
     assert set(exported["person_id"]) == {17}
+
+
+def test_pose3d_provenance_export_distinguishes_observed_recovered_and_missing(tmp_path) -> None:
+    output_path = tmp_path / "provenance.csv"
+    provenance = np.asarray([[1, 2, 0]], dtype=np.uint8)
+
+    export_pose3d_provenance_csv(
+        provenance,
+        output_path,
+        frame_indices=np.asarray([42]),
+        timestamps_sec=np.asarray([0.7]),
+    )
+    exported = pd.read_csv(output_path)
+
+    assert exported["frame_idx"].tolist() == [42, 42, 42]
+    assert exported["provenance"].tolist() == [
+        "observed",
+        "temporally_recovered_short_gap",
+        "unavailable",
+    ]
 
 
 def test_validation_all_nan_errors_without_runtime_warning() -> None:

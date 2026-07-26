@@ -558,9 +558,16 @@ outputs/aist_test/runs/pose_YYYY-MM-DD_HH-mm-ss_fff/
 
 Tam hat; RF-DETR kişi tespiti ve kimlik takibi, gerçek video FPS değerleriyle kamera senkronizasyonu, ileri-geri
 çalışan sıfır-fazlı 2B yörünge stabilizasyonu, güven ve reprojection hatasına dayanıklı çok-kameralı 3B
-triangulation ve 3B zamansal stabilizasyon uygular. Gövdeyle birlikte yüz, ayak ve el/parmak noktaları veri
-dosyalarında korunur; el ve ayak bağlantıları 2B/3B görselleştirmelerde çizilir. Stabilizasyon kare atarak veya
-eklem sayısını azaltarak yapılmaz.
+triangulation uygular. Ardından BODY-17, bütün senkronize video boyunca tek bir global optimizasyonda çözülür:
+dokuz kameranın yeniden izdüşüm hatası, kişiye özel sabit kemik uzunlukları, güvenli dirsek/diz limitleri,
+harekete uyarlanan ivme ve jerk sürekliliği, kamera güvenleri ve kısa kapanmalar aynı çözümde kullanılır.
+Gövdeyle birlikte yüz, ayak ve el/parmak noktaları veri dosyalarında korunur; el ve ayak bağlantıları 2B/3B
+görselleştirmelerde çizilir. Stabilizasyon kare atarak veya eklem sayısını azaltarak yapılmaz.
+
+Global optimizasyon yalnız tam çözünürlüklü `stride 1` çalışmalarında açılır. Ham üçgenleme hiçbir zaman silinmez.
+Optimizasyon reprojection, kemik kararlılığı veya gövde düzeltme güvenlik sınırını aşarsa otomatik olarak ham
+sonuca döner. Kısa kapanmadan tamamlanan noktalar doğrudan gözlenmiş noktalardan ayrı etiketlenir; uzun ve
+kanıtsız boşluklar uydurulmaz.
 
 Her yeni çalışma klasöründe başlıca şu sonuçlar oluşur:
 
@@ -568,7 +575,11 @@ Her yeni çalışma klasöründe başlıca şu sonuçlar oluşur:
 - `videos/vitpose_skeleton_3d_world.mp4`
 - `viewer/pose3d_viewer.html` — tarayıcıda döndürme, yakınlaştırma, oynatma ve kare seçme
 - `csv/vitpose_keypoints_2d_raw_flat.csv` ve `csv/vitpose_keypoints_2d_flat.csv`
+- `csv/vitpose_keypoints_3d_world_triangulated_flat.csv` — değiştirilmeyen ham 3B başlangıç
+- `csv/vitpose_keypoints_3d_world_global_optimized_flat.csv` — global optimizasyon sonucu
+- `csv/vitpose_keypoints_3d_provenance.csv` — gözlenmiş, kısa kapanmadan tamamlanmış veya kullanılamaz
 - `csv/vitpose_keypoints_3d_world_unsmoothed_flat.csv` ve `csv/vitpose_keypoints_3d_world_flat.csv`
+- `json/global_pose_optimization_report.json` — önce/sonra ölçümleri, kamera ağırlıkları ve güvenlik kapısı
 - `json/pose2d_stability_report.json`, `json/pose3d_stability_report.json` ve `json/run_quality_report.json`
 
 HTML dosyasını çift tıklayarak açabilirsin; ayrıca bir web sunucusu çalıştırmak gerekmez. Son başarıyla tamamlanan
@@ -596,6 +607,7 @@ Ana çıktılar:
 - `outputs/aist_test/runs/<run_id>/videos/vitpose_skeleton_3d_world.mp4`
 - `outputs/aist_test/runs/<run_id>/viewer/pose3d_viewer.html`
 - `outputs/aist_test/runs/<run_id>/json/vitpose_session_3d.json`
+- `outputs/aist_test/runs/<run_id>/json/global_pose_optimization_report.json`
 - `outputs/aist_test/runs/<run_id>/csv/vitpose_keypoints_3d_world_flat.csv`
 
 Not: AIST++ camera data indirildiğinde `scripts\import_aist_cameras.py` sekansın `mapping.txt` kaydını okuyup `outputs/aist_test/calibration/cameras.json` üretir. Bu dosya `aist_official_multiview` olarak işaretlenir ve gerçek AIST++ intrinsic/extrinsic değerlerini kullanır. Kendi poomsae kameraların için senkron checkerboard calibration gerekir.

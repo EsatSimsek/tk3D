@@ -90,6 +90,69 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     if int(triangulation.get("max_hypotheses", 16)) < 1:
         raise ValueError("triangulation.max_hypotheses must be positive")
 
+    global_optimization = config.get("global_optimization", {})
+    if not isinstance(global_optimization, dict):
+        raise ValueError("global_optimization must be a mapping")
+    if "enabled" in global_optimization and not isinstance(global_optimization["enabled"], bool):
+        raise ValueError("global_optimization.enabled must be boolean")
+    optimization_score = float(global_optimization.get("min_observation_score", 0.30))
+    if not 0.0 <= optimization_score <= 1.0:
+        raise ValueError("global_optimization.min_observation_score must be between 0 and 1")
+    for key, default in (
+        ("max_gap_frames", 12),
+        ("minimum_bone_samples", 12),
+        ("outer_iterations", 3),
+        ("max_solver_evaluations", 35),
+    ):
+        if int(global_optimization.get(key, default)) < 1:
+            raise ValueError(f"global_optimization.{key} must be positive")
+    for key, default in (
+        ("reprojection_scale_px", 8.0),
+        ("bone_scale_m", 0.025),
+        ("acceleration_scale_mps2", 25.0),
+        ("jerk_scale_mps3", 500.0),
+        ("angle_scale_deg", 10.0),
+        ("anchor_scale_m", 0.15),
+        ("camera_error_scale_px", 12.0),
+        ("temporal_speed_reference_mps", 4.0),
+        ("max_median_reprojection_increase_px", 1.0),
+        ("max_p95_reprojection_increase_px", 2.0),
+        ("max_p95_acceleration_increase_mps2", 5.0),
+        ("max_p95_correction_m", 0.30),
+    ):
+        if float(global_optimization.get(key, default)) <= 0.0:
+            raise ValueError(f"global_optimization.{key} must be positive")
+    for key, default in (
+        ("camera_weight_floor", 0.20),
+        ("camera_weight_update_alpha", 0.50),
+        ("temporal_weight_floor", 0.15),
+    ):
+        value = float(global_optimization.get(key, default))
+        if not 0.0 < value <= 1.0:
+            raise ValueError(f"global_optimization.{key} must be greater than 0 and at most 1")
+    for key, default in (
+        ("max_median_reprojection_degradation_ratio", 1.05),
+        ("max_p95_reprojection_degradation_ratio", 1.10),
+        ("max_p95_acceleration_degradation_ratio", 1.10),
+    ):
+        if float(global_optimization.get(key, default)) < 1.0:
+            raise ValueError(f"global_optimization.{key} must be at least 1")
+    optimization_weights = global_optimization.get("weights", {})
+    if not isinstance(optimization_weights, dict):
+        raise ValueError("global_optimization.weights must be a mapping")
+    for key, default in (
+        ("reprojection", 2.0),
+        ("bone", 1.0),
+        ("acceleration", 0.06),
+        ("jerk", 0.01),
+        ("joint_limits", 0.50),
+        ("anchor", 0.03),
+    ):
+        if float(optimization_weights.get(key, default)) < 0.0:
+            raise ValueError(f"global_optimization.weights.{key} must be non-negative")
+    if float(optimization_weights.get("reprojection", 1.0)) <= 0.0:
+        raise ValueError("global_optimization.weights.reprojection must be positive")
+
     smoothing = _mapping(config, "smoothing")
     if smoothing.get("method") not in {"moving_average", "robust_savgol"}:
         raise ValueError("smoothing.method must be moving_average or robust_savgol")

@@ -114,3 +114,12 @@ def test_model_config_rejects_invalid_person_detector_threshold() -> None:
 
     with pytest.raises(ValueError, match="person_detector.threshold"):
         validate_model_config(config)
+
+
+def test_model_config_rejects_unsafe_global_optimization_limits() -> None:
+    with open("config/model_config.yaml", "r", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+    config["global_optimization"]["max_p95_correction_m"] = 0.0
+
+    with pytest.raises(ValueError, match="global_optimization.max_p95_correction_m"):
+        validate_model_config(config)

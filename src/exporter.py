@@ -67,6 +67,43 @@ def export_keypoints2d_csv(poses_2d_by_frame: dict[int, dict[str, Any]], output_
     _write_csv(rows, output_path)
 
 
+def export_pose3d_provenance_csv(
+    provenance: np.ndarray,
+    output_path: str | Path,
+    frame_indices: np.ndarray | None = None,
+    timestamps_sec: np.ndarray | None = None,
+) -> None:
+    values = np.asarray(provenance, dtype=np.uint8)
+    if values.ndim != 2:
+        raise ValueError(f"provenance must have shape [frames, joints], got {values.shape}")
+    frame_count = values.shape[0]
+    indices = np.arange(frame_count, dtype=int) if frame_indices is None else np.asarray(frame_indices, dtype=int)
+    timestamps = None if timestamps_sec is None else np.asarray(timestamps_sec, dtype=float)
+    if indices.shape != (frame_count,):
+        raise ValueError(f"frame_indices must have shape {(frame_count,)}, got {indices.shape}")
+    if timestamps is not None and timestamps.shape != (frame_count,):
+        raise ValueError(f"timestamps_sec must have shape {(frame_count,)}, got {timestamps.shape}")
+    labels = {
+        0: "unavailable",
+        1: "observed",
+        2: "temporally_recovered_short_gap",
+    }
+    rows = []
+    for array_idx in range(frame_count):
+        for joint_idx in range(values.shape[1]):
+            code = int(values[array_idx, joint_idx])
+            row = {
+                "frame_idx": int(indices[array_idx]),
+                "joint_idx": joint_idx,
+                "provenance_code": code,
+                "provenance": labels.get(code, "unknown"),
+            }
+            if timestamps is not None:
+                row["timestamp_sec"] = float(timestamps[array_idx])
+            rows.append(row)
+    _write_csv(rows, output_path)
+
+
 def export_quality_csv(
     triangulation_score: np.ndarray,
     reprojection_error: np.ndarray,

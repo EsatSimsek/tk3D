@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Iterable
+from dataclasses import replace
 from pathlib import Path
 
 import cv2
@@ -21,7 +22,18 @@ from src.coordinate_system import (
 )
 from src.config_validation import validate_model_config
 from src.data_structures import CameraCalibration, PersonPose2D
-from src.exporter import export_keypoints2d_csv, export_keypoints3d_csv, export_session_json
+from src.exporter import (
+    export_keypoints2d_csv,
+    export_keypoints3d_csv,
+    export_pose3d_provenance_csv,
+    export_session_json,
+)
+from src.multiview_pose_optimization import (
+    PROVENANCE_OBSERVED,
+    PROVENANCE_TEMPORALLY_RECOVERED,
+    optimization_config_from_mapping,
+    optimize_body_sequence,
+)
 from src.multiview_sync import SynchronizedFrame, synchronized_frame_map
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.person_tracking import person_detector_config_from_mapping
@@ -108,6 +120,9 @@ def main() -> None:
     pose2d_config = model_config["pose2d"]
     min_views = int(model_config["triangulation"].get("min_views", 2))
     min_keypoint_score = float(model_config["triangulation"].get("min_keypoint_score", 0.30))
+    global_optimization_config = optimization_config_from_mapping(model_config.get("global_optimization"))
+    if args.stride != 1 and global_optimization_config.enabled:
+        global_optimization_config = replace(global_optimization_config, enabled=False)
     smoothing_config = model_config.get("smoothing", {})
     smoothing_method = str(smoothing_config.get("method", "robust_savgol"))
     smoothing_window = _effective_smoothing_window(
@@ -223,6 +238,7 @@ def main() -> None:
         f"      cameras         : {len(cameras)}\n"
         f"      target frames   : {args.max_frames or 'full video'}\n"
         f"      stride          : {max(args.stride, 1)}\n"
+        f"      global body opt : {global_optimization_config.enabled}\n"
         f"      smoothing       : {smoothing_method}, window {smoothing_window}\n"
         f"      calibration     : {calibration_mode}\n"
         "[3/5] Running 2D pose inference",
@@ -354,6 +370,7 @@ def main() -> None:
 
     arrays = stack_triangulated(triangulated)
     arrays["keypoints_3d_world"] = transform_points(arrays["keypoints_3d_world"], source_to_analysis)
+    triangulated_3d_analysis = arrays["keypoints_3d_world"].copy()
     max_error = float(model_config["triangulation"].get("max_reprojection_error_px", 25.0))
     min_quality = float(model_config["triangulation"].get("min_triangulation_score", 0.20))
     accepted = (
@@ -369,6 +386,27 @@ def main() -> None:
             if index % max(args.stride, 1) == 0
         ][: arrays["frame_idx"].shape[0]],
         dtype=float,
+    )
+    print("      optimizing BODY-17 across the synchronized sequence", flush=True)
+    global_optimization = optimize_body_sequence(
+        arrays["keypoints_3d_world"],
+        accepted,
+        arrays["triangulation_score"],
+        arrays["frame_idx"],
+        sampled_timestamps,
+        poses_2d_by_frame,
+        calibrations,
+        np.linalg.inv(source_to_analysis),
+        global_optimization_config,
+    )
+    arrays["keypoints_3d_world"] = global_optimization.keypoints_3d
+    body_count = min(17, arrays["keypoints_3d_world"].shape[1])
+    accepted[:, :body_count] = global_optimization.valid_mask[:, :body_count]
+    optimized_body_error = global_optimization.body_reprojection_error_px
+    arrays["reprojection_error"][:, :body_count] = np.where(
+        np.isfinite(optimized_body_error),
+        optimized_body_error,
+        arrays["reprojection_error"][:, :body_count],
     )
     reliability_config = model_config.get("reliability", {})
     reliability = filter_unreliable_pose(
@@ -396,6 +434,8 @@ def main() -> None:
         polynomial_order=smoothing_polynomial_order,
         min_outlier_distance_m=smoothing_min_outlier_distance_m,
     )
+    if global_optimization.applied:
+        arrays["keypoints_3d_world"][:, :body_count] = reliable_unsmoothed_3d[:, :body_count]
     arrays["keypoints_3d_world"] = np.where(reliability.valid_mask[..., None], arrays["keypoints_3d_world"], np.nan)
     pose3d_stability_report = pose3d_stability_metrics(
         reliable_unsmoothed_3d,
@@ -404,6 +444,10 @@ def main() -> None:
     export_session_json(
         reliability.summary,
         output_paths["json"] / "pose_reliability_report.json",
+    )
+    export_session_json(
+        global_optimization.report,
+        output_paths["json"] / "global_pose_optimization_report.json",
     )
     video_arrays = _repeat_arrays_for_video(arrays, output_repeats)
     export_keypoints3d_csv(
@@ -415,6 +459,24 @@ def main() -> None:
     export_keypoints3d_csv(
         reliable_unsmoothed_3d,
         output_paths["csv"] / "vitpose_keypoints_3d_world_unsmoothed_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
+    export_keypoints3d_csv(
+        triangulated_3d_analysis,
+        output_paths["csv"] / "vitpose_keypoints_3d_world_triangulated_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
+    export_keypoints3d_csv(
+        global_optimization.keypoints_3d,
+        output_paths["csv"] / "vitpose_keypoints_3d_world_global_optimized_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
+    export_pose3d_provenance_csv(
+        global_optimization.provenance,
+        output_paths["csv"] / "vitpose_keypoints_3d_provenance.csv",
         frame_indices=arrays["frame_idx"],
         timestamps_sec=sampled_timestamps,
     )
@@ -466,6 +528,7 @@ def main() -> None:
                 "polynomial_order": pose2d_stabilization_config.polynomial_order,
                 "min_outlier_distance_px": (pose2d_stabilization_config.min_outlier_distance_px),
             },
+            "global_body17_optimization": global_optimization.report,
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
             "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
@@ -476,14 +539,21 @@ def main() -> None:
             "used_cameras": arrays["used_cameras"],
             "reliability_valid_mask": reliability.valid_mask,
             "reliability_rejection_reasons": reliability.rejection_reasons,
+            "optimization_provenance": global_optimization.provenance,
             "reliability_summary": reliability.summary,
             "pose3d_stability": pose3d_stability_report,
         },
         output_paths["json"] / "vitpose_session_3d.json",
     )
-    body_count = min(17, arrays["keypoints_3d_world"].shape[1])
     body_valid = np.all(np.isfinite(arrays["keypoints_3d_world"][:, :body_count]), axis=-1)
     mean_body_valid_ratio = float(np.mean(body_valid)) if body_valid.size else 0.0
+    body_provenance = global_optimization.provenance[:, :body_count]
+    observed_body_ratio = float(np.mean(body_provenance == PROVENANCE_OBSERVED)) if body_provenance.size else 0.0
+    recovered_body_ratio = (
+        float(np.mean(body_provenance == PROVENANCE_TEMPORALLY_RECOVERED))
+        if body_provenance.size
+        else 0.0
+    )
     finite_errors = arrays["reprojection_error"][np.isfinite(arrays["reprojection_error"])]
     mean_reprojection_error = float(np.mean(finite_errors)) if finite_errors.size else None
     minimum_body_valid_ratio = float(reliability_config.get("min_output_valid_body_ratio", 0.90))
@@ -506,9 +576,18 @@ def main() -> None:
             ),
             "production_ready_calibration": production_ready_calibration,
             "mean_body17_valid_ratio": mean_body_valid_ratio,
+            "observed_body17_ratio": observed_body_ratio,
+            "temporally_recovered_body17_ratio": recovered_body_ratio,
             "mean_reprojection_error_px": mean_reprojection_error,
             "max_reprojection_error_px": max_error,
             "reliability_filter": reliability.summary,
+            "global_body17_optimization": {
+                "applied": global_optimization.applied,
+                "fallback_used": global_optimization.report.get("fallback_used", True),
+                "fallback_reason": global_optimization.report.get("fallback_reason"),
+                "camera_weights": global_optimization.camera_weights,
+                "acceptance_gate": global_optimization.report.get("acceptance_gate"),
+            },
             "minimum_required_body17_valid_ratio": minimum_body_valid_ratio,
         },
         output_paths["json"] / "run_quality_report.json",
@@ -532,6 +611,9 @@ def main() -> None:
     print(f"keypoints_3d_world shape: {video_arrays['keypoints_3d_world'].shape}")
     print(f"inference_sample_count: {arrays['keypoints_3d_world'].shape[0]}")
     print(f"calibration_mode: {calibration_mode}")
+    print(f"global_body17_optimization: {'applied' if global_optimization.applied else 'fallback'}")
+    if not global_optimization.applied:
+        print(f"global_body17_fallback_reason: {global_optimization.report.get('fallback_reason')}")
     print(f"run_id: {run_id}")
     print(f"internal_geometry_quality_status: {'passed' if quality_passed else 'failed'}")
     print("ground_truth_accuracy_status: not_evaluated_in_this_command")
