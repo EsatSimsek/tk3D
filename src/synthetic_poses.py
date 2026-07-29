@@ -1,35 +1,33 @@
 import numpy as np
 
 
-def build_leg(knee_angle_deg):
-    """Build a single left leg with the requested knee angle."""
-    hip = np.array([0.0, 0.9, 0.0])
+def build_leg(knee_angle_deg, hip_x=0.0):
+    """Build a single leg with the requested knee angle at the given x position."""
+    hip = np.array([hip_x, 0.9, 0.0])
     thigh_length = 0.4
     shank_length = 0.4
-
-    knee = np.array([0.0, hip[1] - thigh_length, 0.0])
-
+    knee = np.array([hip_x, hip[1] - thigh_length, 0.0])
     flexion_deg = 180 - knee_angle_deg
     flexion_rad = np.radians(flexion_deg)
-
     down = shank_length * np.cos(flexion_rad)
     back = shank_length * np.sin(flexion_rad)
-
-    ankle = np.array([0.0, knee[1] - down, knee[2] - back])
-
+    ankle = np.array([knee[0], knee[1] - down, knee[2] - back])
     return hip, knee, ankle
 
 
-def build_frame(knee_angle_deg):
-    """Place one leg into a full 133-joint frame. Unknown joints stay NaN."""
+def build_frame(left_knee_deg, right_knee_deg=None, hip_half_width=0.1):
+    """Place both legs into a full 133-joint frame. Unknown joints stay NaN."""
+    if right_knee_deg is None:
+        right_knee_deg = left_knee_deg
     frame = np.full((133, 3), np.nan)
-
-    hip, knee, ankle = build_leg(knee_angle_deg)
-
-    frame[11] = hip     # left_hip
-    frame[13] = knee    # left_knee
-    frame[15] = ankle   # left_ankle
-
+    left_hip, left_knee, left_ankle = build_leg(left_knee_deg, hip_x=hip_half_width)
+    right_hip, right_knee, right_ankle = build_leg(right_knee_deg, hip_x=-hip_half_width)
+    frame[11] = left_hip      # left_hip
+    frame[13] = left_knee     # left_knee
+    frame[15] = left_ankle    # left_ankle
+    frame[12] = right_hip     # right_hip
+    frame[14] = right_knee    # right_knee
+    frame[16] = right_ankle   # right_ankle
     return frame
 
 
@@ -64,3 +62,5 @@ def build_torso_frame(lean_deg):
     frame[6] = [-0.1, shoulder_center_y, shoulder_center_z]  # right_shoulder
 
     return frame
+
+

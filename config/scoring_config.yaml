@@ -1,4 +1,4 @@
-scoring:
+﻿scoring:
   enabled: true
   mode: provisional_not_official
   pose_dimension: 3d
@@ -10,19 +10,6 @@ thresholds:
   balance_min_score: 0.70
 
 wt_rules:
-  total: 10.0
-  accuracy: 4.0
-  presentation:
-    speed_and_power: 2.0
-    rhythm_and_tempo: 2.0
-    expression_of_energy: 2.0
-  deductions:
-    minor: 0.1
-    major: 0.3
-    restart: 0.6
-    time_exceeded: 0.3
-    boundary_crossing: 0.3
-    wt_rules:
   total: 10.0
   accuracy: 4.0
   presentation:

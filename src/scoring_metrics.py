@@ -26,3 +26,23 @@ def torso_lean_from_vertical_deg(frame):
     forward = torso[2]       # z component (forward-back)
 
     return float(np.degrees(np.arctan2(abs(forward), abs(vertical))))
+
+
+
+
+def stance_width_lateral(frame):
+    """Left-right distance between the two ankles (x axis)."""
+    left_ankle = frame[COCO_BODY_JOINTS["left_ankle"]]
+    right_ankle = frame[COCO_BODY_JOINTS["right_ankle"]]
+    if not np.all(np.isfinite(left_ankle)) or not np.all(np.isfinite(right_ankle)):
+        return float("nan")
+    return float(abs(left_ankle[0] - right_ankle[0]))
+
+
+def stance_length_forward(frame):
+    """Front-back distance between the two ankles (z axis)."""
+    left_ankle = frame[COCO_BODY_JOINTS["left_ankle"]]
+    right_ankle = frame[COCO_BODY_JOINTS["right_ankle"]]
+    if not np.all(np.isfinite(left_ankle)) or not np.all(np.isfinite(right_ankle)):
+        return float("nan")
+    return float(abs(left_ankle[2] - right_ankle[2]))
