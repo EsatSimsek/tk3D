@@ -1,17 +1,24 @@
 import numpy as np
 
+from src.coordinate_system import ANALYSIS_FORWARD_AXIS, ANALYSIS_RIGHT_AXIS, ANALYSIS_UP_AXIS
+
 
 def build_leg(knee_angle_deg, hip_x=0.0):
-    """Build a single leg with the requested knee angle at the given x position."""
-    hip = np.array([hip_x, 0.9, 0.0])
+    """Build a leg in TK3D coordinates (x right, y forward, z up)."""
+    hip = np.zeros(3, dtype=float)
+    hip[ANALYSIS_RIGHT_AXIS] = hip_x
+    hip[ANALYSIS_UP_AXIS] = 0.9
     thigh_length = 0.4
     shank_length = 0.4
-    knee = np.array([hip_x, hip[1] - thigh_length, 0.0])
+    knee = hip.copy()
+    knee[ANALYSIS_UP_AXIS] -= thigh_length
     flexion_deg = 180 - knee_angle_deg
     flexion_rad = np.radians(flexion_deg)
     down = shank_length * np.cos(flexion_rad)
     back = shank_length * np.sin(flexion_rad)
-    ankle = np.array([knee[0], knee[1] - down, knee[2] - back])
+    ankle = knee.copy()
+    ankle[ANALYSIS_FORWARD_AXIS] -= back
+    ankle[ANALYSIS_UP_AXIS] -= down
     return hip, knee, ankle
 
 
@@ -40,27 +47,27 @@ def build_sequence(start_angle, end_angle, frame_count):
         frames.append(build_frame(angle))
     return np.stack(frames)
 
+
 def build_torso_frame(lean_deg):
-    """Build a frame with hips and shoulders, torso leaning forward by lean_deg."""
+    """Build a TK3D frame with the torso leaning forward by lean_deg."""
     frame = np.full((133, 3), np.nan)
 
     torso_length = 0.5
-    hip_center_y = 0.9
+    hip_center_z = 0.9
 
     lean_rad = np.radians(lean_deg)
     up = torso_length * np.cos(lean_rad)
     forward = torso_length * np.sin(lean_rad)
 
     # Hips at the same height, small gap left/right
-    frame[11] = [0.1, hip_center_y, 0.0]   # left_hip
-    frame[12] = [-0.1, hip_center_y, 0.0]  # right_hip
+    frame[11] = [0.1, 0.0, hip_center_z]  # left_hip
+    frame[12] = [-0.1, 0.0, hip_center_z]  # right_hip
 
     # Shoulders: torso center goes up and forward
-    shoulder_center_y = hip_center_y + up
-    shoulder_center_z = forward
-    frame[5] = [0.1, shoulder_center_y, shoulder_center_z]   # left_shoulder
+    shoulder_center_y = forward
+    shoulder_center_z = hip_center_z + up
+    frame[5] = [0.1, shoulder_center_y, shoulder_center_z]  # left_shoulder
     frame[6] = [-0.1, shoulder_center_y, shoulder_center_z]  # right_shoulder
 
     return frame
-
 

@@ -1,5 +1,6 @@
 import numpy as np
 
+from src.coordinate_system import ANALYSIS_FORWARD_AXIS, ANALYSIS_RIGHT_AXIS, ANALYSIS_UP_AXIS
 from src.data_structures import COCO_BODY_JOINTS
 
 
@@ -22,12 +23,10 @@ def torso_lean_from_vertical_deg(frame):
         return float("nan")
 
     torso = shoulder - hip
-    vertical = torso[1]      # y component (up)
-    forward = torso[2]       # z component (forward-back)
+    vertical = torso[ANALYSIS_UP_AXIS]
+    forward = torso[ANALYSIS_FORWARD_AXIS]
 
     return float(np.degrees(np.arctan2(abs(forward), abs(vertical))))
-
-
 
 
 def stance_width_lateral(frame):
@@ -36,13 +35,13 @@ def stance_width_lateral(frame):
     right_ankle = frame[COCO_BODY_JOINTS["right_ankle"]]
     if not np.all(np.isfinite(left_ankle)) or not np.all(np.isfinite(right_ankle)):
         return float("nan")
-    return float(abs(left_ankle[0] - right_ankle[0]))
+    return float(abs(left_ankle[ANALYSIS_RIGHT_AXIS] - right_ankle[ANALYSIS_RIGHT_AXIS]))
 
 
 def stance_length_forward(frame):
-    """Front-back distance between the two ankles (z axis)."""
+    """Front-back distance between the two ankles (y axis)."""
     left_ankle = frame[COCO_BODY_JOINTS["left_ankle"]]
     right_ankle = frame[COCO_BODY_JOINTS["right_ankle"]]
     if not np.all(np.isfinite(left_ankle)) or not np.all(np.isfinite(right_ankle)):
         return float("nan")
-    return float(abs(left_ankle[2] - right_ankle[2]))
+    return float(abs(left_ankle[ANALYSIS_FORWARD_AXIS] - right_ankle[ANALYSIS_FORWARD_AXIS]))

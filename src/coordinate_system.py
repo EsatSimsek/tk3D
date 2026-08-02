@@ -5,6 +5,10 @@ from typing import Any
 import numpy as np
 
 
+ANALYSIS_RIGHT_AXIS = 0
+ANALYSIS_FORWARD_AXIS = 1
+ANALYSIS_UP_AXIS = 2
+
 ANALYSIS_COORDINATE_SYSTEM: dict[str, Any] = {
     "name": "tk3d_analysis",
     "unit": "meter",

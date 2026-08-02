@@ -1,7 +1,7 @@
 # TK3D Güncel Proje Durumu
 
 Son doğrulama tarihi: **2 Ağustos 2026**
-Doğrulanan çalışma ağacı: **temel `88223aa` + korunmuş yerel değişiklikler**
+Doğrulanan çalışma ağacı: **temel `402eaa9` + korunmuş yerel değişiklikler**
 Dal: **`main`**
 
 Bu dosya değişken proje durumunun tek kısa kaynağıdır. Yeni oturumlarda geçmiş
@@ -63,6 +63,9 @@ Aktif yapılandırma `config/model_config.yaml` içindedir:
 - 3B çıktı şekli: `keypoints_3d_world[t, 133, 3]`
 - Birim: metre
 - Analiz eksenleri: `x=sağ`, `y=ileri`, `z=yukarı`
+- Scoring eksen indeksleri `src/coordinate_system.py` içindeki kanonik
+  sabitlerden alınır. Gövde eğimi `z=yukarı` ve `y=ileri`, stance length
+  `y=ileri` kullanır; sentetik pose fixture'ları da aynı sözleşmededir.
 - 133 nokta export ve görselleştirmede korunur.
 - Cross-view geri besleme ve global optimizasyon şu anda yalnız BODY-17 üzerinde
   çalışır. El, yüz ve ayak için eşdeğer çapraz-kamera optimizasyonu doğrulanmış
@@ -241,19 +244,21 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-2 Ağustos 2026 tarihinde mevcut çalışma ağacında:
+2 Ağustos 2026 tarihinde scoring eksen düzeltmesi sonrasında mevcut çalışma
+ağacında:
 
 ```text
-151 passed in 17.21s
+153 passed in 25.36s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-postrebase-zed-rgbd-20260802
+.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-scoring-axis-full-20260802
 ```
 
-Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144` ve `147` sayıları kendi
+Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144`, `147`
+ve `151` sayıları kendi
 tarihlerindeki sonuçlardır; güncel test sayısı değildir.
 
 ### Son korunan tam AIST koşusu

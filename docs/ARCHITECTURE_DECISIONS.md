@@ -205,6 +205,35 @@ geliştirme skorunu gereksiz yere durdurmamalıdır. Buna karşılık iç sensö
 birbirini doğrulaması bağımsız dış doğruluk veya resmî hakem geçerliliği olarak
 sunulmamalıdır.
 
+## AD-017 — Poomsae puanlaması önce kural ve sıralı hareket modeliyle kurulur
+
+Karar: Nihai Poomsae motoru ilk aşamada uçtan uca skor tahmin eden bir ML
+modeli olmayacaktır. Sürümlenmiş WT kural paketi, resmî kaynaklara izlenebilir
+Taegeuk 1 Jang hareket/faz şeması, sporcu-merkezli normalize ölçümler, bilinen
+sıraya kısıtlı hizalama, observability kapısı ve kanıtlı kesinti adayları
+kullanılacaktır.
+
+ML yalnız yeterli etiketli veri bulunduğunda hareket/faz algılama, görüntüden
+zor teknik ayrıntıları çıkarma ve çoklu hakem puanlarına kalibrasyon gibi alt
+görevlerde eklenir. Öğrenilmiş sonuç Poomsae sırası ve kural motorunu atlayamaz;
+düşük güvenli veya ölçülemeyen durum puan kesintisine dönüşemez.
+
+Gerekçe: Taegeuk 1 Jang sırası bilinen bir formdur; bu bilgiyi kullanmak veri
+ihtiyacını azaltır ve kesintiyi hareket/kural/video kanıtıyla açıklanabilir
+kılar. Etiketsiz çok sayıda video doğru teknik, hata şiddeti veya hakem puanı
+ground-truth'u sağlamaz.
+
+Uzman/hakem erişimi mevcut geliştirme planının önkoşulu değildir. Resmî
+WT/Kukkiwon kaynakları, ayrı teknik test videoları ve açıkça işaretlenmiş
+mühendislik toleranslarıyla `rule_based_provisional` puan üretilebilir.
+Presentation 0–6 dönüşümü yapılırsa `judge_calibrated=false` ve
+`provisional_not_judge_validated` olarak işaretlenir. Hakem kalibrasyonu ve
+`official_scoring_ready` gelecekteki opsiyonel kapılardır; bunların kapalı
+olması provisional puanlamayı durdurmaz.
+
+Uygulama ve doğrulama aşamaları:
+[`docs/PUANLAMA_PLANI.md`](PUANLAMA_PLANI.md).
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:
