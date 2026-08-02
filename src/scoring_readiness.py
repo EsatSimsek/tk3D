@@ -209,13 +209,16 @@ def adaptive_motion_threshold(energy: np.ndarray) -> float:
     if finite.size == 0:
         return float("inf")
     median = float(np.median(finite))
+    lower_bound = float(np.percentile(finite, 25))
+    upper_bound = float(np.percentile(finite, 75))
     mad = float(np.median(np.abs(finite - median)))
     if mad > 1e-12:
-        return max(median + 2.5 * 1.4826 * mad, float(np.percentile(finite, 25)))
+        robust_threshold = median + 2.5 * 1.4826 * mad
+        return max(min(robust_threshold, upper_bound), lower_bound)
     mean = float(np.mean(finite))
     std = float(np.std(finite))
     if std > 1e-12:
-        return max(mean + 0.5 * std, 0.0)
+        return max(min(mean + 0.5 * std, upper_bound), lower_bound, 0.0)
     return median if median > 0.0 else float("inf")
 
 def torso_lean_deg(frame: np.ndarray) -> float:

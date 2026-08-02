@@ -12,6 +12,7 @@ from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM
 from src.data_structures import COCO_BODY_JOINT_NAMES
 from src.ground_truth_io import PoseSequence, load_pose_sequence_json, match_pose_sequences
 from src.ground_truth_validation import evaluate_ground_truth_3d
+from src.scoring_authorization import verify_scoring_authorization
 
 
 def _body_sequence(frame_count: int = 20) -> np.ndarray:
@@ -160,6 +161,8 @@ def test_ground_truth_cli_writes_auditable_reports(tmp_path) -> None:
         "joint_names": list(COCO_BODY_JOINT_NAMES),
         "timestamps_sec": (np.arange(20) / 30.0).tolist(),
         "fps": 30.0,
+        "session_id": "test_session",
+        "run_id": "test_run",
     }
     prediction_path = tmp_path / "prediction.json"
     truth_path = tmp_path / "truth.json"
@@ -169,9 +172,25 @@ def test_ground_truth_cli_writes_auditable_reports(tmp_path) -> None:
         json.dumps({**common, "keypoints_3d_world": points.tolist()}), encoding="utf-8"
     )
     truth_path.write_text(
-        json.dumps({**common, "keypoints_3d_ground_truth": points.tolist()}), encoding="utf-8"
+        json.dumps(
+            {
+                **common,
+                "dataset": "TEST_GT",
+                "sequence_id": "exact",
+                "keypoints_3d_ground_truth": points.tolist(),
+            }
+        ),
+        encoding="utf-8",
     )
     config_path.write_text(
+        "scoring_authorization:\n"
+        "  enabled: true\n"
+        "  profile_id: test_exact_v1\n"
+        "  scoring_mode: provisional_not_official\n"
+        "  allowed_ground_truth_datasets: [TEST_GT]\n"
+        "  minimum_mapped_joints: 17\n"
+        "  require_internal_geometry_pass: true\n"
+        "  poomsae_rules_validated: false\n"
         "thresholds:\n"
         "  min_evaluated_frames: 1\n"
         "  min_valid_joint_ratio: 0.7\n"
@@ -183,6 +202,18 @@ def test_ground_truth_cli_writes_auditable_reports(tmp_path) -> None:
         "  max_velocity_mae_mps: 0.01\n"
         "  max_acceleration_mae_mps2: 0.01\n"
         "  max_bone_length_cv_percent: 0.01\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "run_quality_report.json").write_text(
+        json.dumps(
+            {
+                "status": "passed",
+                "quality_scope": "internal_geometry_only",
+                "production_ready_calibration": True,
+                "session_id": "test_session",
+                "run_id": "test_run",
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -212,12 +243,24 @@ def test_ground_truth_cli_writes_auditable_reports(tmp_path) -> None:
     assert report["validation"]["status"] == "passed_for_scoring_validation"
     assert (output_dir / "ground_truth_joint_errors.csv").exists()
     assert (output_dir / "ground_truth_frame_matches.csv").exists()
+    authorization_path = output_dir / "scoring_authorization.json"
+    authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+    assert authorization["scoring_ready"] is True
+    assert authorization["official_scoring_ready"] is False
+    verify_scoring_authorization(prediction_path, authorization_path)
     manifest = json.loads((output_dir / "validation_manifest.json").read_text(encoding="utf-8"))
     assert len(manifest["inputs"]) == 3
     assert {item["path"] for item in manifest["outputs"]} >= {
         "ground_truth_validation_report.json",
         "ground_truth_joint_errors.csv",
     }
+
+    prediction_path.write_text(
+        json.dumps({**common, "keypoints_3d_world": (points + 0.001).tolist()}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="changed after validation"):
+        verify_scoring_authorization(prediction_path, authorization_path)
 
 
 def test_ground_truth_cli_returns_failure_when_quality_gate_fails(tmp_path) -> None:
@@ -261,3 +304,6 @@ def test_ground_truth_cli_returns_failure_when_quality_gate_fails(tmp_path) -> N
     assert completed.returncode != 0
     report = json.loads((output_dir / "ground_truth_validation_report.json").read_text(encoding="utf-8"))
     assert report["validation"]["status"] == "failed_ground_truth_quality_gate"
+    authorization = json.loads((output_dir / "scoring_authorization.json").read_text(encoding="utf-8"))
+    assert authorization["scoring_ready"] is False
+    assert "ground_truth_quality_gate_failed" in authorization["denial_reasons"]

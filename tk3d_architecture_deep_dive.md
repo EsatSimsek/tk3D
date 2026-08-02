@@ -1,5 +1,11 @@
 # TK3D Projesi: Uçtan Uca Sistem Mimarisi, Kod Analizi ve Matematiksel Temeller (Master-Class Dokümantasyon)
 
+> **Tarihsel belge uyarısı:** Bu doküman projenin erken mimarisini anlatır.
+> MMPose, basit DLT, hareket segmentasyonu ve puanlama örneklerinin bazıları
+> güncel üretim kodunu temsil etmez. Yeni geliştirmelerde güncel kaynak olarak
+> önce `AGENTS.md`, `PROJECT_STATUS.md` ve
+> `docs/ARCHITECTURE_DECISIONS.md` kullanılmalıdır.
+
 Bu doküman, TK3D (Taekwondo 3D) projesini bir mühendis, sistem mimarı ve matematikçi gözüyle en ince ayrıntısına kadar incelemektedir. Amacımız sadece hangi kodun çalıştığını değil; **o kodun arkasındaki lineer cebir denklemlerini, optimizasyon tercihlerini ve derin öğrenme stratejilerini** sıfır eksikle anlatmaktır. Bunu okuyan biri, projeyi sıfırdan kendisi yazabilecek seviyeye gelecektir.
 
 ---

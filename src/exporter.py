@@ -137,6 +137,12 @@ def export_pose2d_feedback_provenance_csv(
     _write_csv(rows, output_path)
 
 
+def export_depth_fusion_observations_csv(
+    rows: list[dict[str, Any]], output_path: str | Path
+) -> None:
+    _write_csv(rows, output_path)
+
+
 def export_quality_csv(
     triangulation_score: np.ndarray,
     reprojection_error: np.ndarray,

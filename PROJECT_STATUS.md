@@ -1,7 +1,7 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **27 Temmuz 2026**
-Doğrulanan temel kod revizyonu: **`fa08d65`**
+Son doğrulama tarihi: **2 Ağustos 2026**
+Doğrulanan çalışma ağacı: **temel `88223aa` + korunmuş yerel değişiklikler**
 Dal: **`main`**
 
 Bu dosya değişken proje durumunun tek kısa kaynağıdır. Yeni oturumlarda geçmiş
@@ -16,14 +16,15 @@ altyapısı içerir.
 
 Sistem henüz resmî poomsae puanlamasına hazır değildir:
 
-- MADS held-out ground-truth hedefi geçilmedi.
+- Güncel ZED RGBD koşusuna bağlı bağımsız dış 3B ground-truth değerlendirmesi yoktur.
+- Tarihsel MADS F2 RGB-only sonucu yalnız kendi koşusunu tanımlar; ZED RGBD
+  koşusuna devredilmez ve güncel doğruluk metriği sayılmaz.
 - Gerçek poomsae phase/step etiketleri ve hakem/koç onaylı hedefler yok.
 - İç geometri raporunun geçmesi gerçek 3B doğruluğu tek başına kanıtlamaz.
-- Normal çok-kameralı run raporu bu nedenle `scoring_ready: false` yazar.
-- Ground-truth değerlendiricisi artık koşuya bağlı `scoring_authorization.json`
-  üretir. Yalnız bütün dış doğruluk ve iç geometri kapıları geçerse burada
-  `scoring_ready: true` olur; tahmin JSON'undaki elle yazılmış bir alan tek
-  başına puanlama açamaz.
+- Normal çok-kameralı run iç kalite geçtiğinde `provisional_scoring_ready:true`
+  yazar ve dış ground-truth beklemeden `provisional_not_official` analiz çalışır.
+- `official_scoring_ready:false` kalır; dış doğruluk yokluğu provisional akışı
+  durdurmaz fakat resmî doğruluk/hakem puanı iddiasına izin vermez.
 
 ## Aktif üretim hattı
 
@@ -38,6 +39,8 @@ senkronize kamera videoları
   -> robust çok-kameralı ilk triangulation
   -> leave-one-camera-out çok-kameralı 2B geri besleme
   -> güvenli yeniden triangulation
+  -> ZED varsa confidence/yüzey-ofset kapılı yardımcı stereo depth fusion
+  -> aynı koşuda saf RGB referans dalı ve depth-vs-RGB son kalite kapısı
   -> anatomik/zamansal 3B güvenilirlik kontrolü
   -> BODY-17 global çok-kameralı optimizasyon
   -> 3B stabilizasyon, export ve kalite raporları
@@ -52,6 +55,7 @@ Aktif yapılandırma `config/model_config.yaml` içindedir:
 - Kişi dedektörü: RF-DETR Small
 - Tek kamera RTMW3D helper: opsiyonel ve varsayılan kapalı
 - Cross-view 2B feedback: açık
+- ZED stereo depth fusion: kaynak tanımlı ZED session'larında açık; BODY-17 ile sınırlı
 - Global BODY-17 optimization: açık
 
 ## Ana veri ve koordinat sözleşmeleri
@@ -115,8 +119,105 @@ Aktif yapılandırma `config/model_config.yaml` içindedir:
   altındadır.
 
 Bu pilot tek-kamera RGB-D teknik doğrulamasıdır. Ortak dünya koordinatlı
-çok-kamera 3B veya puanlama yetkisi sağlamaz. Kalıcı ZED ingest/depth-fusion
-çalışma zamanı henüz `src/` hattına eklenmemiştir.
+çok-kamera 3B veya puanlama yetkisi sağlamaz. Daha sonra eklenen çok-kamera ZED
+ingest ve güven kapılı stereo depth-fusion yolu aşağıdaki doğrulamada açıklanır.
+
+### İlk iki ZED 2i ortak-dünya poomsae koşusu
+
+1 Ağustos 2026 tarihinde seri `35151067` ve `37137479` olan iki ZED 2i SVO2
+kaydı ZED SDK 5.4.1, donanım zaman damgaları ve ZED Fusion kalibrasyonuyla
+işlendi:
+
+- her kaynakta `1189` kare, `1280×720`, `60 FPS`; ikisinde de iki adet yaklaşık
+  `33 ms` zaman boşluğu;
+- ortak kayıpsız FFV1 zaman çizelgesi `1190` kare ve `19.833333 s`;
+- zaman eşleme P95 artık hatası sırasıyla `5.704 ms` ve `1.066 ms`; ikinci
+  kamerada iki kare `16.041 ms` büyük artık taşıdı;
+- ZED Fusion kamera pozları `RIGHT_HANDED_Z_UP/METER` olarak alındı, IMU
+  yerçekimi dönüşü uygulandı ve kamera bazları OpenCV optik projeksiyonuna
+  çevrildi;
+- tam koşu `stride 1`, `1190` inference örneği, ViTPose-Huge flip-test,
+  sıfır-fazlı 2B stabilizasyon ve global BODY-17 optimizasyon adayıyla çalıştı;
+- iki kamera da sağlık raporunda `healthy`; en iyi temporal shift iki kamerada
+  da `0` kare;
+- BODY-17 gözlenen oranı `%77.7904`, güvenilir son oran `%72.2936`;
+- ortalama reprojection `5.083 px`; kamera konsensüs P95 değerleri `9.701 px`
+  ve `9.200 px`;
+- ana hareket bölgesi olan kare `300–900` için güvenilir BODY-17 oranı
+  `%90.1537`; ilk/son yakın-kadraj bölümleri toplam oranı düşürdü ve video
+  kırpılmadı;
+- 2B yüksek-frekans oranı kameralarda `%44.90` ve `%46.02`, 3B eklem oranı
+  `%33.48`, açı oranı `%31.31` azaldı;
+- global optimizasyon kemik ve ivme kararlılığını iyileştirse de reprojection
+  P95'i `7.971 -> 11.223 px` kötüleştirdiği için güvenli ham triangulation'a
+  dönüldü;
+- iç geometri kapısı başarısız, ground-truth değerlendirilmedi ve
+  `scoring_ready=false`; koşu `latest_run.json` olarak işaretlenmedi;
+- `[1190, 133, 3]` JSON/CSV, iki 2B overlay, 3B video ve HTML izleyici üretildi;
+  JSON/CSV içinde `NaN`/`inf` sızıntısı bulunmadı.
+
+Koşu:
+`outputs/poomsae_1_zed2i_20260731_ultra/runs/poomsae1-zed2i-ultra-full-20260801/`.
+Hazırlama ve senkron provenance raporu aynı session'ın `source/reports/`
+klasöründedir. Kalıcı `scripts/prepare_zed_multiview_session.py` giriş yolu
+kamera sayısından bağımsızdır; üçüncü kamera aynı Fusion ortak dünyasıyla SVO
+listesine eklenebilir. İki/üç kamera, en az dört bağımsız destek görüşü isteyen
+cross-view 2B düzeltmesini otomatik olarak etkinleştirmez.
+
+Kullanıcı isteğiyle yakın-kadraj başlangıç/bitiş ayrıca türetilmiş bir session'da
+kırpıldı; parent tam koşu korunmuştur. Ortak kaynak kare `190–930`, çıktı `741`
+kare/`12.35 s` ve `stride 1`'dir. Kırpılmış koşuda iç geometri geçti, BODY-17
+gözlenen oran `%96.6024`, temporal recovery `%1.2860`, güvenilir son oran
+`%97.8884`, ortalama reprojection `5.209 px` oldu. Global optimizasyon kabul
+edildi; kemik CV `%8.788 -> %1.765`, ivme P95 `15.807 -> 11.941 m/s²` değişti.
+Ground-truth değerlendirilmediği için `scoring_ready=false` kaldı. Koşu:
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-zed2i-trimmed-ultra-20260801/`.
+Bu oranlar daha kısa, kullanıcı-kırpılmış kapsamı ölçer; tam koşuyla model
+iyileştirmesi iddiası için doğrudan karşılaştırılamaz.
+
+### İki ZED 2i güven kapılı RGB + depth koşusu
+
+2 Ağustos 2026 tarihinde aynı kırpılmış `741` kare, iki kamera, `60 FPS`,
+`stride 1`, ViTPose-Huge ve yapılandırmayla yeniden çalıştırıldı. Her iki
+kamerada `741/741` çıktı karesi NEURAL depth/confidence desteği aldı; donanım
+zaman eşlemesi nedeniyle ikinci kamerada `740` benzersiz SVO depth karesi ve
+bir yeniden kullanılan kaynak kare vardır.
+
+- RGB çok-kamera triangulation ana 3B kanıt olarak korundu;
+- deri/kıyafet yüzeyi ile eklem merkezi farkı koşuya özel kamera/eklem ofsetiyle
+  ayrıldı; bu ofset genel yapılandırmaya taşınmadı;
+- `23.014` güvenli depth örneğinden `7.669` BODY-17 noktası nokta kapısını geçti;
+- medyan fusion düzeltmesi `9,97 mm`, P95 `23,34 mm`, maksimum `49,94 mm`;
+- depth uyum medyanı `28,42 -> 19,99 mm`, P95 `67,22 -> 47,07 mm`;
+- aynı koşuda ayrı saf RGB global optimizasyon dalı çözüldü; depth adayı son
+  reprojection, ivme ve kemik kararlılığı kapılarının tamamını geçti ve seçildi;
+- son ivme P95 `11,941 -> 11,777 m/s²`, eklem limiti ihlali `28 -> 27`;
+- son reprojection P95 `8,833 -> 8,867 px` ve kemik CV `%1,765 -> %1,767`
+  küçük ölçüde yükseldi fakat tanımlı güven sınırları içinde kaldı;
+- geçerli BODY-17 oranı değişmedi: `%97,8884`; ortalama reprojection `5,210 px`;
+- üç video da `741` kare, `60 FPS`, `12,35 s`; JSON/CSV'de `NaN`/`inf` yok;
+- iç geometri ve ZED RGB-vs-depth iç sensör tutarlılığı geçti;
+- bu koşuya bağlı dış ground-truth değerlendirilmedi, tarihsel benchmark
+  devralınmadı; `external_accuracy=not_evaluated_for_this_run` bilgi amaçlı kaldı;
+- dış ground-truth beklenmeden `provisional_scoring_ready=true`; normal analiz
+  `71,7178` değerli `provisional_not_official` skor üretti;
+- hareket eşiğinin sürekli harekette aşırı yükselmesi düzeltildi; ikinci koşuda
+  durum `ready_for_scoring_infrastructure`, hazır kare oranı `1,0` oldu;
+- `official_scoring_ready=false`.
+
+Son yeniden üretilen nihai koşu:
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802/`.
+Koşu 741/741 kare, stride 1 ve aynı ultra profille tamamlandı; üç video da
+`60 FPS`, `12,35 s`, `1280x720` çıktı. İç geometri ve depth kapısı geçti,
+`7.669` BODY-17 depth fusion noktası kullanıldı. Normal provisional analiz
+`71,7178/100`, `ready_for_scoring_infrastructure`, hazır kare oranı `1,0` ve
+`15` hareket segment adayı üretti. Toplam 13 JSON ve 20 CSV doğrulandı;
+`NaN`/`inf` sızıntısı ve tarihsel MADS referansı bulunmadı.
+IMU bu koşuda kamera yerçekimi/yönelim kalibrasyonunda kullanıldı; sporcu
+pozu için kare bazlı IMU düzeltmesi uygulanmadı. ZED depth/confidence kendi
+sensör zincirimizin iç kanıtıdır; dış ground-truth değildir. Depth'in gerçek 3B
+doğruluğu artırdığı iddiası için bu koşuyla uyumlu bağımsız mocap/ölçüm referansı
+hâlâ gerekir.
 
 ### Tam tek-kamera RGB-D kontrol koşusu
 
@@ -140,19 +241,19 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-`fa08d65` üzerinde 27 Temmuz 2026 tarihinde:
+2 Ağustos 2026 tarihinde mevcut çalışma ağacında:
 
 ```text
-132 passed in 21.31s
+151 passed in 17.21s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-scoring-auth-full-20260727
+.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-postrebase-zed-rgbd-20260802
 ```
 
-Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91` ve `128` sayıları kendi
+Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144` ve `147` sayıları kendi
 tarihlerindeki sonuçlardır; güncel test sayısı değildir.
 
 ### Son korunan tam AIST koşusu
@@ -188,7 +289,7 @@ Tam koşudaki kamera sağlığı:
 c05 senkron sorunu çözülmüş olsa da tam koşuda bütün lokal 2B eklem
 aykırılarının bittiği iddia edilmemelidir.
 
-### Dış ground-truth benchmark
+### Tarihsel RGB-only dış ground-truth benchmark — ZED RGBD'ye uygulanmaz
 
 27 Temmuz 2026 tarihinde yeni 3B koduyla yeniden çalıştırılan MADS Kata F2
 koşusu:
@@ -205,6 +306,12 @@ koşusu:
 - Yetkilendirme: `decision=denied`, `scoring_ready=false`
 - İç geometri: geçti; yetkilendirme dosya bütünlüğü: geçti
 - Üretim modeli: temel ViTPose-Huge; deneysel MADS adapter'ları reddedildi
+
+Bu metrikler yalnız
+`mads-kata-f2-rescore-20260727-201327` koşusuna bağlıdır. Güncel iki ZED 2i
+RGBD koşusu bu değeri okumaz, devralmaz veya kendi dış doğruluğu olarak
+raporlamaz. ZED koşusunun dış doğruluk durumu başarısız bir MADS metriği değil,
+`not_evaluated_for_this_run` değeridir.
 
 Sonuç önceki ölçümle aynıdır. Nedeni MADS'in yalnız üç kameralı olması nedeniyle
 en az dört destekleyici kamera isteyen cross-view düzeltmenin aday üretememesi
@@ -267,8 +374,8 @@ outputs/<session_id>/runs/<run_id>/
 
 ## Bilinen eksikler ve doğru öncelik
 
-1. Yeni görüntü işleme mimarisini MADS F2 held-out ground truth üzerinde aynı
-   protokolle yeniden benchmark etmek.
+1. Gerçek poomsae phase/step sınırlarını otomatik üretip mevcut hareket segment
+   adaylarını Poomsae 1 adımlarıyla eşlemek.
 2. Gerçek Taekwondo BODY-17 görüntülerini etiketleyip yüksek çözünürlüklü
    alan-özel pose modeli eğitmek.
 3. El, yüz ve ayak için güvenli cross-view düzeltme/optimizasyonu geliştirmek.
@@ -279,6 +386,9 @@ outputs/<session_id>/runs/<run_id>/
 6. Çok sporculu görüntülerde kamera-arası kimlik eşlemeyi doğrulamak.
 7. Poomsae phase/step etiketleri ile hakem/koç onaylı teknik hedefler
    oluşturmak.
+8. İmkân oluşursa ZED RGBD mimarisini bağımsız mocap/ölçüm ground truth üzerinde
+   ayrıca benchmark etmek; bu opsiyonel dış doğrulamayı provisional akışın
+   çalışma önkoşulu yapmamak.
 
 ## Tarihsel belgeler
 

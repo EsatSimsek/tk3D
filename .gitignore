@@ -44,3 +44,8 @@ data/aist_test/annotations/cameras.zip
 data/mads_test/raw/
 data/mads_test/extracted/
 data/mads_test/local/
+data/aist_test/local/
+
+# Raw ZED recordings are local capture assets
+*.svo
+*.svo2

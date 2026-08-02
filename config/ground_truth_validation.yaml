@@ -1,3 +1,13 @@
+scoring_authorization:
+  enabled: true
+  profile_id: tk3d_mads_body12_external_3d_v1
+  scoring_mode: provisional_not_official
+  allowed_ground_truth_datasets:
+    - MADS
+  minimum_mapped_joints: 12
+  require_internal_geometry_pass: true
+  poomsae_rules_validated: false
+
 thresholds:
   # Internal engineering acceptance targets, not official sport standards.
   min_evaluated_frames: 300

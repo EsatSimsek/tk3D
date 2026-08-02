@@ -2,7 +2,7 @@
 
 ## Neden MADS?
 
-TK3D için birincil dış doğrulama veri seti MADS (Martial Arts, Dancing and Sports) olarak seçildi.
+TK3D'nin RGB-only hattı için tarihsel dış doğrulama veri seti MADS (Martial Arts, Dancing and Sports) olarak seçildi.
 Veri seti Karate ve Tai-chi gibi poomsae'ye yakın hızlı, dönüşlü ve kendi kendini örten hareketleri içerir.
 Üç RGB kamera senkronize ve kalibredir; 3B referans pozlar 60 Hz optik motion-capture sistemiyle ölçülmüştür.
 Kamera, video ve motion-capture verileri ortak koordinat ve zaman referansına kalibre edilmiştir. Yayın 15 fps ve
@@ -21,7 +21,8 @@ Karşılaştırılan başlıca seçenekler:
 | Fit3D | 3 milyona yakın 3B iskelet, egzersiz geri bildirimi, SMPL-X | Dövüş sanatı hareketi yok; hesapla giriş gerekiyor |
 | TUHAD | Gerçek taekwondo teknikleri ve uzman sporcular | Ön/yan çekimler eşzamanlı değil; optik 3B ground truth değil |
 
-MADS, alan yakınlığı nedeniyle birincil testtir. TotalCapture ileride kamera geometrisi için ikincil genel benchmark
+MADS, alan yakınlığı nedeniyle bağlı RGB-only profil için birincil testtir. Metrikleri başka koşulara devredilmez;
+özellikle ZED stereo depth kullanan güncel RGBD koşusunun dış doğruluğunu temsil etmez. TotalCapture ileride kamera geometrisi için ikincil genel benchmark
 olarak eklenebilir. Hiçbir dış veri seti, kendi kamera düzenimizde çekilecek motion-capture eşlenmiş poomsae testinin
 yerini tamamen tutmaz.
 
@@ -141,9 +142,16 @@ python scripts\evaluate_ground_truth_3d.py `
 - `ground_truth_angle_errors.csv`
 - `ground_truth_frame_matches.csv`
 - `validation_manifest.json` (girdi ve çıktıların SHA-256 özeti)
+- `scoring_authorization.json` (koşuya bağlı puanlama yetkisi veya açık ret nedeni)
 
 MADS arşivindeki hazırlanmış GT dizisi her video karesi için bir poz içerir. Dönüştürücü gerçek AVI fps değerini
 kaydeder; değerlendirici frame/timestamp eşleşme farkını ayrıca raporlar.
+
+Yetkilendirme dosyası tahmin, ground truth, eşik profili, kare eşleşmeleri,
+validation manifesti ve iç-geometri raporunu SHA-256 ile aynı koşuya bağlar.
+Normal puanlama komutu tahmin JSON'undaki bir boolean alana güvenmez; bu
+bağların tamamını yeniden kontrol eder. Dış 3B eşiklerden biri başarısızsa
+dosya yine üretilir fakat `decision=denied` ve `scoring_ready=false` taşır.
 
 ## Ölçülen sonuçlar
 
@@ -201,6 +209,30 @@ Filtre, 5.100 vücut noktasının 5.025'ini güvenilir bıraktı; 25 temel kalit
 kaydetti. Dolayısıyla iyileşme kapsama oranını çökertmeden elde edildi. Buna rağmen 50 mm MPJPE kalite hedefi
 geçilmediği için durum hâlâ `failed_ground_truth_quality_gate` ve `scoring_ready=false` olarak kalır. Kalan hata
 özellikle COCO görüntü eklemi ile MADS mocap eklem merkezi tanımı farklı olan kalça/dizlerde sistematiktir.
+
+27 Temmuz 2026'da güncel kodla aynı 300 örnek/stride 2 protokolü tekrar
+çalıştırıldı:
+
+- Global MPJPE: `90,409 mm`
+- P95: `162,504 mm`
+- Root-relative MPJPE: `106,791 mm`
+- PA-MPJPE: `73,358 mm`
+- PCK@100 mm: `%66,34`
+- Açı MAE: `13,426°`
+- Geçerli eklem oranı: `%95,89`
+- Yetkilendirme: `decision=denied`, `scoring_ready=false`
+
+Koşu dizini:
+`outputs/mads_kata_f2/runs/mads-kata-f2-rescore-20260727-201327`.
+İç geometri ve artifact bütünlüğü geçti; dış ground-truth kapılarından yalnız
+kare sayısı ve geçerli eklem oranı geçti. MADS üç kameralı olduğundan mevcut
+dört destekleyici görüş koşullu cross-view geri besleme aday üretmedi ve MADS
+session profili global BODY-17 optimizasyonunu devre dışı bıraktı.
+
+Bu sonuç yalnız yukarıdaki koşu, RGB-only profil ve bağlı dosya özetleri için
+geçerlidir. Güncel ZED RGBD koşusunda bu metrik devralınmaz; o koşunun dış
+doğruluk durumu bağımsız referansla değerlendirilene kadar
+`not_evaluated_for_this_run` olarak kalır.
 
 ## MADS domain-adaptation deneyi ve üretim kararı
 

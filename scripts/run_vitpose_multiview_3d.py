@@ -39,6 +39,7 @@ from src.crossview_pose2d_feedback import (
     finalize_feedback_report,
 )
 from src.exporter import (
+    export_depth_fusion_observations_csv,
     export_keypoints2d_csv,
     export_keypoints3d_csv,
     export_pose2d_feedback_provenance_csv,
@@ -64,18 +65,25 @@ from src.pose3d_stability import pose3d_stability_metrics
 from src.pose3d_html_viewer import write_pose3d_html_viewer
 from src.pose_reliability import filter_unreliable_pose
 from src.progress import ProgressBar
+from src.quality_status import external_accuracy_not_evaluated, internal_sensor_consistency_status
 from src.run_outputs import create_run_output_tree, mark_run_complete
 from src.smoothing_3d import smooth_pose_sequence
 from src.triangulation import stack_triangulated, triangulate_frame
 from src.video_io import load_session
 from src.visualization_2d import draw_pose2d
 from src.visualization_3d import write_3d_skeleton_video
+from src.zed_depth_fusion import (
+    depth_fusion_config_from_mapping,
+    final_depth_fusion_acceptance_gate,
+    fuse_zed_depth_sequence,
+)
 
 
 PRODUCTION_CALIBRATION_MODES = {
     "multiview_common_reference",
     "aist_official_multiview",
     "mads_official_multiview",
+    "zed_fusion_multiview",
 }
 
 
@@ -138,6 +146,7 @@ def main() -> None:
     min_views = int(model_config["triangulation"].get("min_views", 2))
     min_keypoint_score = float(model_config["triangulation"].get("min_keypoint_score", 0.30))
     global_optimization_config = optimization_config_from_mapping(model_config.get("global_optimization"))
+    depth_fusion_config = depth_fusion_config_from_mapping(model_config.get("zed_depth_fusion"))
     crossview_feedback_config = feedback_config_from_mapping(
         model_config.get("crossview_2d_feedback")
     )
@@ -259,6 +268,7 @@ def main() -> None:
         f"      target frames   : {args.max_frames or 'full video'}\n"
         f"      stride          : {max(args.stride, 1)}\n"
         f"      cross-view 2D   : {crossview_feedback_config.enabled}\n"
+        f"      ZED depth fusion: {depth_fusion_config.enabled}\n"
         f"      global body opt : {global_optimization_config.enabled}\n"
         f"      smoothing       : {smoothing_method}, window {smoothing_window}\n"
         f"      calibration     : {calibration_mode}\n"
@@ -481,6 +491,20 @@ def main() -> None:
         & (arrays["triangulation_score"] >= min_quality)
         & (arrays["used_cameras"] >= min_views)
     )
+    print("      reading confidence-gated ZED stereo depth", flush=True)
+    depth_fusion = fuse_zed_depth_sequence(
+        arrays["keypoints_3d_world"],
+        accepted,
+        arrays["frame_idx"],
+        poses_2d_by_frame,
+        selected_calibrations,
+        source_to_analysis,
+        args.session,
+        depth_fusion_config,
+        body_joint_count=17,
+    )
+    arrays["keypoints_3d_world"] = depth_fusion.keypoints_3d_analysis
+    depth_fused_3d_analysis = arrays["keypoints_3d_world"].copy()
     sampled_timestamps = np.asarray(
         [
             sync_frame.timestamp_sec
@@ -489,8 +513,22 @@ def main() -> None:
         ][: arrays["frame_idx"].shape[0]],
         dtype=float,
     )
-    print("      optimizing BODY-17 across the synchronized sequence", flush=True)
-    global_optimization = optimize_body_sequence(
+    rgb_reference_optimization = None
+    if depth_fusion.report.get("applied"):
+        print("      optimizing RGB reference BODY-17 sequence", flush=True)
+        rgb_reference_optimization = optimize_body_sequence(
+            triangulated_3d_analysis,
+            accepted,
+            arrays["triangulation_score"],
+            arrays["frame_idx"],
+            sampled_timestamps,
+            poses_2d_by_frame,
+            selected_calibrations,
+            np.linalg.inv(source_to_analysis),
+            global_optimization_config,
+        )
+    print("      optimizing depth-candidate BODY-17 sequence", flush=True)
+    depth_candidate_optimization = optimize_body_sequence(
         arrays["keypoints_3d_world"],
         accepted,
         arrays["triangulation_score"],
@@ -501,6 +539,24 @@ def main() -> None:
         np.linalg.inv(source_to_analysis),
         global_optimization_config,
     )
+    global_optimization = depth_candidate_optimization
+    if rgb_reference_optimization is not None:
+        final_depth_gate = final_depth_fusion_acceptance_gate(
+            rgb_reference_optimization.report,
+            depth_candidate_optimization.report,
+            depth_fusion_config,
+        )
+        depth_fusion.report["final_acceptance_gate"] = final_depth_gate
+        depth_fusion.report["final_output_used"] = bool(final_depth_gate["passed"])
+        if not final_depth_gate["passed"]:
+            global_optimization = rgb_reference_optimization
+    else:
+        depth_fusion.report["final_acceptance_gate"] = {
+            "passed": False,
+            "fallback_to_rgb_reference": False,
+            "reason": "depth_fusion_not_applied",
+        }
+        depth_fusion.report["final_output_used"] = False
     arrays["keypoints_3d_world"] = global_optimization.keypoints_3d
     body_count = min(17, arrays["keypoints_3d_world"].shape[1])
     accepted[:, :body_count] = global_optimization.valid_mask[:, :body_count]
@@ -551,6 +607,15 @@ def main() -> None:
         global_optimization.report,
         output_paths["json"] / "global_pose_optimization_report.json",
     )
+    if rgb_reference_optimization is not None:
+        export_session_json(
+            rgb_reference_optimization.report,
+            output_paths["json"] / "rgb_reference_global_pose_optimization_report.json",
+        )
+    export_session_json(
+        depth_fusion.report,
+        output_paths["json"] / "zed_depth_fusion_report.json",
+    )
     video_arrays = _repeat_arrays_for_video(arrays, output_repeats)
     export_keypoints3d_csv(
         arrays["keypoints_3d_world"],
@@ -571,6 +636,12 @@ def main() -> None:
         timestamps_sec=sampled_timestamps,
     )
     export_keypoints3d_csv(
+        depth_fused_3d_analysis,
+        output_paths["csv"] / "vitpose_keypoints_3d_world_depth_fused_flat.csv",
+        frame_indices=arrays["frame_idx"],
+        timestamps_sec=sampled_timestamps,
+    )
+    export_keypoints3d_csv(
         global_optimization.keypoints_3d,
         output_paths["csv"] / "vitpose_keypoints_3d_world_global_optimized_flat.csv",
         frame_indices=arrays["frame_idx"],
@@ -581,6 +652,10 @@ def main() -> None:
         output_paths["csv"] / "vitpose_keypoints_3d_provenance.csv",
         frame_indices=arrays["frame_idx"],
         timestamps_sec=sampled_timestamps,
+    )
+    export_depth_fusion_observations_csv(
+        depth_fusion.observation_rows,
+        output_paths["csv"] / "zed_depth_fusion_observations.csv",
     )
     export_keypoints2d_csv(
         display_poses_2d_by_frame,
@@ -639,9 +714,14 @@ def main() -> None:
         {
             "session_id": session.session_id,
             "run_id": run_id,
-            "source": "vitpose_multiview",
+            "source": (
+                "vitpose_multiview_zed_depth_auxiliary"
+                if depth_fusion.report.get("applied")
+                else "vitpose_multiview"
+            ),
             "calibration_mode": calibration_mode,
             "production_ready_calibration": production_ready_calibration,
+            "external_accuracy": external_accuracy_not_evaluated(),
             "coordinate_system": ANALYSIS_COORDINATE_SYSTEM,
             "frame_indices": arrays["frame_idx"],
             "timestamps_sec": sampled_timestamps,
@@ -659,6 +739,7 @@ def main() -> None:
             },
             "crossview_2d_feedback": crossview_feedback_report,
             "global_body17_optimization": global_optimization.report,
+            "zed_depth_fusion": depth_fusion.report,
             "inference_stride": max(args.stride, 1),
             "inference_sample_count": int(arrays["keypoints_3d_world"].shape[0]),
             "output_frame_count": int(video_arrays["keypoints_3d_world"].shape[0]),
@@ -693,6 +774,11 @@ def main() -> None:
         and mean_reprojection_error is not None
         and mean_reprojection_error <= max_error
     )
+    internal_sensor_consistency = internal_sensor_consistency_status(
+        internal_geometry_passed=quality_passed,
+        zed_depth_fusion_report=depth_fusion.report,
+    )
+    provisional_scoring_ready = internal_sensor_consistency["status"] == "passed"
     export_session_json(
         {
             "session_id": session.session_id,
@@ -700,9 +786,17 @@ def main() -> None:
             "status": "passed" if quality_passed else "failed",
             "quality_scope": "internal_geometry_only",
             "ground_truth_accuracy_evaluated": False,
+            "external_accuracy": external_accuracy_not_evaluated(),
+            "internal_sensor_consistency": internal_sensor_consistency,
+            "provisional_scoring_ready": provisional_scoring_ready,
+            "provisional_scoring_mode": "internal_quality_gated_not_official",
+            "external_accuracy_required_for_provisional_scoring": False,
             "scoring_ready": False,
+            "official_scoring_ready": False,
             "scoring_readiness_reason": (
-                "A separate ground-truth validation must pass before this run can support scoring."
+                "Internal provisional scoring may proceed when provisional_scoring_ready is true. "
+                "Independent external 3D accuracy was not evaluated and no historical benchmark "
+                "was inherited; official scoring remains unavailable."
             ),
             "production_ready_calibration": production_ready_calibration,
             "mean_body17_valid_ratio": mean_body_valid_ratio,
@@ -740,6 +834,7 @@ def main() -> None:
                     "geometry_feedback_gate"
                 ),
             },
+            "zed_depth_fusion": depth_fusion.report,
             "minimum_required_body17_valid_ratio": minimum_body_valid_ratio,
         },
         output_paths["json"] / "run_quality_report.json",
@@ -770,12 +865,19 @@ def main() -> None:
         "visualization-only"
     )
     print(f"global_body17_optimization: {'applied' if global_optimization.applied else 'fallback'}")
+    print(
+        "zed_depth_fusion: "
+        f"{depth_fusion.report.get('status')} "
+        f"({depth_fusion.report.get('fused_body_point_count', 0)} body points, "
+        f"final used={depth_fusion.report.get('final_output_used', False)})"
+    )
     if not global_optimization.applied:
         print(f"global_body17_fallback_reason: {global_optimization.report.get('fallback_reason')}")
     print(f"run_id: {run_id}")
     print(f"internal_geometry_quality_status: {'passed' if quality_passed else 'failed'}")
     print("ground_truth_accuracy_status: not_evaluated_in_this_command")
-    print("scoring_ready: false")
+    print(f"provisional_scoring_ready: {str(provisional_scoring_ready).lower()}")
+    print("official_scoring_ready: false")
     if not quality_passed and not args.allow_low_quality_output:
         raise SystemExit(
             "3D output failed production quality gates. Diagnostic files were kept, "

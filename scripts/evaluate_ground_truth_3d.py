@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import sys
 from pathlib import Path
 
@@ -15,6 +14,7 @@ if str(ROOT) not in sys.path:
 from src.exporter import export_session_json
 from src.ground_truth_io import load_joint_map, load_pose_sequence_json, match_pose_sequences
 from src.ground_truth_validation import evaluate_ground_truth_3d
+from src.scoring_authorization import build_scoring_authorization, file_fingerprint
 
 
 def main() -> None:
@@ -59,31 +59,68 @@ def main() -> None:
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     report = {
-        "schema_version": 1,
-        "validation_algorithm_version": 1,
+        "schema_version": 2,
+        "validation_algorithm_version": 2,
         "prediction": str(args.prediction.resolve()),
         "ground_truth": str(args.ground_truth.resolve()),
+        "validation_config": str(args.config.resolve()),
+        "joint_map": str(args.joint_map.resolve()) if args.joint_map else None,
+        "prediction_identity": {
+            "session_id": predicted.metadata.get("session_id"),
+            "run_id": predicted.metadata.get("run_id"),
+        },
+        "ground_truth_identity": {
+            "dataset": truth.metadata.get("dataset"),
+            "sequence_id": truth.metadata.get("sequence_id"),
+        },
         "matched_frame_count": len(matched.match_rows),
         "mapped_joint_names": matched.joint_names,
         "evaluation_fps": matched.fps,
         "validation": result.report,
     }
-    export_session_json(report, output_dir / "ground_truth_validation_report.json")
-    _write_rows(result.frame_rows, output_dir / "ground_truth_frame_errors.csv")
-    _write_rows(result.joint_rows, output_dir / "ground_truth_joint_errors.csv")
-    _write_rows(result.angle_rows, output_dir / "ground_truth_angle_errors.csv")
-    _write_rows(matched.match_rows, output_dir / "ground_truth_frame_matches.csv")
+    report_path = output_dir / "ground_truth_validation_report.json"
+    frame_errors_path = output_dir / "ground_truth_frame_errors.csv"
+    joint_errors_path = output_dir / "ground_truth_joint_errors.csv"
+    angle_errors_path = output_dir / "ground_truth_angle_errors.csv"
+    frame_matches_path = output_dir / "ground_truth_frame_matches.csv"
+    manifest_path = output_dir / "validation_manifest.json"
+    authorization_path = output_dir / "scoring_authorization.json"
+    export_session_json(report, report_path)
+    _write_rows(result.frame_rows, frame_errors_path)
+    _write_rows(result.joint_rows, joint_errors_path)
+    _write_rows(result.angle_rows, angle_errors_path)
+    _write_rows(matched.match_rows, frame_matches_path)
     _write_validation_manifest(
-        output_dir,
+        manifest_path,
         [args.prediction, args.ground_truth, args.config] + ([args.joint_map] if args.joint_map else []),
+        [
+            report_path,
+            frame_errors_path,
+            joint_errors_path,
+            angle_errors_path,
+            frame_matches_path,
+        ],
+        output_dir=output_dir,
     )
+    authorization = build_scoring_authorization(
+        prediction_path=args.prediction,
+        ground_truth_path=args.ground_truth,
+        validation_config_path=args.config,
+        validation_report_path=report_path,
+        validation_manifest_path=manifest_path,
+        frame_matches_path=frame_matches_path,
+        joint_map_path=args.joint_map,
+    )
+    export_session_json(authorization, authorization_path)
 
     print(f"status: {result.report['status']}")
+    print(f"scoring_ready: {str(authorization['scoring_ready']).lower()}")
     print(f"matched frames: {len(matched.match_rows)}")
     print(f"mapped joints: {len(matched.joint_names)}")
     print(f"MPJPE mm: {result.report['mpjpe_mm']:.3f}")
     print(f"P95 error mm: {result.report['p95_error_mm']:.3f}")
-    print(f"report: {output_dir / 'ground_truth_validation_report.json'}")
+    print(f"report: {report_path}")
+    print(f"authorization: {authorization_path}")
     if result.report["status"] != "passed_for_scoring_validation" and not args.allow_failed_quality_gate:
         raise SystemExit(2)
 
@@ -92,23 +129,22 @@ def _write_rows(rows: list[dict[str, object]], path: Path) -> None:
     pd.DataFrame(rows).to_csv(path, index=False, na_rep="")
 
 
-def _write_validation_manifest(output_dir: Path, inputs: list[Path]) -> None:
-    output_paths = sorted(path for path in output_dir.iterdir() if path.is_file())
+def _write_validation_manifest(
+    manifest_path: Path,
+    inputs: list[Path],
+    outputs: list[Path],
+    *,
+    output_dir: Path,
+) -> None:
     manifest = {
         "schema_version": 1,
-        "inputs": [_fingerprint(path.resolve()) for path in inputs],
-        "outputs": [_fingerprint(path.resolve(), relative_to=output_dir) for path in output_paths],
+        "inputs": [file_fingerprint(path.resolve()) for path in inputs],
+        "outputs": [
+            file_fingerprint(path.resolve(), label=path.resolve().relative_to(output_dir).as_posix())
+            for path in sorted(outputs)
+        ],
     }
-    export_session_json(manifest, output_dir / "validation_manifest.json")
-
-
-def _fingerprint(path: Path, relative_to: Path | None = None) -> dict[str, object]:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    label = path.relative_to(relative_to).as_posix() if relative_to is not None else str(path)
-    return {"path": label, "size_bytes": path.stat().st_size, "sha256": digest.hexdigest()}
+    export_session_json(manifest, manifest_path)
 
 
 if __name__ == "__main__":

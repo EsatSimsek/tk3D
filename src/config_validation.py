@@ -90,6 +90,63 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     if int(triangulation.get("max_hypotheses", 16)) < 1:
         raise ValueError("triangulation.max_hypotheses must be positive")
 
+    depth_fusion = config.get("zed_depth_fusion", {})
+    if not isinstance(depth_fusion, dict):
+        raise ValueError("zed_depth_fusion must be a mapping")
+    if "enabled" in depth_fusion and not isinstance(depth_fusion["enabled"], bool):
+        raise ValueError("zed_depth_fusion.enabled must be boolean")
+    if str(depth_fusion.get("depth_mode", "neural")).lower() not in {
+        "performance",
+        "quality",
+        "ultra",
+        "neural",
+        "neural_plus",
+    }:
+        raise ValueError("zed_depth_fusion.depth_mode is not supported")
+    confidence_threshold = float(depth_fusion.get("confidence_threshold", 50.0))
+    if not 0.0 <= confidence_threshold <= 100.0:
+        raise ValueError("zed_depth_fusion.confidence_threshold must be between 0 and 100")
+    for key, default in (("min_pose_score", 0.30), ("surface_gate_ratio", 0.10)):
+        value = float(depth_fusion.get(key, default))
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"zed_depth_fusion.{key} must be between 0 and 1")
+    for key, default in (
+        ("patch_radius_px", 4),
+        ("min_patch_samples", 4),
+        ("minimum_offset_samples", 24),
+    ):
+        if int(depth_fusion.get(key, default)) < 1:
+            raise ValueError(f"zed_depth_fusion.{key} must be positive")
+    for key, default in (
+        ("min_depth_m", 0.40),
+        ("max_depth_m", 10.0),
+        ("surface_gate_m", 0.35),
+        ("max_centered_residual_m", 0.20),
+        ("baseline_weight", 1.0),
+        ("depth_weight", 0.35),
+        ("max_correction_m", 0.06),
+        ("max_median_reprojection_increase_px", 0.75),
+        ("max_camera_reprojection_increase_px", 2.0),
+        ("min_depth_residual_improvement_m", 0.001),
+        ("max_final_median_reprojection_increase_px", 0.25),
+        ("max_final_p95_reprojection_increase_px", 0.50),
+        ("max_final_p95_acceleration_increase_mps2", 1.0),
+        ("max_final_bone_cv_increase_percent", 0.10),
+    ):
+        if float(depth_fusion.get(key, default)) <= 0.0:
+            raise ValueError(f"zed_depth_fusion.{key} must be positive")
+    if float(depth_fusion.get("max_depth_m", 10.0)) <= float(
+        depth_fusion.get("min_depth_m", 0.40)
+    ):
+        raise ValueError("zed_depth_fusion.max_depth_m must exceed min_depth_m")
+    for key, default in (
+        ("max_final_median_reprojection_ratio", 1.02),
+        ("max_final_p95_reprojection_ratio", 1.03),
+        ("max_final_p95_acceleration_ratio", 1.05),
+    ):
+        if float(depth_fusion.get(key, default)) < 1.0:
+            raise ValueError(f"zed_depth_fusion.{key} must be at least 1")
+
     feedback = config.get("crossview_2d_feedback", {})
     if not isinstance(feedback, dict):
         raise ValueError("crossview_2d_feedback must be a mapping")

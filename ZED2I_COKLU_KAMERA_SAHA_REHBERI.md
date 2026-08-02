@@ -1,1025 +1,1066 @@
-# TK3D ZED 2i Çoklu Kamera Kurulum, Kayıt ve İşleme Rehberi
+# TK3D — 3 ZED 2i / 2 Bilgisayar Saha Kurulum ve Kayıt Rehberi
 
-Durum: **saha kurulum rehberi — ilk tek-kamera SVO2 pilotu doğrulandı,
-çok-kamera ZED çalışma zamanı henüz ana `src/` hattına eklenmedi**
+Durum: **uygulanacak saha yol haritası — kayıt ve senkron yazılımı henüz
+geliştirilmedi**
 
-Son güncelleme: **28 Temmuz 2026**
+Son güncelleme: **31 Temmuz 2026**
 
-Bu belge 2–10 adet ZED 2i kamerayla, kameraların bir veya birden fazla
-bilgisayara bağlı olduğu, gerçek zamanlı çalışmanın zorunlu olmadığı TK3D
-puanlama sisteminin nasıl kurulacağını baştan sona açıklar.
+Bu belge şu kesin saha düzeni için hazırlanmıştır:
 
-Bu rehberin temel kararı şudur:
+```text
+PC-1 (ana bilgisayar) -> ZED C01 + ZED C02 -> PC-1 yerel SSD
+PC-2 (kayıt düğümü)   -> ZED C03           -> PC-2 yerel SSD
 
-> ZED kameralar birbirine doğrudan bağlanmaz. Her ZED 2i USB 3 üzerinden bir
-> kayıt bilgisayarına bağlanır ve kendi SVO2 dosyasını yerel diske kaydeder.
-> Kayıtlar sonradan ortak zamana ve ortak dünya koordinatına getirilerek TK3D
-> hattında birlikte işlenir.
+PC-1 <---- telefon erişim noktası / yerel Wi-Fi ----> PC-2
+```
 
-Ethernet olmadan da kayıt yapılabilir. Ancak farklı bilgisayarlardaki USB ZED
-2i kameralarında donanımsal ortak tetikleme bulunmadığı için bütün kameraların
-gördüğü fiziksel bir ışık zaman işareti zorunlu hale gelir. Yalnız bilgisayar
-saatlerine veya aynı anda elle düğmeye basmaya güvenilmez.
+Üç kamera aynı hareket alanını farklı açılardan çeker. İki bilgisayar aynı
+odadadır ve tek operatör tarafından yönetilir. Ethernet yoktur. Bilgisayarlar
+eduroam kullanabilir; fakat hassas senkronizasyon ve kayıt güvenliği eduroam'a
+bağlı olmayacaktır.
+
+Başlangıç kayıt standardı, aksi ölçülerek gerekmedikçe:
+
+```text
+1280x720 (HD720), 60 FPS, SVO2, yerel SSD, offline işleme
+```
+
+Kayıt süresi henüz belirtilmediği için depolama hesabı ve uzun stres testinin
+süresi ilk pilotta ölçülecektir.
 
 ---
 
-## 1. Hedef sistemin kısa özeti
+## 0. İncelenen seçenekler ve nihai mimari karar
 
-Önerilen üretim hattı:
+Bu rehber, ZED360/Fusion hakkında yapılan dış sohbet ve güncel Stereolabs
+belgeleri karşılaştırılarak revize edilmiştir.
+
+### 0.1 Dış sohbette önerilen yol
+
+Sohbette sırasıyla şu mimari önerilmiştir:
+
+1. kameraları farklı bilgisayarlardan ZED360 Network Workflow'a bağlamak;
+2. ZED Hub üzerinden cihazları merkezi bilgisayara getirmek;
+3. ağ kameralarını merkezi ZED Studio'da birlikte SVO2 kaydetmek;
+4. bilgisayar saatlerini PTP/Chrony ile eşitlemek;
+5. Fusion'ın timestamp'lere bakarak kareleri kusursuz hizalamasına güvenmek;
+6. nihai olarak SVO2'leri ZED SDK ile okuyup en yakın timestamp'li kareleri
+   doğrudan TK3D'ye vermek.
+
+Bu listenin **altıncı maddesindeki doğrudan SVO2 okuma fikri doğrudur**.
+Diğer maddelerin bazıları bizim iki Windows bilgisayar + telefon/eduroam Wi-Fi
+düzenimiz için uygun veya doğrulanmış değildir.
+
+### 0.2 Düzeltilen yanlış veya aşırı kesin iddialar
+
+| İddia | Teknik gerçek ve karar |
+|---|---|
+| ZED Hub zorunludur | Fusion API doğrudan IP/port ve `startPublishing()` ile yerel ağda çalışabilir. Ayrıca Stereolabs desteği, genel ZED Hub–ZED360 akışının geciktiğini ve deprecated olduğunu bildirmiştir. ZED Hub'a bağımlı olunmayacak. |
+| Telefon Wi-Fi'sinde PTP ile mikrosaniye senkron yapılır | Stereolabs Wi-Fi adaptörlerinin PTP için gerekli timestamp desteğini sağlamadığını açıkça belirtir. PTP ancak uygun Ethernet/NIC düzeninde ayrı bir gelecek yükseltmesidir. |
+| ZED 2i her kareye diğer bilgisayarlarla ortak donanım zamanı basar | ZED 2i USB kameralar arasında ortak hardware trigger yoktur. SDK görüntü timestamp'i host sistem saatine bağlı epoch zamanıdır; farklı host saatleri ayrıca hizalanmalıdır. |
+| Fusion farklı host saatlerini otomatik düzeltip kusursuz fiziksel eşleme yapar | Fusion yakın timestamp'leri bir senkron penceresinde gruplar. Yanlış host saatini veya bilinmeyen drift'i sihirli biçimde düzeltemez. Girdi saatleri ortak değilse eşleşme fiziksel olarak yanlış olabilir. |
+| Merkezi ZED Studio'da ağ kayıtları en güvenli yöntemdir | ZED Studio ağ akışlarını kaydedebilir; fakat Wi-Fi kaybı ana görüntü kaydını etkiler. Bizde her kamera bağlı olduğu bilgisayarın yerel SSD'sine kaydedecek. |
+| SVO2 depth/3B veriyi hazır biçimde saklar ve her zaman kayıpsızdır | SVO2 temel olarak stereo görüntü ile timestamp/IMU gibi metadata'yı saklar; depth yeniden üretilebilir. H.264/H.265 modları kayıplı olabilir, lossless ayrıca seçilir. |
+| Yalnız en yakın timestamp'i seçmek yeterlidir | Önce PC-1–PC-2 saat offset'i ve drift'i çözülmelidir. Sonra monoton, tekil ve tolerans kapılı kare eşleme yapılır; kayıp kareler boş bırakılır. |
+
+### 0.3 Nihai önerilen mimari
 
 ```text
-2–10 × ZED 2i
-  -> USB 3 ile yakın kayıt bilgisayarlarına bağlantı
-  -> her kameranın yerel SSD'ye bağımsız SVO2 kaydı
-  -> başlangıç/ara/bitiş görsel senkron işaretleri
-  -> SVO2 dosyalarını ana işleme bilgisayarına kopyalama
-  -> dosya bütünlüğü ve timestamp kontrolü
-  -> ortak zaman çizelgesi
-  -> ortak dünya kalibrasyonu
-  -> sol RGB üzerinde RF-DETR + ViTPose-Huge WholeBody
-  -> ZED stereo depth ve confidence ölçümleri
-  -> robust çok-kamera triangulation
-  -> depth/reprojection/anatomi/zaman kalite kapıları
-  -> [T, 133, 3] metre cinsinden ortak dünya pozu
-  -> dış doğrulama geçerse puanlama
+KAYIT — ana ve güvenli yol
+  PC-1: C01 + C02 -> iki yerel SVO2
+  PC-2: C03       -> bir yerel SVO2
+  Wi-Fi: yalnız ARM/START/STOP/durum ve kaba saat ölçümü
+
+SENKRON — üretim yolu
+  SVO2 image timestamp'leri
+  + PC-1/PC-2 offset-drift tahmini
+  + başlangıç/ara/bitiş ortak tam-vücut hareketleri
+  -> offline ortak zaman çizelgesi ve kalite raporu
+
+KALİBRASYON
+  ZED360/Fusion network pilotu -> kamera pozu adayı ve canlı tanı
+  ChArUco/AprilTag + ölçülü çubuk -> bağımsız üretim doğrulaması
+
+İŞLEME
+  SVO2'den doğrudan rectified görüntü dizileri
+  -> ViTPose WholeBody-133
+  -> robust triangulation + ZED depth kontrolü
+  -> [T, 133, 3] ortak dünya çıktısı
 ```
 
-ZED 2i'nin bu sistemde sağladıkları:
-
-- kalibre edilmiş sol ve sağ stereo görüntü;
-- sol RGB üzerinde ViTPose için görüntü kanıtı;
-- sağ-sol stereo görüntüden sonradan üretilebilen depth;
-- piksel başına depth confidence;
-- kamera intrinsics ve kendi stereo baseline kalibrasyonu;
-- kare timestamp'leri;
-- IMU, sıcaklık ve diğer sensör verileri;
-- SVO2 içinde ham kaydı tekrar işleme imkânı.
-
-ZED'in sağlamadığı şeyler:
-
-- farklı bilgisayarlardaki USB kameralar arasında donanımsal tetikleme;
-- kameraların odadaki ortak konumunun otomatik ve hatasız bilgisi;
-- ground-truth 3B eklem;
-- tek başına resmî poomsae puanlama yetkisi.
+ZED360/Fusion kullanılacaktır; ancak kayıt güvenliğinin, hassas zaman
+hizalamanın veya 133 noktalı nihai çıktının tek sahibi olmayacaktır.
 
 ---
 
-## 2. Kaç kamera kullanılmalı?
+## 1. En önemli kararlar
 
-| Kamera sayısı | Kullanım değeri | Puanlama açısından karar |
-|---:|---|---|
-| 2 | Temel triangulation ve senkronizasyon geliştirmesi | Kırılgan; resmî puanlama için yetersiz |
-| 3 | İlk ortak dünya 3B denemesi | Örtüşmeye ve tek aykırı kameraya hassas |
-| 4 | Orta seviye 3B ve saha pilotu | Faydalı; mevcut cross-view güvenlik hattı tam çalışmaz |
-| 5 | Mevcut leave-one-camera-out tasarımının teknik alt sınırı | Kontrollü pilot için kabul edilebilir |
-| 6 | Dört çevre + iki çapraz/yüksek görünüş | Önerilen başlangıç üretim düzeni |
-| 7–8 | Daha iyi kapanma toleransı ve kamera yedeği | En dengeli öneri |
-| 9–10 | Büyük alan, yoğun kapanma veya birden fazla kişi | En yüksek yedek; kurulum ve veri yükü artar |
+### 1.1 Kameralar nasıl bölünecek?
 
-TK3D bir hedef kamerayı düzeltirken o kamerayı 3B öncülden çıkarır ve en az
-dört başka kameradan bağımsız görüntü kanıtı ister. Bu nedenle beş kamera
-mevcut güvenlik tasarımının gerçek alt sınırıdır.
+- **PC-1**, iki ZED 2i kaydeder ve merkezi kontrolü yürütür.
+- **PC-2**, üçüncü ZED 2i'yi kaydeder.
+- Her kamera kendi SVO2 dosyasını yalnız bağlı olduğu bilgisayarın yerel
+  SSD'sine yazar.
+- Canlı görüntü veya SVO2 dosyası Wi-Fi üzerinden taşınmaz.
+- Çekimden sonra PC-2'deki dosya harici SSD ile ana işleme bilgisayarına
+  taşınır ve SHA-256 ile doğrulanır.
 
-Pratik öneri:
+İki kamerayı PC-1'e takmak fiziksel olarak mümkün olsa bile iki USB portunun
+aynı USB controller'ı paylaşmadığı ölçülmeden kabul edilmez. Stereolabs, aynı
+bilgisayardaki çoklu USB ZED'lerin farklı USB controller'larına dağıtılmasını
+önerir.
 
-- geliştirme sırası: `1 -> 2 -> 4 -> 6 -> gerekirse 8/10`;
-- ilk güvenilir tek-sporcu saha sistemi: `6 kamera`;
-- bütçe ve bilgisayar uygunsa nihai düzen: `8 kamera`;
-- on kamera yalnız altı veya sekiz kameranın ölçülmüş eksiğini kapatıyorsa
-  kullanılmalıdır.
+### 1.2 Wi-Fi ne için kullanılacak?
 
-Daha fazla kamera otomatik olarak daha doğru sonuç anlamına gelmez. Kötü
-kalibre edilmiş veya senkronu bozuk bir kamera, sisteme faydadan çok zarar
-verebilir. Her kamera güven ağırlığıyla kullanılmalı ve gerektiğinde otomatik
-dışarı alınmalıdır.
+Wi-Fi yalnız şunlar için kullanılır:
+
+- PC-2'yi `hazırla`, `kaydı başlat`, `kaydı durdur` komutları;
+- PC-2'den `hazırım`, `kayıt başladı`, `dosya büyüyor`, `hata var` cevapları;
+- iki bilgisayar arasındaki kaba saat farkının ölçülmesi;
+- ortak `take_id` ve çekim notlarının dağıtılması.
+
+Wi-Fi şunların kanıtı değildir:
+
+- kameraların aynı anda pozlandığının;
+- karelerin hassas biçimde senkron olduğunun;
+- kaydın kayıpsız olduğunun;
+- SVO2 dosyalarının doğru ve eksiksiz kapandığının.
+
+### 1.3 Aynı anda başlamak ve durmak zorunlu mu?
+
+Hayır. Dosyaların aynı anda başlaması veya aynı uzunlukta olması gerekmez.
+Bütün kameraların asıl performanstan önce ve sonra ortak görüntü kaydetmesi
+yeterlidir.
+
+Operatör açısından kayıt yine **PC-1'de tek tuşla** yönetilecektir. PC-1:
+
+1. C01, C02 ve uzaktaki C03'e `ARM` gönderir;
+2. üç kameradan hazır cevabı alır;
+3. tek `START` olayıyla üç yerel kaydı başlatır;
+4. tek `STOP` olayıyla üç yerel kaydı güvenli kapatır.
+
+Bu merkezî kontrol uygulaması henüz repository'de geliştirilmemiştir. Rehber,
+uygulanacak veri ve güvenlik sözleşmesini tanımlar.
+
+Doğru yaklaşım:
+
+1. Önce üç kamera da kayda girer.
+2. En az 10 saniye ön kayıt alınır.
+3. Görüntüde ortak senkron hareketi yapılır.
+4. Performans çekilir.
+5. Bitişte senkron hareketi tekrarlanır.
+6. En az 10 saniye son kayıt alınır.
+7. Kameralar sırayla güvenli biçimde durdurulur.
+
+Sonradan yalnız üç dosyanın ortak ve doğrulanmış zaman aralığı işlenir. Ham
+SVO2 dosyaları kesilmez veya yeniden kodlanmaz.
+
+Ham SVO2 dosyalarının ilk/son timestamp'i ve kare sayısı birkaç kare farklı
+olabilir. Teslim edilen hizalı TK3D zaman çizelgesi ise tek ortak aralıkta ve
+aynı uzunlukta olacaktır:
+
+```text
+T_start = üç kameradaki doğrulanmış ortak başlangıç
+T_end   = üç kameradaki doğrulanmış ortak bitiş
+T       = T_start ... T_end, 60 Hz ortak zaman ızgarası
+```
+
+Bir kamerada ortak ızgaranın bir anına ait kare yoksa zaman çizelgesi
+kısaltılmaz ve eski kare sessizce kopyalanmaz. O kamera gözlemi o anda eksik
+olarak işaretlenir. Böylece üç çıktı aynı süreyi taşırken kare kaybı gizlenmez.
 
 ---
 
-## 3. Kameralar fiziksel olarak nasıl bağlanacak?
+## 2. Neden telefon erişim noktası yararlı?
 
-### 3.1 Temel bağlantı
+Eduroam, kurumun güvenlik ayarlarına göre istemcilerin birbirine doğrudan
+erişmesini engelleyebilir. Bu durumda iki bilgisayar internete çıkabilse bile
+birbirini göremez. Ayrıca ağ gecikmesi değişkendir.
 
-Her ZED 2i:
-
-```text
-ZED 2i -> ZED'in uygun USB 3 kablosu -> kayıt bilgisayarı -> yerel SSD
-```
-
-Kameralar birbirine USB, HDMI veya başka bir görüntü kablosuyla bağlanmaz.
-Bilgisayarlar da offline kayıt için birbirine bağlı olmak zorunda değildir.
-
-Örnek altı kameralı dağılım:
+Telefonun erişim noktası iki bilgisayara küçük ve kontrol edilebilir bir yerel
+ağ sağlar. **Mobil veri zorunlu değildir**; erişim noktasının yerel ağ kısmı
+yeterlidir. Önerilen saha ağı:
 
 ```text
-PC-01 -> C01 + C02
-PC-02 -> C03 + C04
-PC-03 -> C05 + C06
+Telefon erişim noktası: TK3D-CAPTURE
+PC-1: ağa bağlı, ana kontrol uygulaması
+PC-2: ağa bağlı, kayıt düğümü
+İnternet: isteğe bağlı
 ```
 
-En güvenli fakat daha çok bilgisayar isteyen dağılım:
+İlk kurulumda şu test yapılır:
 
-```text
-PC-01 -> C01
-PC-02 -> C02
-...
-PC-06 -> C06
-```
+1. İki bilgisayar erişim noktasına bağlanır.
+2. PC-2'nin yerel IP adresi bulunur.
+3. PC-1'den PC-2 kayıt servisinin sağlık adresine erişilir.
+4. PC-2 Windows Güvenlik Duvarı yalnız bu özel ağdaki uygulamaya izin verir.
+5. Telefon ekranı kapanınca veya mobil veri kapanınca bağlantının sürüp
+   sürmediği test edilir.
+6. En az 30 dakika boyunca durum mesajlarının kopmadığı doğrulanır.
 
-### 3.2 Bir bilgisayara iki ZED bağlama
-
-İki fiziksel USB port aynı USB host controller'ı paylaşabilir. Port sayısının
-iki olması, iki kameranın bant genişliğinin gerçekten bağımsız olduğu anlamına
-gelmez.
-
-İki ZED aynı bilgisayarda kullanılmadan önce:
-
-1. Her iki kamera `HD720/60 FPS` olarak aynı anda açılır.
-2. En az 30 dakika eşzamanlı SVO2 kaydı yapılır.
-3. Yeşil/mor kare, tearing, kamera kopması ve SDK hatası aranır.
-4. Her iki dosyanın timestamp aralıkları taranır.
-5. Disk yazma hızı ve boş alan kontrol edilir.
-6. GPU donanım kodlayıcı oturum sınırı kontrol edilir.
-
-Test geçmezse:
-
-- kameraları farklı USB controller'lara dağıt;
-- masaüstü bilgisayarda bağımsız kanallı PCIe USB 3 kartı kullan;
-- bilgisayar başına kamera sayısını bire indir;
-- aktif/kaliteli uzatma çözümü kullan;
-- pasif, uzun ve markasız USB kabloyla sorunu maskeleme.
-
-USB hub ancak üretici ve gerçek stres testiyle doğrulanır. Güçlü görünen bir
-hub'ın bütün portları aynı veri yolunu paylaşabilir.
-
-### 3.3 Ethernet yoksa
-
-Ethernet olmaması offline kayıt için engel değildir:
-
-- her bilgisayar yerel diske kaydeder;
-- bilgisayarlar birbirinden bağımsız başlatılabilir;
-- kayıtların ortak bölümü fiziksel ışık işaretiyle bulunur;
-- dosyalar daha sonra harici SSD ile ana bilgisayara taşınır.
-
-Ethernet olmadan kullanılamayan veya zorlaşan özellikler:
-
-- merkezi canlı sağlık ekranı;
-- tek düğmeyle bütün kayıt düğümlerini başlatma;
-- kablolu PTP saat senkronizasyonu;
-- dağıtık ZED360/Fusion Network Workflow;
-- canlı çok-kamera önizleme.
-
-Bunlar kaliteyi kolaylaştırır fakat offline işleme için zorunlu değildir.
-
-### 3.4 Wi-Fi varsa
-
-Kapalı bir yerel Wi-Fi ağı şu işler için kullanılabilir:
-
-- “hazır/başlat/durdur” komutu;
-- kayıt durumu ve disk alanı mesajı;
-- dosya adlarının ortak `take_id` ile oluşturulması;
-- kaba bilgisayar saat eşlemesi.
-
-Wi-Fi aşağıdakiler için tek güven kaynağı değildir:
-
-- hassas kare senkronizasyonu;
-- ana SVO2 kaydını ağ üzerinden yazma;
-- görüntü akışının kayıpsız olduğunun kanıtı.
-
-Eduroam gibi kurum ağlarında cihazlar birbirini göremeyebilir. Wi-Fi jitter
-ürettiği için görsel senkron işareti yine kullanılmalıdır.
+Telefon erişim noktası cihazlar arası trafiği engelliyorsa ikinci tercih,
+PC-1'in Windows “Mobil etkin nokta” özelliğidir. O da çalışmazsa rehberdeki
+manuel yedek akış kullanılır. Eduroam'a özel güvenlik kuralını aşmaya
+çalışılmaz.
 
 ---
 
-## 4. Kamera yerleşimi
+## 3. Zaman damgası ve gerçek senkronizasyon
 
-Kesin konum, oda ve aktif alan ölçüldükten sonra belirlenir. Başlangıç düzeni:
+### 3.1 ZED 2i'nin sınırı
 
-### Altı kamera
+ZED 2i bir USB kameradır ve farklı USB ZED kameralarını ortak pozlama anında
+tetikleyecek bir donanım trigger girişi sunmaz. Aynı bilgisayara bağlı C01 ve
+C02 bile tam olarak aynı anda pozlanmış kabul edilmez.
 
-| Kamera | Konum | Yaklaşık yükseklik | Rol |
-|---|---|---:|---|
-| C01 | Ön-sol çapraz | 1.5–1.8 m | Ön ve sol taraf |
-| C02 | Ön-sağ çapraz | 1.5–1.8 m | Ön ve sağ taraf |
-| C03 | Sağ yan | 1.3–1.6 m | Sağ profil |
-| C04 | Arka-sağ çapraz | 1.5–1.8 m | Arka kapanmalar |
-| C05 | Arka-sol çapraz | 1.5–1.8 m | Arka kapanmalar |
-| C06 | Sol yan veya yüksek çapraz | 2.2–2.8 m | Ayak/kol kesişmeleri |
+Stereolabs'a göre USB ZED kameralarında hizalama görüntü zaman damgalarıyla
+yapılır. ZED görüntü paketleri ana bilgisayara geldiğinde, bilgisayarın sistem
+saatine göre epoch zaman damgası alır. Bu nedenle:
 
-### Sekiz kamera
+- C01 ve C02 aynı PC saatini kullanır; hizalamaları daha kolaydır.
+- C03, PC-2 saatini kullanır; PC-1 ile saat farkı ve drift ölçülmelidir.
+- Telefon Wi-Fi'si donanımsal PTP değildir.
+- Windows saatinin internette “doğru görünmesi” kare düzeyinde senkron
+  garantisi vermez.
 
-Altı kameraya şunlar eklenir:
+60 FPS'te bir kare yaklaşık `16.67 ms` sürer. Hızlı tekmelerde bir karelik
+yanlış eşleme bile 3B sonucu belirgin biçimde bozabilir.
 
-- karşı tarafta ikinci yüksek çapraz kamera;
-- örtüşmenin en zayıf olduğu bölgeyi gören profil/ön kamera.
+PTP bu saha düzeninde kurulmayacaktır. Stereolabs'ın PTP akışı Ethernet,
+`linuxptp` ve uygun NIC timestamp desteğini esas alır; Wi-Fi adaptörlerinin PTP
+için gerekli gönderim timestamp kabiliyetini sağlamadığını belirtir. Chrony
+veya Windows/NTP saatini iyileştirebilir fakat telefon hotspot'unda
+mikrosaniyelik kamera senkronizasyonu kanıtı değildir. Gelecekte kablolu,
+PTP-doğrulanmış Linux ağ kurulursa bu karar yeniden değerlendirilebilir.
 
-Yerleşim kuralları:
+### 3.2 Üç katmanlı senkron modeli
 
-- sporcunun başı ve ayakları aktif alanın her noktasında kadrajda kalmalı;
-- kritik eklemler mümkünse aynı anda en az dört kamerada görünmeli;
-- komşu kameralar aynı kalibrasyon hedefini birlikte görebilmeli;
-- bütün kameralar aynı yükseklikte tek halka oluşturmamalı;
-- karşılıklı kameralar tam aynı doğru üzerinde olmak zorunda değil;
-- güneş, pencere veya spot ışık doğrudan lense bakmamalı;
-- parlak ve yansıtıcı zemin mümkünse mat kaplanmalı;
-- tripod ayakları ve kamera yönü zeminde işaretlenmeli;
-- güç ve USB kabloları sporcu alanına girmemeli;
-- her kameranın gövdesine `C01`, `C02` gibi fiziksel etiket yapıştırılmalı;
-- etiket ile ZED seri numarası manifestte eşleştirilmeli.
+Senkronizasyon üç ayrı kanıta dayanacaktır:
 
-İlk kameramızın ölçülen odak değeri `3.823 mm` ve yatay görüşü `67.73°`;
-4 mm ZED 2i varyantıyla uyumludur. Aynı kurulumdaki bütün kameraların lens
-tipi ve görüş açısı tek tek envantere alınmalıdır.
+#### Katman A — ağ üzerinden kayıt koordinasyonu
+
+PC-1 her iki düğüme ortak bir `take_id` gönderir. PC-2 komutu aldığını
+onaylar. İki bilgisayar da önce `ARMED`, sonra `RECORDING` durumuna geçer.
+
+Bu katman operatör işini kolaylaştırır; hassas kare eşlemesi sağlamaz.
+
+#### Katman B — saat farkı ölçümü
+
+Kayıt uygulaması, çekim öncesinde ve kayıt sırasında PC-1 ile PC-2 arasında
+küçük istek-cevap paketleri gönderir. Her ölçümde:
+
+- PC-1 gönderim zamanı;
+- PC-2 alış ve cevap zamanı;
+- PC-1 dönüş zamanı;
+- gidiş-dönüş gecikmesi;
+- tahmini saat farkı
+
+manifestte saklanır. Yüksek gecikmeli ölçümler elenir; kalan ölçümler kaba
+offset ve drift başlangıç tahmini verir.
+
+Bu yazılım ölçümü PTP değildir ve tek başına kesin sonuç sayılmaz.
+
+#### Katman C — görüntü içeriğinden doğrulama ve düzeltme
+
+LED kullanılamadığı için aktif alanın ortasında, öndeki ve arkadaki
+kameralardan da görülebilen belirgin bir **senkron hareket dizisi** yapılır:
+
+```text
+2 saniye sabit dur
+iki kolu hızla yukarı kaldır
+1 saniye sabit tut
+iki kolu hızla aşağı indir
+derin çömel ve hızla ayağa kalk
+aynı diziyi iki kez daha tekrarla
+2 saniye sabit dur
+```
+
+Ön ve arka görüntünün birbirine benzemesi gerekmez. Omuz, bilek ve kalçanın
+aynı fiziksel anda yaptığı düşey hareketin hız/ivme tepe noktaları eşlenir.
+Mümkünse iki ucunda parlak renkli işaret bulunan bir çubuk yatay tutulup baş
+üstüne kaldırılır. Tek yüzlü bir telefon veya pano yerine her yönden görülen
+tam-vücut hareketi tercih edilir. Elektrikli LED gerekmez. Hareket aktif alanın
+merkezinde yapılır; eller, omuzlar, kalça ve ayaklar üç görüntüde de görünür
+olmalıdır.
+
+Bu dizi:
+
+- asıl performanstan önce;
+- performanstan sonra;
+- 10 dakikadan uzun kayıtlarda yaklaşık her 5 dakikada bir
+
+tekrarlanır. Başlangıç ve bitiş olaylarının farkı, bilgisayar saatlerindeki
+drift'i ölçmeye yarar.
+
+Offline senkron çözücüsü omuz, bilek, pano köşesi veya genel optik akıştaki
+hareket tepe noktalarını eşler. Ağ ölçümünü yalnız arama öncülü sayar; nihai
+offset ve drift görüntü kanıtıyla doğrulanır.
+
+### 3.3 Offline zaman eşleme algoritması
+
+Yalnız “C01 timestamp'ine en yakın C03 karesi” seçilmeyecektir. PC-2'nin
+timestamp ekseni önce PC-1 ortak zamanına taşınır:
+
+```text
+t_ortak = a * t_PC2 + b
+
+b = başlangıçtaki saat offset'i
+a = kayıt boyunca saat drift'i
+```
+
+`a` ve `b` şu kanıtlardan birlikte kestirilir:
+
+- ağ istek-cevap saat örnekleri: yalnız kaba başlangıç öncülü;
+- başlangıç görsel hareketi;
+- varsa ara görsel hareketler;
+- bitiş görsel hareketi;
+- performans boyunca ortak gövde hareketinin hız/ivme korelasyonu.
+
+Sonra:
+
+1. PC-1 zaman çizelgesi referans alınır.
+2. C01 ve C02 aynı host saatinde olsalar bile gerçek timestamp'leriyle
+   eşleştirilir.
+3. C03 timestamp'leri düzeltilmiş `t_ortak` eksenine çevrilir.
+4. Her referans kare için zaman olarak en yakın aday aranır.
+5. Eşleme monoton ve bire bir olur; aynı kaynak kare sessizce iki kez
+   kullanılamaz.
+6. Fark izin verilen toleransı aşarsa kare uydurulmaz, o kamera o anda eksik
+   sayılır.
+7. Kayıp veya bozuk kareler çoğaltılarak gizlenmez.
+8. Kare indeksleri, ham/düzeltilmiş timestamp'ler ve residual CSV/JSON'a
+   yazılır.
+
+Fusion API aynı veya yakın timestamp'leri kendi senkron penceresinde
+gruplayabilir. 60 FPS'te pencere yaklaşık bir kare süresidir. Bu özellik
+Fusion fused-body hattında kullanılabilir; fakat TK3D'nin ham görüntü eşleme
+raporunun yerine geçmez ve yanlış host saatini düzelttiği varsayılmaz.
+
+### 3.4 Kabul kapısı
+
+Her çekim için şu değerler raporlanır:
+
+- kamera başına ilk ve son timestamp;
+- başarıyla okunan kare sayısı;
+- timestamp boşlukları;
+- PC-1–PC-2 ağ saat farkı ve gidiş-dönüş gecikmesi;
+- başlangıç ve bitiş görsel olaylarının kareleri;
+- kamera çiftleri için offset;
+- kayıt boyunca tahmini drift;
+- hizalama residual'ı;
+- ortak kullanılabilir zaman aralığı.
+
+Başlangıç mühendislik hedefi, görsel olayların kameralar arasında en yakın
+kareyle eşleşmesi ve kalan hatanın `<= 0.5 kare` olmasıdır. Bu eşik gerçek
+çekimlerle doğrulanmadan “frame-synchronized” denmez.
+
+Görsel olay üç kamerada da güvenilir bulunamazsa:
+
+- yalnız ağ komutuna güvenilmez;
+- çekim otomatik puanlamaya verilmez;
+- gerekirse manuel kare eşlemesi yapılır;
+- olay tekrarlanarak yeni çekim alınır.
 
 ---
 
-## 5. Ağsız çok-bilgisayarlı senkronizasyon
+## 4. Kayıt uygulamasının çalışma biçimi
 
-### 5.1 Neden aynı anda düğmeye basmak yetmez?
+Geliştirilecek küçük Python/ZED SDK uygulaması iki rolden oluşacaktır.
 
-Farklı bilgisayarlar:
+### 4.1 PC-1 — koordinatör ve iki kamera kaydedici
 
-- farklı sistem saatlerine;
-- farklı USB gecikmelerine;
-- farklı kamera başlangıç sürelerine;
-- kayıt boyunca farklı saat drift'ine
+PC-1 uygulaması:
 
-sahip olabilir.
+1. bağlı ZED'leri otomatik listeler;
+2. C01 ve C02'nin seri numaralarını okur;
+3. kameraları açıkça seri numarasıyla açar;
+4. iki kamerayı ayrı worker/thread ile yerel SSD'ye kaydeder;
+5. PC-2 sağlık kontrolünü yapar;
+6. ortak `take_id` oluşturur;
+7. bütün kameraların `ARMED` cevabını bekler;
+8. kaydı başlatır ve durumları tek ekranda gösterir;
+9. hata olsa bile sağlam kameraların kaydını izinsiz silmez;
+10. durdurmada her SVO2'nin güvenli kapanışını bekler.
 
-ZED 2i USB kameralarında harici donanımsal trigger girişi yoktur. ZED SDK
-görüntü timestamp'i sağlar fakat farklı bilgisayarların saatleri fiziksel
-olarak ortaklaştırılmadıysa sayıların aynı zaman tabanında olduğu
-varsayılamaz.
+### 4.2 PC-2 — tek kamera kayıt düğümü
 
-`60 FPS` için bir kare `16.667 ms` sürer. Yalnız en yakın kareyi seçmek hızlı
-tekme ve dönüşlerde ciddi 3B bozulmaya yol açabilir.
+PC-2 uygulaması:
 
-### 5.2 Gerekli senkron işareti
+1. C03 seri numarasını otomatik okur;
+2. PC-1'den gelen komutları yerel ağda dinler;
+3. dosyayı PC-2 yerel SSD'sine yazar;
+4. kayıt durumu, kare sayacı, hata ve disk alanını PC-1'e yollar;
+5. ağ koparsa kayda devam eder;
+6. yeniden bağlantıda güncel durumunu bildirir;
+7. yalnız açık bir `STOP` komutu veya yerel acil durdurma ile kaydı kapatır.
 
-En iyi ağsız çözüm, bütün kameraların aynı anda gördüğü merkezi ve parlak bir
-LED zaman işaretidir.
-
-Önerilen donanım:
-
-- büyük ve homojen yanan LED panel veya güçlü LED modül;
-- sabit parlaklık;
-- kameraların tamamından görünen yüksek bir konum;
-- tekrar üretilebilir kısa/uzun ışık dizisi;
-- mümkünse mikrodenetleyiciyle otomatik desen;
-- güç kesintisinde deseni baştan başlatan basit kontrol.
-
-Telefon feneri ilk pilotta kullanılabilir. Telefon ekranı, ekran yenilemesi
-ve rolling-shutter bantları nedeniyle daha risklidir. Işığın elle açılma
-gecikmesi önemli değildir; önemli olan aynı fiziksel ışık değişimini bütün
-kameraların görmesidir.
-
-### 5.3 Örnek ışık dizisi
-
-Her olayda benzersiz bir desen göster:
+### 4.3 Durum makinesi
 
 ```text
-2 s kapalı
-200 ms açık
-200 ms kapalı
-200 ms açık
-200 ms kapalı
-800 ms açık
-500 ms kapalı
-200 ms açık
-2 s kapalı
+IDLE
+  -> PREFLIGHT
+  -> ARMED
+  -> RECORDING
+  -> FINALIZING
+  -> VERIFIED
+
+Her aşama -> ERROR (neden manifestte)
 ```
 
-Deseni:
+`START` komutu yalnız üç kamera açılmış, yerel SSD yazılabilir ve beklenen seri
+numaraları doğrulanmışsa kabul edilir.
 
-- sporcu alana girmeden önce;
-- uzun kayıtta her 30–60 saniyede;
-- hareket bittikten sonra
+### 4.4 Ağ koparsa ne olacak?
 
-tekrarla.
+Ana kural: **Ağ kaybı yerel kaydı durdurmaz.**
 
-Tek bir başlangıç flaşı yalnız başlangıç ofsetini verir. Başlangıç ve bitiş
-olayları birlikte kullanılırsa bilgisayar/kamera saat drift'i de ölçülebilir.
-Ara olaylar uzun kayıtta doğrusal olmayan sapmaları yakalar.
+- PC-1, C01 ve C02'yi kaydetmeye devam eder.
+- PC-2, C03'ü kaydetmeye devam eder.
+- Operatör performansı bitirir ve iki bilgisayarı sırayla yerelden durdurur.
+- Ortak görüntü aralığı offline bulunur.
+- Manifestte ağ kopma zamanı ve manuel durdurma açıkça işaretlenir.
 
-### 5.4 Kayıtların ortak zamana alınması
+### 4.5 Neden merkezi ZED Studio ağ kaydı ana yol değil?
 
-Her kamera için:
+ZED Studio birden fazla yerel veya ağ stream'ini seçip ayrı SVO2 dosyalarına
+kaydedebilir. Bu özellik tanı ve kısa karşılaştırma deneyi için yararlıdır.
+Ancak bizim düzende PC-2 görüntüsünü telefon/eduroam Wi-Fi üzerinden PC-1'e
+taşıyıp yalnız merkezde kaydetmek şu riskleri ekler:
+
+- Wi-Fi paket kaybı ve değişken gecikme;
+- ağ kopunca C03 ana kaydının kaybolması;
+- kodlama/stream ayarlarının orijinal yerel kayıtla karışması;
+- PC-1 ağ, decode, iki yerel kayıt ve disk yükünün birleşmesi;
+- merkezi dosyanın oluşmasının kaynak kamerada kayıp olmadığını kanıtlamaması.
+
+Bu nedenle üretim kuralı:
 
 ```text
-t_common = a_camera * t_camera + b_camera
+Her kamera -> bağlı olduğu hostta yerel SVO2
+ZED Studio network record -> yalnız opsiyonel tanı kopyası
 ```
 
-- `b_camera`: başlangıç zaman ofseti;
-- `a_camera`: kayıt boyunca saat drift'i.
-
-İşleme sırasında:
-
-1. Her SVO2'nin görüntü timestamp'leri çıkarılır.
-2. LED'in açılış/kapanış kareleri otomatik veya elle işaretlenir.
-3. Kameralar arası aynı LED olayları eşleştirilir.
-4. Kamera başına `a` ve `b` çözülür.
-5. 2B pozlar ortak zaman çizelgesine enterpole edilir.
-6. Hızlı hareket korelasyonu yalnız ikincil ince ayar olarak kullanılır.
-
-Sporcunun hareketini tek başına senkron referansı yapmak güvenli değildir;
-ViTPose hatası ile zaman hatasını birbirine karıştırabilir.
-
-### 5.5 Başlangıç kalite hedefleri
-
-Bunlar TK3D için önerilen ilk mühendislik hedefleridir; dış doğrulama
-sonuçlarıyla kesinleştirilecektir:
-
-- bütün kameralarda aynı LED olaylarının eksiksiz bulunması;
-- başlangıç, ara ve bitiş olayları arasında tutarlı drift modeli;
-- ortak zaman sonrası p95 residual hedefi `<=5 ms`;
-- açıklanamayan timestamp geri gidişi olmaması;
-- kayıp karelerin ve yaklaşık fiziksel zamanlarının raporlanması.
-
-Bu kapı geçmezse koşu tanısal olabilir fakat puanlama için yetkilendirilmez.
+Opsiyonel merkezi kopya alınırsa yerel SVO2'nin yerine geçmez ve iki dosya
+birbirine kalite/kare/timestamp raporuyla karşılaştırılır.
 
 ---
 
-## 6. Kalibrasyon: iki farklı problem
+## 5. Seri numarası neden önemlidir?
 
-“ZED zaten kalibre” ifadesi yalnız kameranın kendi sol-sağ stereo geometrisi
-için doğrudur. Çok-kamera sisteminde iki ayrı kalibrasyon vardır.
+Seri numarası dosya adı süsü değildir. Her fiziksel kameranın:
 
-### 6.1 Kamera içi fabrika kalibrasyonu
+- fabrika intrinsics/stereo kalibrasyonunu;
+- sahadaki `C01/C02/C03` rolünü;
+- ortak dünya extrinsic kalibrasyonunu;
+- hangi bilgisayara ve USB yoluna bağlı olduğunu
 
-Her ZED seri numarasına özel olarak:
+birbirine bağlayan kimliktir.
 
-- `fx`, `fy`, `cx`, `cy`;
-- distorsiyon modeli;
-- sol-sağ dönüşümü;
-- stereo baseline
+USB kamera indeksi (`0`, `1`) bilgisayar yeniden başladığında veya kablolar
+yer değiştirince değişebilir. Bu nedenle uygulama kamerayı indeksle değil,
+ZED SDK'dan otomatik okunan seri numarasıyla açacaktır.
 
-ZED SDK'dan alınır.
+İlk kurulumda bir kez şu eşleme yapılır:
 
-Kurallar:
+| Mantıksal kamera | ZED seri numarası | Bilgisayar | Fiziksel konum |
+|---|---|---|---|
+| C01 | otomatik okunacak | PC-1 | ön-sol/çapraz |
+| C02 | otomatik okunacak | PC-1 | ön-sağ/çapraz |
+| C03 | otomatik okunacak | PC-2 | arka veya yan |
 
-- bir kameranın kalibrasyon dosyası başka kameraya kopyalanmaz;
-- kullanılan çözünürlüğün parametreleri alınır;
-- rectified sol görüntü kullanılıyorsa rectified intrinsics kullanılır;
-- SDK'nın çalışma başında döndürdüğü gerçek parametreler manifestte saklanır;
-- kameralar ısındıktan sonra kalibrasyon ve kayıt yapılır;
-- darbe alan veya fiziksel olarak zorlanan kamera yeniden kontrol edilir.
-
-ZED'in başlangıç self-calibration özelliği sıcaklık ve mekanik değişimleri
-düzeltebilir. Tekrarlanabilirlik için özelliği rastgele açıp kapatmak yerine
-seçilen davranış bütün kamera ve oturumlarda sabitlenmeli, gerçek dönen
-intrinsics kaydedilmelidir.
-
-### 6.2 Kameralar arası extrinsic kalibrasyon
-
-Bu kalibrasyon her kameranın ortak odadaki:
-
-- `x, y, z` konumunu;
-- yaw, pitch, roll yönünü;
-- ortak metre ölçeğini;
-- ortak zemin ve dünya eksenlerini
-
-belirler.
-
-Üretim için önerilen yöntem büyük, rijit ve ölçüsü bilinen bir ChArUco veya
-AprilTag grid hedefidir.
-
-#### Kalibrasyon hedefi
-
-- mat ve bükülmeyen levha;
-- baskı sonrası kare/tag boyutları fiziksel olarak ölçülmüş;
-- mümkünse 1 metreye yakın büyük yüzey;
-- kimliği ve ölçüleri bir JSON/YAML dosyasında kayıtlı;
-- parlama yapmayan malzeme;
-- köşeleri deforme olmayan rijit taşıyıcı.
-
-Normal ofis kâğıdına basılmış küçük bir desen büyük hacim kalibrasyonu için
-yeterli olmayabilir.
-
-#### Offline kalibrasyon çekimi
-
-1. Bütün kameraları son yerlerine sabitle.
-2. Kameraları ve ışıkları 10–15 dakika ısıt.
-3. Bütün kameralarda `HD720/60` kaydı başlat.
-4. LED başlangıç senkron dizisini göster.
-5. Kalibrasyon hedefini alanın merkezinde, kenarlarında ve köşelerinde gezdir.
-6. Hedefi yalnız düz karşıdan değil, farklı eğim ve yönlerde göster.
-7. Her komşu kamera çifti hedefi aynı anda birçok kez görsün.
-8. Yakın, orta ve uzak derinlikler örneklensin.
-9. Zemine yakın, göğüs yüksekliği ve baş üstü bölgeler kapsansın.
-10. Kamera grafiği döngüler içersin; yalnız zincir biçiminde kalmasın.
-11. LED bitiş senkron dizisini göster.
-12. Kaydı durdur ve SVO2 dosyalarını doğrula.
-
-Bir kamera diğer hiçbir kamerayla ortak hedef görmüyorsa ortak dünya
-kalibrasyonuna güvenilir biçimde bağlanamaz.
-
-#### Dünya koordinatı
-
-TK3D sözleşmesi:
-
-```text
-x = sağ
-y = ileri
-z = yukarı
-birim = metre
-```
-
-Önerilen dünya başlangıcı aktif alanın zemin merkezidir. Dünya yönü tatami
-veya performans alanının ölçülmüş kenarlarına bağlanır. Yalnız ilk kameranın
-optik merkezini dünya başlangıcı yapmak puanlama ve saha ölçümü için uygun
-değildir.
-
-#### Çözüm ve doğrulama
-
-- bütün kameralar ortak bundle adjustment içinde çözülür;
-- düşük kaliteli hedef tespitleri robust biçimde dışlanır;
-- kamera başına medyan ve p95 reprojection raporlanır;
-- çevrim kapanma hatası kontrol edilir;
-- pozitif derinlik ve triangulation açısı kontrol edilir;
-- ölçüsü bilinen bir çubuk/küp farklı bölgelerde yeniden yapılandırılır;
-- zemin düzlemi ve bilinen mesafeler metre cinsinden doğrulanır;
-- kalibrasyon dosyası kamera seri numaralarının SHA-256 özetiyle bağlanır.
-
-Başlangıç hedefi:
-
-- medyan reprojection `<1 px`;
-- p95 reprojection `<2 px`;
-- ölçülmüş rijit mesafe hatası uygulamanın kabul sınırı içinde;
-- alanın hiçbir bölgesinde sistematik yön veya ölçek sapması olmaması.
-
-Bu değerler dış 3B ground-truth doğruluğunun yerine geçmez.
-
-### 6.3 ZED360'ın rolü
-
-ZED360:
-
-- kamera seri numaralarını görme;
-- görüş örtüşmesini kontrol etme;
-- ilk extrinsic tahmini;
-- ZED body fusion önizlemesi
-
-için faydalıdır.
-
-Dağıtık bilgisayarlarda ZED360 Network Workflow için yerel ağ gerekir.
-Ethernet yoksa offline ChArUco/AprilTag kalibrasyonu yapılabilir. ZED360'ın
-body noktalarından oluşturduğu kalibrasyon üretim ground truth'u sayılmaz;
-geometrik hedef ve ölçülü cisimle ayrıca doğrulanır.
-
-### 6.4 Kalibrasyon ne zaman yenilenir?
-
-Şunlardan biri olursa tam veya ilgili kamera için yeniden kalibrasyon gerekir:
-
-- tripod veya kamera oynadı;
-- kamera çıkarılıp yeniden takıldı;
-- odanın/aktif alanın konumu değişti;
-- kamera darbe aldı;
-- lens önüne cam/koruyucu eklendi;
-- çözünürlük/rectification sözleşmesi değişti;
-- günlük doğrulama hedefi kalite kapısını geçmedi.
-
-Kamera yalnız birkaç milimetre oynamış görünse bile doğrulama yapılmadan eski
-kalibrasyon kullanılmaz.
+Bir kamera başka konuma taşınırsa seri numarası aynı kalır fakat extrinsic
+kalibrasyonu geçersiz olur ve yeniden yapılır.
 
 ---
 
-## 7. Kayıt ayarları
+## 6. Kamera yerleşimi
 
-Başlangıç standardı:
+Üç kameralı başlangıç düzeni:
 
 ```text
-çözünürlük: HD720 / 1280×720
-FPS: 60
-dosya: SVO2
-kayıt: her bilgisayarın yerel SSD'sine
-işleme: offline
+                    C03
+             (arka/yan çapraz)
+
+          +-------------------+
+          |                   |
+          |    aktif alan     |
+          |                   |
+          +-------------------+
+
+       C01                     C02
+   (ön-sol çapraz)       (ön-sağ çapraz)
 ```
 
-Neden `HD720/60`:
+Başlangıç önerileri:
 
-- hızlı tekme ve dönüşlerde daha iyi zaman çözünürlüğü;
-- ilk gerçek SVO2 pilotumuz bu modda başarıyla işlendi;
-- çok-kamera USB ve disk yükü açısından 1080p'ye göre daha uygulanabilir.
+- C01 ve C02 arasında mümkün olduğunca geniş fakat ortak görüşü koruyan açı;
+- C03, C01/C02'de kapanan arka tarafı ve ayakları görecek konum;
+- yaklaşık `1.4–1.8 m` kamera yüksekliği;
+- sporcu aktif alanın her noktasında baştan ayağa kadrajda;
+- en az iki, tercihen üç kamerada gövde ve kritik eklemler görünür;
+- doğrudan parlak ışığa bakmayan kameralar;
+- mat zemin ve mümkün olduğunca az yansıma;
+- tripod ayakları ve kamera yönü zeminde işaretli.
 
-### 7.1 Depth kayıt sırasında hesaplanmalı mı?
+Üç kamera, mevcut TK3D leave-one-camera-out cross-view düzeltmesinin dört
+başka kamera isteyen güvenlik eşiğini karşılamaz. Bu nedenle üç kameralı
+sistemde:
 
-Hayır. SVO2 stereo görüntüyü ve sensör metadata'sını koruduğu için depth
-sonradan farklı ZED depth modlarıyla yeniden üretilebilir. Kayıt bilgisayarının
-asıl görevi kare kaybetmeden ham kaydı korumaktır.
-
-Kayıt sırasında ağır ViTPose, Fusion ve NEURAL_PLUS çalıştırmak zorunlu
-değildir. Bunlar offline ana bilgisayarda çalıştırılabilir.
-
-### 7.2 SVO2 sıkıştırma
-
-ZED SDK H.264, H.265 ve lossless seçenekleri destekler. Seçim gerçek stres
-testiyle yapılmalıdır:
-
-- kalibrasyon ve kısa kalite referansı: mümkünse lossless;
-- uzun hareket kaydı: doğrulanmış H.265/H.264 veya disk uygunsa lossless;
-- aynı bilgisayarda iki kamera: NVENC oturum sınırı ve GPU yükü ölçülmeli;
-- lossy kayıt, lossless referansa göre 2B eklem doğruluğunu bozmuyorsa
-  onaylanmalı.
-
-“Dosya açılıyor” testi yeterli değildir. Kare kaybı, timestamp boşlukları ve
-pose doğruluğu birlikte kontrol edilmelidir.
-
-### 7.3 Pozlama, gain ve white balance
-
-Kontrollü ışıkta:
-
-- hızlı harekette motion blur üretmeyecek kısa pozlama hedeflenir;
-- kameralar ısındıktan ve ışık sabitlendikten sonra ayarlar kilitlenebilir;
-- bütün kameralara körlemesine aynı sayısal exposure verilmez;
-- histogram, ten/kıyafet ayrımı ve blur ölçülür;
-- 50 Hz şebeke aydınlatmasının flicker etkisi test edilir;
-- otomatik ayar değişimleri kayıt ortasında görünümü değiştirmemeli.
-
-Karanlık görüntüyü yalnız gain artırarak düzeltmek gürültü ve depth hatasını
-artırabilir. Öncelik yeterli, homojen ve flicker üretmeyen aydınlatmadır.
+- temel robust triangulation kullanılabilir;
+- ZED depth ek kalite kanıtı olabilir;
+- üç kameradan biri kapanır veya aykırılaşırsa sonuç hızla kırılganlaşır;
+- mevcut tam cross-view düzeltme özelliği etkin kabul edilemez;
+- dış doğrulama olmadan puanlama yetkisi verilmez.
 
 ---
 
-## 8. Her çekimin standart kayıt sırası
+## 7. SVO2 kayıt sözleşmesi ve PC-1 stres testi
 
-### 8.1 Çekimden önce
+### 7.1 SVO2 tam olarak neyi korur?
 
-1. Bütün kamera etiketlerini ve seri numaralarını kontrol et.
-2. Tripod zemin işaretleriyle eşleşiyor mu kontrol et.
-3. Lensleri uygun bezle temizle.
-4. Güç, USB ve SSD bağlantılarını kontrol et.
-5. Her bilgisayarda yeterli boş alan olduğundan emin ol.
-6. ZED SDK/firmware ve kayıt uygulaması sürümünü kaydet.
-7. Kameraları ve ışıkları 10–15 dakika ısıt.
-8. Kadrajda baş, eller ve ayakların bütün aktif alanda kaldığını kontrol et.
-9. Beş saniyelik hızlı hareketle blur ve exposure kontrolü yap.
-10. O günün kısa kalibrasyon doğrulamasını yap.
+SVO2, ZED stereo görüntülerini ve timestamp, IMU/sensör gibi metadata'yı
+koruyan yeniden oynatılabilir kaynak biçimidir. Depth, point cloud ve gövde
+takibi gibi SDK modülleri SVO2 oynatılırken yeniden çalıştırılabilir.
 
-### 8.2 Kaydı başlatma
+Şu ayrımlar korunmalıdır:
 
-Bilgisayarların aynı anda kayıt düğmesine basması gerekmez:
+- timestamp'in nanosaniye çözünürlükte yazılması, farklı hostların fiziksel
+  olarak nanosaniye doğrulukta senkron olduğu anlamına gelmez;
+- SVO2 kullanmak otomatik olarak lossless anlamına gelmez;
+- `H.264` ve `H.265` kayıtları kayıplı olabilir;
+- `LOSSLESS`, `H.264 LOSSLESS` veya `H.265 LOSSLESS` ayrı modlardır;
+- depth'i kayıt sırasında ağır biçimde çalıştırmak zorunlu değildir;
+- TK3D görüntüleri MP4'e dönüştürmeden doğrudan ZED SDK ile SVO2'den
+  okuyacaktır.
 
-1. Ortak ve benzersiz bir `take_id` belirle.
-2. Bütün bilgisayarlarda ilgili kameraların kaydını başlat.
-3. Her operatör dosyanın gerçekten büyüdüğünü ve kare sayacının ilerlediğini
-   doğrulasın.
-4. Son bilgisayar da hazır olduktan sonra en az 5–10 saniye bekle.
-5. Başlangıç LED zaman dizisini göster.
-6. İki saniye sabit bekle.
-7. Sporcu performansına başlasın.
-8. Uzun kayıtta ara LED olaylarını göster.
-9. Performans bitince iki saniye bekle.
-10. Bitiş LED zaman dizisini göster.
-11. En az 5 saniye daha kaydet.
-12. Bütün bilgisayarlarda kayıtları güvenli biçimde durdur.
+İlk pilotta aynı kısa hareket hem seçilen uzun-kayıt modu hem lossless referans
+ile çekilir. 2B eklem başarımı, dosya boyutu, encoder yükü ve kare boşlukları
+karşılaştırılmadan sıkıştırma modu sabitlenmez.
 
-Bu sıra sayesinde dosyalar farklı anlarda başlamış olsa bile ortak fiziksel
-bölüm sonradan bulunabilir.
+### 7.2 PC-1'de iki kameranın zorunlu stres testi
 
-### 8.3 Dosya adları
+Bilgisayarların “yeterli seviyede” olması başlangıç için olumlu olsa da iki
+ZED'in aynı anda kayıt yapabildiği ölçülmelidir.
 
-Önerilen yapı:
+İlk saha kullanımından önce:
+
+1. C01 ve C02 iki farklı USB 3 porta bağlanır.
+2. Windows Aygıt Yöneticisi/USB ağacıyla portların controller yolu incelenir.
+3. İki kamera aynı anda `HD720/60` açılır.
+4. Hedef sıkıştırma modunda en az 30 dakika SVO2 kaydı yapılır.
+5. Bu sırada ağır pose/depth işlemi çalıştırılmaz.
+6. İki dosya baştan sona ZED SDK ile taranır.
+7. Kare sayısı, timestamp aralığı, boşluklar ve SDK hataları raporlanır.
+8. Disk yazma hızı, sıcaklık ve GPU encoder durumu incelenir.
+
+Şunlardan biri görülürse test geçmez:
+
+- kamera kopması;
+- yeşil/mor/bozuk kare;
+- tekrarlanan veya monoton olmayan timestamp;
+- normal kare aralığının `1.5 katını` aşan açıklanamayan boşluk;
+- kayıt uygulamasının uzun süre cevap vermemesi;
+- SSD'nin dolması veya sürdürülebilir yazma hızının düşmesi;
+- ikinci H.264/H.265 kayıt oturumunun açılamaması.
+
+Test geçmezse sırasıyla:
+
+1. kameraları farklı USB controller'lara taşı;
+2. PC-1'e bağımsız kanallı PCIe USB 3 kartı ekle;
+3. farklı doğrulanmış sıkıştırma modunu dene;
+4. iki kamera + bir kamera dağılımını tersine çevir;
+5. son çare olarak üçüncü kayıt bilgisayarı kullan.
+
+USB hub ancak tam stres testini geçerse kabul edilir.
+
+---
+
+## 8. Her çekimin saha sırası
+
+### 8.1 Çekim öncesi
+
+1. Telefon erişim noktasını aç ve iki bilgisayarı bağla.
+2. PC-1'den PC-2 sağlık kontrolünü doğrula.
+3. Üç kameranın seri numarası/rol eşlemesini doğrula.
+4. Lens, tripod, kablo ve zemin işaretlerini kontrol et.
+5. SSD boş alanını ve tahmini çekim süresini kontrol et.
+6. Kameraları ve ışıkları 10–15 dakika ısıt.
+7. Pozlama, gain, white balance ve motion blur kontrolü yap.
+8. Üç görüntüde de aktif alanın tamamının göründüğünü doğrula.
+9. Günlük ortak dünya kalibrasyon kontrolünü yap.
+10. Benzersiz `take_id` oluştur.
+
+### 8.2 Otomatik ağ akışı
+
+1. PC-1'de `Hazırla` düğmesine bas.
+2. Ekranda `C01 ARMED`, `C02 ARMED`, `C03 ARMED` görülmeden devam etme.
+3. `Kaydı Başlat` düğmesine bas.
+4. Üç dosyanın da büyüdüğünü ve kare sayaçlarının ilerlediğini gör.
+5. En az 10 saniye bekle.
+6. Aktif alanda başlangıç senkron hareketini üç kez yap.
+7. İki saniye bekle ve performansı başlat.
+8. Performans bitince iki saniye bekle.
+9. Bitiş senkron hareketini üç kez yap.
+10. En az 10 saniye bekle.
+11. `Kaydı Durdur` düğmesine bas.
+12. Üç kamerada `VERIFIED` veya açıklamalı hata durumu görülmeden uygulamayı
+    kapatma.
+
+### 8.3 Wi-Fi/eduroam çalışmazsa manuel yedek akış
+
+1. PC-2'de C03 kaydını yerelden başlat.
+2. C03 dosyasının büyüdüğünü doğrula.
+3. PC-1'de C01 ve C02 kaydını başlat.
+4. İki dosyanın da büyüdüğünü doğrula.
+5. En az 10 saniye bekle.
+6. Başlangıç senkron hareketini yap.
+7. Performansı kaydet.
+8. Bitiş senkron hareketini yap.
+9. En az 10 saniye bekle.
+10. Önce PC-1, sonra PC-2 kaydını güvenli biçimde durdur.
+
+Bu yedek akışta düğmelere aynı anda basmaya çalışmak gerekmez.
+
+### 8.4 Acil durum
+
+- Kamera düşer veya kablo çıkarsa performans durdurulur.
+- Kayıt uygulaması mümkün olan dosyaları güvenli biçimde kapatır.
+- Bozuk çekimin üzerine yeni kayıt yazılmaz.
+- Yeni `take_id` ile tekrar çekilir.
+- Oynayan kameranın ortak dünya kalibrasyonu yeniden doğrulanır.
+
+---
+
+## 9. Dosya ve manifest yapısı
 
 ```text
 takes/
-  take_2026-07-28_001/
+  take_2026-07-30_001/
     manifest.json
     notes.md
     sync/
-      sync_events.json
+      network_clock_samples.json
+      visual_sync_events.json
+      synchronization_report.json
     calibration/
       cameras_world.json
       calibration_report.json
     svo/
-      C01_SN39504762.svo2
-      C02_SNxxxxxxxx.svo2
-      C03_SNxxxxxxxx.svo2
+      C01_SN<serial>.svo2
+      C02_SN<serial>.svo2
+      C03_SN<serial>.svo2
 ```
 
-Dosya adında en az:
+Her SVO2 kaydı benzersizdir. Var olan dosyanın üzerine yazılmaz.
 
-- fiziksel kamera kimliği;
-- gerçek ZED seri numarası;
-- ortak `take_id`
+Manifestte en az şunlar bulunur:
 
-bulunmalıdır.
-
-SVO2 dosyası sonradan yeniden kodlanmamalı veya video düzenleyicide
-kesilmemelidir. Ortak aralık manifestte tanımlanır; ham dosya korunur.
-
-### 8.4 Manifestte tutulacak bilgiler
-
-- session ve take kimliği;
-- tarih, saat ve operatör;
-- sporcu/deneme için anonim kimlik;
-- kamera kimliği ve seri numarası;
-- kayıt bilgisayarı kimliği;
-- ZED model, firmware ve SDK sürümü;
-- çözünürlük, hedef FPS ve gerçek FPS;
-- sıkıştırma modu;
-- exposure, gain ve white balance;
+- session ve `take_id`;
+- PC-1/PC-2 makine kimliği;
+- mantıksal kamera adı ve otomatik okunan seri numarası;
+- ZED SDK ve firmware sürümü;
+- çözünürlük, hedef FPS ve sıkıştırma;
+- bilgisayar, USB controller/yol ve hedef disk;
 - ilk/son görüntü timestamp'i;
-- başarıyla okunan kare sayısı;
-- timestamp gap listesi;
-- lens ve gerçek intrinsics özeti;
+- raporlanan ve gerçekten okunan kare sayısı;
+- timestamp boşlukları;
+- başlangıç/durdurma komutu ve onay zamanları;
+- ağ saat ölçümleri;
+- görsel senkron olayları, offset ve drift;
 - SVO2 dosya boyutu ve SHA-256;
-- kalibrasyon dosyasının kimliği ve SHA-256;
-- senkronizasyon yöntemi;
-- tripod/kamera hareketi veya çekim notu;
-- ışık ve saha koşulları.
+- kullanılan extrinsic kalibrasyon kimliği ve SHA-256;
+- ışık, kamera hareketi ve operatör notları.
 
 ---
 
-## 9. Kayıt bittikten sonra yapılacaklar
+## 10. Kayıt sonrası zorunlu doğrulama
 
-### 9.1 Dosyayı hemen doğrula
+Her dosya için:
 
-Her SVO2 için:
+1. SVO2'nin ZED SDK ile açıldığını doğrula.
+2. İlk, orta ve son kareyi gerçekten oku.
+3. Dosyayı baştan sona tara.
+4. Başarıyla okunan kare sayısını kaydet.
+5. Timestamp monotonluğunu ve boşluklarını denetle.
+6. Seri numarası ile dosya/kalibrasyon eşlemesini doğrula.
+7. IMU ve sensör metadata'sını kontrol et.
+8. SHA-256 üret.
 
-1. ZED SDK ile dosyanın açıldığını kontrol et.
-2. İlk, orta ve son kareyi oku.
-3. Bütün dosyayı hızlı veya tam taramayla `grab` et.
-4. Raporlanan ve başarıyla okunan kare sayılarını kaydet.
-5. FPS ve görüntü çözünürlüğünü doğrula.
-6. Timestamp'lerin monotonluğunu kontrol et.
-7. Normal kare aralığının 1.5 katını aşan boşlukları raporla.
-8. Kamera seri numarası ile dosya adını karşılaştır.
-9. IMU/sensör metadata'sının bulunup bulunmadığını kaydet.
-10. Dosyanın SHA-256 özetini üret.
+PC-2 dosyası harici SSD ile taşınırken:
 
-İlk gerçek pilotta SDK `667` kare raporladı fakat `666` kare başarıyla
-okundu; üç yerde yaklaşık `33 ms` aralık görüldü. Bu nedenle yalnız dosya
-özelliklerine bakmak yerine gerçek baştan sona tarama zorunludur.
+1. Kaynak SHA-256 alınır.
+2. Dosya ana bilgisayara kopyalanır.
+3. Hedef SHA-256 yeniden alınır.
+4. İki özet eşleşmeden PC-2'deki ham dosya silinmez.
 
-### 9.2 Kopyalama
+Sonra:
 
-- ham kayıt önce kayıt bilgisayarında korunur;
-- harici SSD ile ana bilgisayara kopyalanır;
-- kopya sonrası SHA-256 yeniden hesaplanır;
-- kaynak ve hedef özetleri eşleşmeden kaynak silinmez;
-- mümkünse iki ayrı fiziksel diskte yedek tutulur;
-- ham SVO2 Git'e eklenmez.
-
-### 9.3 Ortak zaman
-
-- LED olaylarını bütün kameralarda tespit et;
-- kamera başına offset ve drift çöz;
-- ortak fiziksel başlangıç/bitiş aralığını belirle;
-- kayıp kareleri zaman çizelgesinde boş bırak;
-- `stride > 1` kullanılsa bile gerçek video süresini koru;
-- senkron kalite raporu üret.
-
-### 9.4 Kalibrasyon doğrulaması
-
-- kalibrasyon hedefinden ayrılmış doğrulama kareleri kullan;
-- kamera başına reprojection dağılımını ölç;
-- bilinen çubuk/mesafe sonuçlarını kontrol et;
-- bir kamera hareket etmişse onu sessizce eski pozla kullanma;
-- yeterli kamera kalıyorsa hatalı kamerayı koşudan çıkar;
-- yeterli kamera kalmıyorsa puan üretme.
-
-### 9.5 TK3D işleme sırası
-
-1. Her kameranın rectified sol RGB görüntüsünü çıkar.
-2. RF-DETR ile kişiyi bul ve kamera içinde kimliği takip et.
-3. ViTPose-Huge WholeBody ile 133 adet 2B nokta üret.
-4. Ham 2B ölçümleri ve skorlarını koru.
-5. Sıfır-fazlı offline 2B stabilizasyon uygula.
-6. ZED NEURAL depth ve confidence haritalarını üret.
-7. Eklemlerin çevresinden kişi-maskeli güvenli depth örnekle.
-8. Bütün 2B gözlemleri ortak zaman çizelgesine getir.
-9. Ortak dünya kalibrasyonuyla robust triangulation yap.
-10. Hedef kamerayı dışarıda bırakan cross-view kontrolü uygula.
-11. ZED depth ile triangulation uzaklığını karşılaştır.
-12. Kemik, eklem limiti, hız, ivme ve reprojection kapılarını uygula.
-13. Ham triangulation'ı koruyarak global optimizasyon yap.
-14. Optimizasyon kaliteyi kötüleştirirse ham sonuca dön.
-15. `[T, 133, 3]` dünya koordinatlı JSON/CSV ve provenance üret.
-16. Dış ground-truth ve puan yetkilendirme kapılarını çalıştır.
-
-Depth veya 3B bulunamayan nokta:
-
-- JSON'da `null`;
-- CSV'de boş hücre
-
-olmalıdır. `NaN` veya `inf` metni downstream çıktıya sızmamalıdır.
+1. ağ saat örneklerinden kaba PC offset/drift çözülür;
+2. başlangıç ve bitiş senkron hareketleri üç kamerada bulunur;
+3. görüntü kanıtıyla nihai offset ve drift çözülür;
+4. kayıp kareler zaman çizelgesinde boş bırakılır;
+5. üç kameranın ortak aralığı belirlenir;
+6. senkron kalite raporu yazılır;
+7. yalnız rapor geçerse çok-kamera 3B işleme başlar.
 
 ---
 
-## 10. ZED depth nasıl kullanılmalı?
+## 11. Ortak dünya kalibrasyonu
 
-ZED depth değerlidir fakat tek ground-truth değildir.
+Her ZED'in fabrika kalibrasyonu yalnız kendi sol/sağ stereo geometrisini verir.
+Üç kameranın odadaki birbirine göre konumu ayrıca ölçülmelidir.
 
-Güvenli kullanım:
+### 11.1 ZED360 kullanılacak mı?
 
-- ViTPose 2B eklemi görüntüden bulur;
-- ZED depth eklemin kamera uzaklığına aday ölçüm verir;
-- confidence haritası düşük kaliteli depth'i eler;
-- kişi-depth öncülü arka plana sıçramayı azaltır;
-- çok-kamera triangulation bağımsız geometri üretir;
-- depth ile triangulation residual'ı kalite kanıtı olur.
+**Evet, kalibrasyon adayı ve canlı tanı aracı olarak kullanılacaktır.**
+ZED360'ın ürettiği kamera pozları bağımsız geometrik doğrulama geçerse TK3D
+üretim kalibrasyonuna dönüştürülebilir.
 
-Örnek:
+ZED360 kalibrasyonu görüntüdeki özel bir tahta yerine, her kameranın ZED Body
+Tracking sonucunu kullanır. Bir kişi kameraların ortak gördüğü alanın tamamında
+yavaşça yürür; araç farklı kameralardaki gövde noktalarını ortak WORLD
+koordinatında hizalar. Kamera rolleri seri numarasıyla tutulur. Çıktıdaki kamera
+dönüşleri ve metre cinsinden konumlar bir JSON yapılandırma dosyasına
+kaydedilir.
+
+Saha kalibrasyon akışı:
+
+1. Üç kamera sabit konumlarına yerleştirilir ve ısıtılır.
+2. Telefon erişim noktası üzerinden PC-1 ve PC-2'nin birbirini gördüğü
+   doğrulanır.
+3. PC-1'deki C01 ve C02 ayrı yayın portlarıyla, PC-2'deki C03 üçüncü portla
+   Fusion publisher olarak çalıştırılır. Bunun için genel ZED video streaming
+   düğmesi değil, Fusion API `startPublishing()` akışı kullanılır.
+4. PC-1'de ZED360/Fusion subscriber çalıştırılır.
+5. İki bilgisayarda aynı ZED SDK sürümü, aynı body formatı, aynı coordinate
+   system/unit ve uyumlu body model ayarları kullanılır.
+6. Üç kamerada aynı anda yalnız bir kişi görünür.
+7. Kişi aktif alanın tamamında, kenarlarda ve merkezde yavaşça yürür.
+8. Ayak bilekleri görünür tutularak zemin düzlemi tahminine yardım edilir.
+9. Gövdeler ZED360 ekranında iyi hizalandığında kalibrasyon JSON'u kaydedilir.
+10. JSON; seri numarası, SDK sürümü, tarih ve dosya SHA-256 değeriyle saklanır.
+11. Kameralar hareket etmedikçe dosya yeniden kullanılabilir; herhangi bir
+    kamera oynarsa kalibrasyon geçersiz olur.
+
+Bu topoloji ZED360'ın en basit yerel akışı değildir. Yerel akışta bütün
+kameralar aynı makine ve aynı işlem içindedir. Bizde iki kamera PC-1'de, üçüncü
+kamera PC-2'dedir. Bu nedenle Fusion'ın `LOCAL_NETWORK` yayın/abone modeli ve
+her kamera için farklı port kullanılacaktır. PC-1'in aynı anda iki publisher
+ve subscriber olması CPU/GPU/USB/ağ yükünü artırır. Telefon erişim noktasında
+bu akış gerçek stres testiyle doğrulanmadan çalışıyor kabul edilmez.
+
+Stereolabs'ın güncel web sayfası ZED360 Network Workflow için ZED Hub
+adımlarını göstermeye devam etse de Stereolabs destek ekibi 28 Nisan 2025'te
+genel ZED Hub–ZED360 akışının deprecated olduğunu bildirmiştir. Bu nedenle:
+
+- yeni bir ZED Hub hesabı/workspace'i üretim bağımlılığı yapılmaz;
+- publisher'lar doğrudan `LOCAL_NETWORK` IP/port yapılandırmasıyla denenir;
+- genel ZED video stream'i ile Fusion publisher birbirine karıştırılmaz;
+- ZED360 UI ağ akışı kullanılan SDK sürümünde ayrıca smoke test edilir;
+- ağ ZED360 çalışmazsa yerel SVO2 kayıt sistemi bundan etkilenmez.
+
+Stereolabs'ın belgelenmiş ağ topolojisi ayrı publisher makineleri ve ayrı bir
+subscriber makinesi varsayar. Bizde üçüncü bilgisayar yoktur. PC-1'in hem iki
+publisher hem subscriber olduğu deney geçmezse zorlanmayacaktır. Yedek sırası:
+
+1. kameraları oynatmadan, USB/controller kapasitesi uygunsa kalibrasyon için
+   üç kamerayı geçici olarak PC-1'de ZED360 Local Workflow ile açmak;
+2. bu mümkün değilse ChArUco/AprilTag ortak dünya kalibrasyonunu ana yöntem
+   yapmak ve ZED360'ı yalnız erişilebilen tanı akışında kullanmak;
+3. Fusion network akışını daha sonra ayrı bir subscriber bilgisayarı veya
+   doğrulanmış yerel ağla tekrar denemek.
+
+ZED360'ın ürettiği dosya doğrudan ve kontrolsüz biçimde TK3D üretim
+kalibrasyonu sayılmaz. İnsan gövdesine dayalı optimizasyon, kapanma veya hatalı
+ZED body noktalarından etkilenebilir.
+
+### 11.2 Fusion API kullanılacak mı?
+
+**Evet, iki amaçla kullanılacaktır:**
+
+1. **Canlı kurulum/sağlık önizlemesi:** Üç kameradaki kişinin aynı ortak dünya
+   konumunda birleşip birleşmediğini görmek; kötü örtüşme, ters kamera yönü
+   veya açık kalibrasyon hatasını sahada fark etmek.
+2. **Karşılaştırma hattı:** Stereolabs'ın fused body sonucunu TK3D'nin
+   ViTPose-Huge WholeBody + robust triangulation sonucuyla aynı çekimde
+   karşılaştırmak.
+
+Fusion sonucu şu aşamada nihai TK3D pozunun yerine geçmez:
+
+- Fusion'ın ZED Body Tracking iskelet sözleşmesi TK3D'nin
+  `keypoints_3d_world[t, 133, 3]` WholeBody sözleşmesiyle aynı değildir.
+- Mevcut TK3D el, yüz ve ayak dâhil 133 görüntü noktasını korumalıdır.
+- Wi-Fi tabanlı canlı Fusion, yerel SVO2 kaydının yerine kullanılmayacaktır.
+- Ağ kesilirse Fusion önizlemesi gidebilir fakat üç yerel SVO2 kaydı sürer.
+- ZED fused body, dış ground-truth değildir ve tek başına puanlama yetkisi
+  vermez.
+
+İlk pilotta üç sonuç ayrı saklanacaktır:
 
 ```text
-triangulation uzaklığı = 3.08 m
-ZED depth             = 3.10 m
-sonuç                 = güçlü uyum
+1. ZED360 kamera pozları ve kalibrasyon kalite görünümü
+2. Fusion API fused body çıktısı
+3. TK3D ViTPose-133 + çok-kamera triangulation çıktısı
 ```
+
+Fusion ile TK3D arasındaki fark; ortak eklemler, zaman, birim ve koordinat
+sistemi eşlendikten sonra ölçülür. Uyuşmaları yararlı çapraz kanıttır;
+uyuşmamaları hangi sistemin doğru olduğunu tek başına göstermez.
+
+### 11.3 Bağımsız kalibrasyon doğrulaması
+
+ZED360'a ek olarak şu doğrulama yapılacaktır:
+
+- büyük, rijit ve ölçüsü doğrulanmış ChArUco/AprilTag hedefi;
+- hedefin üç kamerada mümkün olduğunca birlikte görünmesi;
+- aktif alanın önü, arkası, merkezi, zemine yakın ve göğüs yüksekliğinde
+  örnekler;
+- kalibrasyonda kullanılmayan ayrı doğrulama görüntüleri;
+- ölçüsü bilinen rijit çubukla bağımsız 3B kontrol.
+
+ZED360 ve hedef tabanlı kalibrasyon iki ayrı aday üretirse körlemesine biri
+seçilmez. Ayrılmış doğrulama karelerinde reprojection, ölçülü çubuk 3B hatası
+ve alan boyunca tutarlılık karşılaştırılır. Üretim kalibrasyonu yalnız bu
+kapıları geçen aday olur; yöntem ve provenance manifestte yazılır.
+
+Kalibrasyon şu durumlarda geçersiz olur:
+
+- tripod/kamera oynadı;
+- kamera başka fiziksel konuma taşındı;
+- kamera değiştirildi;
+- çözünürlük/rectification sözleşmesi değişti;
+- günlük reprojection ve ölçülü çubuk doğrulaması geçmedi.
+
+Seri numarası doğru olsa bile kamera taşındıysa eski extrinsic kullanılmaz.
+
+---
+
+## 12. TK3D işleme hattı
 
 ```text
-triangulation uzaklığı = 3.08 m
-ZED depth             = 7.60 m
-sonuç                 = muhtemel arka plan; depth reddedilir
+3 yerel SVO2
+  -> dosya ve seri numarası doğrulaması
+  -> timestamp + ağ ölçümü + görsel hareketle ortak zaman
+  -> ortak dünya kalibrasyonu doğrulaması
+  -> rectified sol RGB çıkarımı
+  -> RF-DETR kişi tespiti + ByteTrack
+  -> ViTPose-Huge WholeBody, 133 adet 2B nokta
+  -> ham 2B ölçümlerin korunması
+  -> offline 2B stabilizasyon
+  -> ZED depth + confidence + kişi maskesi
+  -> üç kameralı robust triangulation
+  -> reprojection/depth/anatomi/zaman kalite kapıları
+  -> ham triangulation korunarak güvenli optimizasyon
+  -> [T, 133, 3] metre, ortak dünya koordinatı
+  -> dış ground-truth doğrulaması varsa puanlama yetkisi
 ```
 
-İlk tam tek-kamera koşumuzda:
+Üç kameralı düzende bir eklem için:
 
-- BODY-17 güvenilir son 3B oranı `%95.3983`;
-- WHOLEBODY-133 güvenilir son oran `%96.1245`;
-- el depth oranı `%89.5369`;
-- kişi medyan uzaklığı `3.0879 m`
+- üç bağımsız görüntü desteği: tercih edilen;
+- iki güvenilir kamera: temel triangulation yapılabilir;
+- tek kamera: ortak dünya triangulation değildir; ZED depth yalnız açıkça
+  işaretli RGB-D fallback/önizleme olabilir;
+- görüntü kanıtı yok: nokta eksik bırakılır.
 
-oldu. Bu sonuç ZED depth'in güçlü olduğunu gösterir; yüz/el ve siluet
-kenarlarında çok-kamera doğrulamasının hâlâ gerekli olduğunu da gösterir.
-
----
-
-## 11. IMU ve diğer ZED verileri nasıl kullanılmalı?
-
-Sabit kamera sisteminde IMU doğrudan eklem koordinatı üretmek için ana kaynak
-değildir. Şu amaçlarla etkilidir:
-
-- tripodun çekim sırasında titrediğini tespit etme;
-- kameraya çarpıldığını veya yönünün değiştiğini belirleme;
-- kalibrasyon geçerliliğini kapatma;
-- ZED360 ilk pitch/roll tahminine yardım;
-- görüntü ve sensör timestamp tutarlılığını kontrol etme.
-
-Kullanılabilecek sağlık sinyalleri:
-
-- IMU ani açı/hız değişimi;
-- kamera sıcaklığı;
-- USB bağlantı hataları;
-- frame gap sayısı;
-- exposure/gain değişimi;
-- depth confidence dağılımı;
-- kamera başına reprojection residual'ı.
-
-Kamera sabitken IMU büyük hareket bildirirse o aralık otomatik işaretlenmeli ve
-kalibrasyon yeniden doğrulanmalıdır.
+Eksik değer JSON'da `null`, CSV'de boş hücre olmalıdır. `NaN` veya `inf`
+downstream çıktıya yazılmaz.
 
 ---
 
-## 12. Sık karşılaşılacak sorunlar
+## 13. Devreye alma yol haritası
 
-| Sorun | Belirti | Yapılacak |
-|---|---|---|
-| USB bant genişliği | Yeşil/mor kare, tearing, kopma | Farklı controller/PC, PCIe USB kartı |
-| Disk yavaş/dolu | Kayıt durur veya timestamp boşlukları | Yerel SSD, önceden stres testi |
-| NVENC sınırı | İkinci kayıt açılamaz | Sıkıştırmayı/topolojiyi değiştir |
-| Saat drift'i | Başta iyi, sonda kötü triangulation | Başlangıç+ara+bitiş LED olayları |
-| Kamera oynadı | Bölgesel reprojection artar | Kalibrasyonu geçersiz say ve yenile |
-| Motion blur | ViTPose eklemleri kayar | Daha kısa pozlama ve daha güçlü ışık |
-| Işık flicker'ı | Kareler arası parlaklık bantları | Flicker uyumlu aydınlatma/pozlama |
-| Arka plan depth'i | El/bilek metrelerce sıçrar | Kişi maskesi, confidence, multiview residual |
-| Örtüşme az | Kamera grafiği parçalanır | Yerleşimi değiştir, ortak hedef görünümü artır |
-| Küçük kalibrasyon hedefi | Uzak bölgede hassasiyet düşer | Büyük, rijit ve ölçülü hedef |
-| Parlak zemin | Ayak depth'i bozulur | Mat zemin/kaplama ve çapraz görünüş |
-| Isınma | İlk dakikalarda kalibrasyon değişir | 10–15 dakika warm-up |
-| Otomatik exposure | Kameralar farklı görünür | Kontrollü ışıkta doğrulanmış ayar kilidi |
-| Kişi kimliği karışması | Kameralar farklı kişiyi eşler | Tek kişi pilotu, sonra cross-camera ID doğrulaması |
-| Dosya adı karışması | Yanlış extrinsic kullanılır | Seri numarası ve SHA-256 fail-closed eşleme |
-| SVO düzenleme | Timestamp/metadata kaybolur | Ham SVO2'yi değiştirme, mantıksal trim kullan |
-| Ağ kopması | Merkezi önizleme gider | Asıl kaydı her zaman yerel SSD'ye yaz |
-| Güç kesintisi | Eksik/bozuk dosya | UPS, kablo sabitleme, çekim sonrası tam tarama |
+### Faz 0 — donanım envanteri
 
----
+- üç seri numarasını yazılım aracılığıyla otomatik al;
+- C01/C02/C03 fiziksel etiketlerini yapıştır;
+- PC-1'deki iki USB yolunu belirle;
+- SDK, firmware, disk ve encoder bilgisini kaydet;
+- erişim noktası ve güvenlik duvarı bağlantı testini yap.
 
-## 13. Aşamalı devreye alma planı
+Çıkış kapısı: üç kamera doğru seri numarasıyla ayrı ayrı açılıyor.
 
-### Faz 1 — Tek kamera
+### Faz 1 — PC-1 çift kamera stres testi
 
-Tamamlanan pilot:
+- C01+C02 ile en az 30 dakika `HD720/60 SVO2`;
+- bütün dosyayı tarama;
+- kare boşluğu, bozuk kare, USB kopması, disk ve encoder raporu;
+- gerekirse USB controller dağılımını değiştir.
 
-- ZED 2i SVO2 açıldı;
-- 666 kare/60 FPS işlendi;
-- ViTPose 133 nokta üretildi;
-- ZED NEURAL depth bağlandı;
-- kamera-koordinatlı 3B video/JSON/CSV oluşturuldu.
+Çıkış kapısı: iki kamera aynı anda kararlı kayıt yapıyor.
 
-Eksik:
+### Faz 2 — dağıtık kayıt kontrolü
 
-- 15–30 dakikalık uzun kayıt stres testi;
-- birden fazla ışık/hız/kıyafet testi;
-- NEURAL ile NEURAL_PLUS kontrollü karşılaştırması.
+- PC-1 koordinatör ve PC-2 worker uygulaması;
+- `ARM/START/STOP/status` protokolü;
+- ağ kopunca kayda devam;
+- ortak `take_id`;
+- güvenli dosya kapatma;
+- manuel yedek akış testi.
 
-### Faz 2 — İki kamera
+Çıkış kapısı: otomatik ve manuel akışta üç sağlam SVO2 oluşuyor.
 
-- aynı bilgisayarda iki ZED USB/disk stres testi;
-- farklı bilgisayarlarda ağsız LED senkron testi;
-- ChArUco ile ortak dünya kalibrasyonu;
-- ölçülü rijit çubukla ilk 3B hata ölçümü.
+### Faz 3 — zaman senkronizasyonu
 
-İki kamera puanlama için değil, altyapı doğrulaması içindir.
+- ağ saat örneklerinin kaydı;
+- başlangıç/ara/bitiş senkron hareketleri;
+- otomatik olay algılama;
+- kamera çiftleri offset ve drift raporu;
+- bilerek gecikmeli başlatma ve Wi-Fi koparma testi.
 
-### Faz 3 — Dört kamera
+Çıkış kapısı: başlangıç düğmesine farklı zamanlarda basılsa bile ortak zaman
+çizelgesi tekrar üretilebiliyor ve residual hedefi geçiyor.
 
-- alanın dört yönünde örtüşme;
-- senkron drift çözümü;
-- robust triangulation ve kamera aykırı testi;
-- kamera çıkarma/bozma testleri;
-- uzun hareket kaydı.
+### Faz 4 — ortak dünya kalibrasyonu
 
-### Faz 4 — Altı kamera
+- ZED Hub olmadan doğrudan IP/port `startPublishing()` smoke testi;
+- aynı SDK/body format/coordinate system kontrolü;
+- üç publisher + PC-1 Fusion subscriber yük ve ağ testi;
+- ZED360 ile yavaş yürüyüş tabanlı ilk kamera pozları;
+- ZED360 kalibrasyon JSON'unun seri numarasıyla saklanması;
+- büyük rijit hedef;
+- alanın tamamında görüntü toplama;
+- ZED360 ve hedef tabanlı kamera pozlarının karşılaştırılması;
+- ayrılmış karelerde reprojection;
+- ölçülü rijit çubukla 3B doğrulama.
 
-- mevcut cross-view güvenlik hattının tam kullanımı;
-- yüksek/çapraz kameralarla el ve ayak kapanma testi;
-- aynı hareketin tekrarlanabilirliği;
-- bağımsız ground-truth veya ölçülü hareket referansı.
+Çıkış kapısı: bağımsız doğrulama ölçümleri kabul sınırında.
 
-### Faz 5 — Sekiz/on kamera
+### Faz 5 — ilk üç kameralı hareket pilotu
 
-- yalnız altı kameralı sistemin ölçülmüş açıklarını kapatmak;
-- bir kamera kaybında güvenli devam testi;
-- bilgisayar, disk ve veri taşıma kapasitesi testi;
-- tam poomsae ve uzun süreli saha testi.
+- yavaş hareket;
+- hızlı tekme/dönüş;
+- başlangıç ve bitiş senkron dizileri;
+- Fusion fused body sonucunun ayrı kaydı;
+- 2B, ZED depth ve triangulation karşılaştırması;
+- Fusion ile TK3D'nin ortak eklemlerde karşılaştırılması;
+- kamera başına sağlık ve senkron raporu.
 
-Her faz, önceki fazın kalite raporu geçmeden büyütülmez.
+Çıkış kapısı: aynı zaman, kalibrasyon ve kamera setiyle tekrarlanabilir 3B
+sonuç.
 
----
+### Faz 6 — uzun saha testi
 
-## 14. Puanlamayı açmadan önce zorunlu kapılar
+- gerçek hedef süre kadar kesintisiz kayıt;
+- her 5 dakikada ara senkron hareketi;
+- telefon ekranı kapanması;
+- kısa Wi-Fi kesintisi;
+- disk doluluk ve sıcaklık takibi;
+- kayıt sonrası tam SVO2 taraması.
 
-Başlangıç mühendislik hedefleri:
+Çıkış kapısı: ağ hatası yerel kayıt kaybına yol açmıyor; drift ölçülüyor.
 
-- beklenen bütün kamera dosyaları mevcut;
-- seri numarası ve kalibrasyon eşleşiyor;
-- dosyaların SHA-256 bütünlüğü geçiyor;
-- timestamp ve LED senkron raporu geçiyor;
-- medyan reprojection `<1 px`, p95 `<2 px` hedefi;
-- BODY-17 geçerli oranı `>%95`;
-- kritik eklemde yeterli bağımsız kamera kanıtı;
-- ham ve optimize 3B ayrı saklanıyor;
-- optimizasyon rollback testi geçiyor;
-- tek kamera çıkarıldığında sonuç kabul sınırında kalıyor;
-- JSON/CSV sözleşmesi `[T, 133, 3]`, metre ve ortak dünya;
-- dış 3B ground-truth değerlendirmesi geçiyor;
-- skor tekrar edilebilirliği ve uzman/hakem değerlendirmesi geçiyor.
+### Faz 7 — puanlama öncesi dış doğrulama
 
-Sistem şu durumlarda puan üretmemelidir:
+- ölçülü veya bağımsız 3B ground-truth;
+- BODY-17 geçerli oranı;
+- reprojection dağılımı;
+- kamera kanıtı;
+- temporal/açı jitter;
+- kamera çıkarma testi;
+- tekrar çekim tutarlılığı.
 
-- kalibrasyon yaklaşık veya seri numarasıyla eşleşmiyor;
-- senkron residual kalite kapısını geçmiyor;
-- kamera sayısı veya bağımsız görüntü kanıtı yetersiz;
-- kritik eklemler uzun süre kapanmış;
-- kamera hareketi/IMU alarmı var;
-- ölçüm yalnız ZED depth veya yalnız 3B izdüşümden geliyor;
-- dış doğrulama yetkisi yok.
-
-İç reprojection değerlerinin iyi olması ground-truth doğruluğunu tek başına
-kanıtlamaz.
+İç geometri kapısının geçmesi tek başına resmî puanlama doğruluğu değildir.
 
 ---
 
-## 15. Satın alınması veya hazırlanması faydalı parçalar
+## 14. Kabul edilmeyecek kısa yollar
 
-Zorunlu/öncelikli:
-
-- sağlam ve kilitlenebilir tripod veya duvar/tavan aparatı;
-- her kamera ve kablo için fiziksel kimlik etiketi;
-- yeterli yerel SSD kapasitesi;
-- kaliteli ZED uyumlu USB 3 kabloları;
-- kablo sabitleme ve güvenli güç dağıtımı;
-- büyük, rijit ChArUco/AprilTag kalibrasyon levhası;
-- merkezi LED senkron işareti;
-- mezura/lazer mesafe ölçer ve su terazisi;
-- harici veri taşıma SSD'si;
-- mümkünse UPS.
-
-Topolojiye göre:
-
-- bağımsız kanallı PCIe USB 3 kartları;
-- ek kayıt bilgisayarları;
-- özel yerel switch ve kablolu ağ;
-- PTP destekli ağ kartları;
-- homojen, flicker üretmeyen saha aydınlatması.
-
-Ucuz bir özel Ethernet switch merkezi kontrolü kolaylaştırır, ancak USB ZED
-2i'lere donanımsal kamera trigger özelliği kazandırmaz. Görsel senkron işareti
-yine doğrulama amacıyla tutulmalıdır.
+- İki bilgisayarda aynı anda düğmeye basmayı hassas senkron saymak.
+- Yalnız Windows saatlerinin aynı görünmesine güvenmek.
+- Eduroam komut zamanını kamera pozlama zamanı saymak.
+- Ağ kesildiğinde yerel kaydı durdurmak.
+- SVO2'yi doğrudan Wi-Fi ağ diskine yazmak.
+- Kamera indeksini seri numarası yerine kalıcı kimlik saymak.
+- Kayıp kareleri çoğaltarak veya zaman çizelgesini sıkıştırarak gizlemek.
+- Üç kameralı sonucu mevcut beş-kamera cross-view güvenlik tasarımıyla eşdeğer
+  göstermek.
+- ZED depth'i bağımsız ground-truth saymak.
+- Kalibrasyon hedefi olmadan yaklaşık kamera konumlarını üretim extrinsic'i
+  olarak kullanmak.
 
 ---
 
-## 16. Günlük saha kontrol listesi
+## 15. Günlük kısa kontrol listesi
 
 ### Kurulum
 
-- [ ] Kamera sayısı ve `C01–C10` etiketleri doğru.
-- [ ] Seri numarası eşlemeleri doğru.
-- [ ] Tripod/zemin işaretleri eşleşiyor.
-- [ ] Lensler temiz.
-- [ ] USB ve güç kabloları sabit.
-- [ ] Aktif alan tüm kritik kameralarda görünür.
-- [ ] LED senkron işareti tüm kameralarda görünür.
-- [ ] SSD boş alanı yeterli.
-- [ ] Kamera ve ışık warm-up tamamlandı.
-
-### Kalite
-
-- [ ] Exposure, gain ve white balance kontrol edildi.
-- [ ] Hızlı harekette blur kabul edilebilir.
-- [ ] Günlük kalibrasyon doğrulaması geçti.
-- [ ] Kamera hareketi/IMU alarmı yok.
-- [ ] İki kameralı bilgisayarlarda USB sağlık testi geçti.
+- [ ] PC-1: C01+C02, PC-2: C03 bağlı.
+- [ ] Üç seri numarası beklenen C01/C02/C03 rolleriyle eşleşiyor.
+- [ ] USB bağlantıları ve PC-1 çift kamera testi geçerli.
+- [ ] Telefon/PC erişim noktası çalışıyor veya manuel akış hazır.
+- [ ] Üç kamera aktif alanı ve senkron hareketini görüyor.
+- [ ] Tripod ve zemin işaretleri eşleşiyor.
+- [ ] SSD alanı hedef çekim süresi için yeterli.
+- [ ] Kamera ve ışık ısınması tamamlandı.
 
 ### Kayıt
 
-- [ ] Ortak `take_id` belirlendi.
-- [ ] Bütün kayıtların gerçekten ilerlediği görüldü.
-- [ ] Başlangıç LED dizisi kaydedildi.
-- [ ] Gerekli ara LED dizileri kaydedildi.
-- [ ] Bitiş LED dizisi kaydedildi.
-- [ ] Kayıtlar güvenli biçimde kapatıldı.
+- [ ] Benzersiz `take_id` oluşturuldu.
+- [ ] Üç kamera `RECORDING`.
+- [ ] Üç dosya büyüyor ve kare sayacı ilerliyor.
+- [ ] En az 10 saniye ön kayıt var.
+- [ ] Başlangıç senkron hareketi kaydedildi.
+- [ ] Uzun çekimde ara olaylar kaydedildi.
+- [ ] Bitiş senkron hareketi kaydedildi.
+- [ ] En az 10 saniye son kayıt var.
+- [ ] Üç dosya güvenli kapandı.
 
 ### Kayıt sonrası
 
-- [ ] Her SVO2 baştan sona açıldı.
-- [ ] Kare/FPS/çözünürlük/timestamp raporu üretildi.
-- [ ] SHA-256 alındı.
-- [ ] Ana bilgisayara kopya doğrulandı.
-- [ ] Ham kaynak silinmedi.
-- [ ] Senkron ve kalibrasyon raporları geçti.
-- [ ] Koşu benzersiz `run_id` altında işlendi.
+- [ ] Üç SVO2 baştan sona tarandı.
+- [ ] Kare/timestamp gap raporu üretildi.
+- [ ] SHA-256 değerleri alındı.
+- [ ] C03 kopyası doğrulandı.
+- [ ] Görsel senkron offset/drift raporu geçti.
+- [ ] Ortak dünya kalibrasyonu geçti.
+- [ ] Ham SVO2 ve ham triangulation korundu.
+- [ ] Çıktı benzersiz `outputs/<session_id>/runs/<run_id>/` altında.
 
 ---
 
-## 17. Mevcut TK3D durumu ve geliştirilmesi gereken parçalar
+## 16. İlk uygulanacak net deney
 
-Bugün doğrulanmış olan:
+İlk gün tam poomsae çekimine geçmeden şu 20–30 dakikalık pilot yapılmalıdır:
 
-- tek ZED 2i SVO2 okuma;
-- gerçek 60 FPS zaman çizelgesi;
-- RF-DETR + ViTPose-Huge WholeBody;
-- ZED NEURAL depth ve confidence;
-- kamera-koordinatlı `[666, 133, 3]` çıktı;
-- güvenilirlik filtresi, smoothing ve 3B görselleştirme;
-- mevcut çok-kamera RGB triangulation/optimization altyapısı.
+1. PC-1'e C01+C02, PC-2'ye C03 bağla.
+2. İki bilgisayarı telefon erişim noktasına bağla.
+3. Üç seri numarasını otomatik okut.
+4. Üç Fusion publisher'ı `startPublishing()` ile farklı portlarda dene.
+5. PC-1 ZED360'ın üç kaynağı görüp görmediğini ve hızı kontrol et.
+6. Ağ pilotu geçerse yavaş yürüyüş kalibrasyonu yapıp JSON'u kaydet.
+7. Ağ pilotu geçmezse bunu not et; yerel SVO2 kaydını iptal etme.
+8. Üç kamerayı `HD720/60` SVO2 kayda al.
+9. 10 saniye bekle.
+10. Aktif alan merkezinde başlangıç senkron hareketini üç kez yap.
+11. Büyük ChArUco/AprilTag hedefini alan boyunca gezdir.
+12. Ölçüsü bilinen rijit çubuğu farklı yönlerde hareket ettir.
+13. Yavaş, sonra hızlı bir tekme ve dönüş yap.
+14. Bitiş senkron hareketini üç kez yap.
+15. 10 saniye bekle ve kayıtları durdur.
+16. Üç dosyayı baştan sona doğrula.
+17. C03'ü SHA-256 kontrollü kopyala.
+18. Offset, drift, reprojection ve ölçülü çubuk hata raporlarını üret.
+19. ZED360 ve hedef tabanlı kamera pozlarını bağımsız ölçümlerde karşılaştır.
 
-Henüz kalıcı olarak geliştirilmesi gereken:
-
-1. çoklu SVO2 take manifesti ve kamera seri numarası doğrulaması;
-2. ağsız LED olay algılayıcı ve offset/drift çözücüsü;
-3. offline ChArUco/AprilTag extrinsic kalibrasyon aracı;
-4. SVO2 sol RGB/depth/confidence/IMU giriş adaptörü;
-5. ZED depth residual'ını çok-kamera triangulation'a güvenli bağlama;
-6. kamera hareketi ve kayıt sağlığı raporu;
-7. çok-kamera gerçek ZED smoke/stres testleri;
-8. bağımsız 3B ground-truth ve puanlama yetkilendirmesi.
-
-Bu parçalar tamamlanmadan “kameraları bağladık, sistem puanlamaya hazır”
-denmemelidir.
-
----
-
-## 18. İlk gerçek çok-kamera denemesi için önerilen net plan
-
-İlk adımda on kamerayı aynı anda kurma. Şu deneyi yap:
-
-1. İki ZED 2i seç.
-2. Mümkünse farklı bilgisayarlara bağla.
-3. Her bilgisayarda yerel SSD'ye `HD720/60 SVO2` kaydet.
-4. Ortak LED'i başta, ortada ve sonda göster.
-5. Büyük ChArUco hedefini ortak görüşte ve alan boyunca gezdir.
-6. Ölçüsü bilinen rijit bir çubuğu farklı yönlerde hareket ettir.
-7. Kısa, hızlı bir tekvando hareketi kaydet.
-8. Dosyaları SHA-256 ile ana bilgisayara taşı.
-9. Timestamp offset/drift ve extrinsic kalibrasyonu çöz.
-10. İki-kamera 3B ile ZED depth'i karşılaştır.
-11. Sonuç raporu geçerse dört, ardından altı kameraya çık.
-
-Bu iki-kamera deneyi şu sorulara ölçülü cevap verir:
-
-- bilgisayarlar kare kaybediyor mu;
-- LED ile zaman drift'i çözülebiliyor mu;
-- kalibrasyon hedefi yeterince büyük mü;
-- oda ve kamera açıları uygun mu;
-- ZED depth ile çok-kamera geometri ne kadar uyuşuyor;
-- gerçek depolama ihtiyacı ne kadar;
-- kaç bilgisayara gerçekten ihtiyaç var.
+Bu pilot geçmeden uzun veya önemli çekime başlanmamalıdır.
 
 ---
 
-## 19. Resmî kaynaklar
+## 17. Resmî teknik dayanaklar
 
-- [ZED çoklu kamera kurulumu ve USB zaman senkronizasyonu](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/multi-camera)
-- [ZED SVO/SVO2 kayıt sistemi](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/recording)
-- [ZED kamera fabrika kalibrasyonu](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration)
-- [ZED360 çok-kamera kalibrasyonu](https://docs.stereolabs.com/docs/development/zed-tools/zed-360)
-- [ZED Fusion API](https://docs.stereolabs.com/docs/development/zed-sdk/modules/fusion)
-- [ZED depth ayarları ve confidence filtreleme](https://docs.stereolabs.com/docs/development/zed-sdk/modules/depth-sensing/depth-settings)
-- [ZED depth modları](https://docs.stereolabs.com/docs/development/zed-sdk/modules/depth-sensing/depth-modes)
+- [Stereolabs — çoklu kamera kurulumu ve USB zaman hizalama](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/multi-camera)
+- [Stereolabs — SVO/SVO2 kayıt ve çoklu kamera kaydı](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/recording)
+- [Stereolabs — ZED Studio yerel/ağ stream kaydı](https://docs.stereolabs.com/docs/development/zed-tools/zed-studio)
+- [Stereolabs — sensör zaman damgaları](https://docs.stereolabs.com/docs/development/zed-sdk/modules/sensors/time-synchronization)
+- [Stereolabs — timestamp tabanlı senkron penceresi ve veri kaybı](https://docs.stereolabs.com/docs/development/zed-sdk/modules/global-localization/data-synchronization)
+- [Stereolabs — seri numarasına bağlı kamera kalibrasyonu](https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration)
+- [Stereolabs — ZED360 çoklu kamera kalibrasyonu](https://docs.stereolabs.com/docs/development/zed-tools/zed-360)
+- [Stereolabs — Fusion API ve yapılandırma dosyaları](https://docs.stereolabs.com/docs/development/zed-sdk/modules/fusion)
+- [Stereolabs Support — genel ZED Hub–ZED360 akışının deprecated durumu](https://community.stereolabs.com/t/zed360-with-zed-hub/8670)
 
-Repository içindeki daha teknik mimari ayrıntılar:
+Repository içindeki ilgili belgeler:
 
+- `PROJECT_STATUS.md`
 - `docs/ZED2I_OFFLINE_MULTICAMERA_PLAN.md`
 - `docs/ARCHITECTURE_DECISIONS.md`
-- `PROJECT_STATUS.md`

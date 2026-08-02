@@ -31,6 +31,10 @@ __all__ = [
     "run_outputs",
     "ground_truth_io",
     "ground_truth_validation",
+    "scoring_authorization",
     "mads_dataset",
     "pose_reliability",
+    "zed_svo",
+    "zed_depth_fusion",
+    "quality_status",
 ]

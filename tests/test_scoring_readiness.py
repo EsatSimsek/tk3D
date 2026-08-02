@@ -3,7 +3,13 @@ from __future__ import annotations
 import numpy as np
 
 from src.biomechanics_3d import center_of_mass_proxy
-from src.scoring_readiness import biomechanics_timeseries, build_scoring_readiness, movement_segments, torso_lean_deg
+from src.scoring_readiness import (
+    adaptive_motion_threshold,
+    biomechanics_timeseries,
+    build_scoring_readiness,
+    movement_segments,
+    torso_lean_deg,
+)
 
 
 def _body_frame(offset: float = 0.0) -> np.ndarray:
@@ -56,6 +62,15 @@ def test_movement_segments_returns_candidates() -> None:
 
     assert rows[0]["label"] in {"motion_candidate", "pending_motion"}
     assert "status" in rows[0]
+
+
+def test_adaptive_motion_threshold_is_capped_for_continuous_motion() -> None:
+    energy = np.linspace(0.05, 1.0, 741)
+
+    threshold = adaptive_motion_threshold(energy)
+
+    assert threshold <= np.percentile(energy, 75)
+    assert np.count_nonzero(energy >= threshold) >= 0.25 * energy.size
 
 
 def test_center_of_mass_proxy_handles_all_nan_selection() -> None:

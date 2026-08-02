@@ -4,6 +4,12 @@ TK3D'nin asıl amacı, tekvando poomsae videolarını teknik olarak analiz edip 
 
 Bu repository şu anda nihai puanlama motoruna giden ara katmanı kurar: çok kameralı poomsae videolarından kalibrasyonlu 3D insan pozu/iskeleti üretmek, bu çıktıyı kalite kontrolünden geçirmek, hareket segmentlerine hazırlamak ve puanlama algoritmasının kullanacağı veri sözleşmesini oluşturmak.
 
+Yeni bir AI/kodlama oturumu için önce [AGENTS.md](AGENTS.md) ve
+[PROJECT_STATUS.md](PROJECT_STATUS.md) okunmalıdır. Uygulama/test sırası
+[mühendislik iş akışında](docs/ENGINEERING_WORKFLOW.md), korunması gereken
+kararlar [mimari karar kaydında](docs/ARCHITECTURE_DECISIONS.md), veri setine
+özel ayrıntılar ise [veri seti notlarında](docs/DATASET_NOTES.md) tutulur.
+
 ## AI Aracı İçin Hızlı Bağlam
 
 Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
@@ -14,9 +20,10 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları -> açıklanabilir geçici teknik skor.
 - Geçici skor resmi hakem puanı değildir. Sıradaki alan işi, gerçek poomsae kayıtlarında phase/step etiketleri ve onaylı teknik hedefler oluşturmaktır.
 - AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
-- MADS Karate/Tai-chi verisi kalibre üç kamera ve motion-capture ground truth ile 3B doğruluk benchmark'ı olarak kullanılıyor; F2 dizisi model uyarlamasından tamamen ayrı testtir.
+- MADS Karate/Tai-chi verisi, kalibre üç RGB kamera ve motion-capture ground truth kullanan tarihsel RGB-only dış benchmark'tır; F2 dizisi model uyarlamasından tamamen ayrı testtir ve sonuçları başka koşulara devredilmez.
 - Üretim 2B hattı RF-DETR kişi tespiti, ByteTrack kimlik takibi, adaptif kişi-kutusu stabilizasyonu, ViTPose flip-test ve zamansal eklem filtresi kullanır.
-- Son 300 örnekli MADS F2 kör testinde iç geometri kapısı geçti; global MPJPE `90,409 mm` olduğu için `50 mm` ground-truth hedefi ve resmî puanlama kapısı geçmedi.
+- ZED SVO/SVO2 oturumlarında NEURAL stereo depth ve confidence, RGB çok-kamera triangulation'ı ana kanıt olarak koruyan güven kapılı yardımcı BODY-17 ölçümüdür; aynı koşudaki saf RGB referans dalı kötüleşirse depth adayı otomatik reddedilir.
+- 27 Temmuz 2026 tarihli 300 örnekli MADS F2 RGB-only kör testinde iç geometri geçti, global MPJPE `90,409 mm` ile `50 mm` hedefi geçmedi. Bu tarihsel sonuç güncel ZED RGBD koşusunun doğruluğu değildir ve ona uygulanmaz.
 - Kendi poomsae videoları geldiğinde ortak checkerboard kalibrasyonu yapılmalı; çok kişili çekimlerde kimlik eşleme, poomsae adım etiketleri ve hakem/koç onaylı puan hedefleri eklenmelidir.
 
 Ana ara hedef veri:
@@ -32,6 +39,7 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - RF-DETR + ByteTrack ile kamera başına kalıcı sporcu kimliği ve adaptif bounding-box stabilizasyonu
 - ViTPose flip-test, güven ağırlıklı zamansal filtre ve dönüşlerde anatomik sağ/sol kimlik koruması
 - Kalibrasyonlu multi-view triangulation
+- ZED stereo depth/confidence ile yüzey-eklem ofsetli yardımcı BODY-17 fusion ve saf RGB referansa güvenli fallback
 - Kamera FPS'i ile saniye/frame offsetlerini dikkate alan ortak zaman çizelgesi senkronizasyonu
 - Görüş aykırılıklarını eleyen sağlam triangulation, pozitif derinlik/açı kontrolleri ve robust reprojection optimizasyonu
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
@@ -52,10 +60,10 @@ yeniden üretmek için kodu klonladıktan sonra aşağıdaki varlıklar resmî k
 | Bileşen | Ne için gerekli? | Durum |
 | --- | --- | --- |
 | Python 3.12 ve `requirements.txt` | Sentetik dry-run ve model gerektirmeyen çekirdek işlemler | Zorunlu başlangıç |
-| `requirements-pose.txt` içindeki PyTorch, RF-DETR ve Supervision ortamı | 91 otomatik testin tamamı ve gerçek inference | Tam doğrulama için zorunlu |
+| `requirements-pose.txt` içindeki PyTorch, RF-DETR ve Supervision ortamı | Otomatik testlerin tamamı ve gerçek inference | Tam doğrulama için zorunlu |
 | NVIDIA GPU, ViTPose kaynak kodu ve WholeBody ağırlığı | Gerçek videodan 2B/3B iskelet üretimi | Gerçek inference için zorunlu |
-| MADS multi-view | Kalibre üç kamera ve mocap ground-truth ile ana 3B benchmark | Güvenilirlik testi için zorunlu |
-| MADS depth | İleride stereo-depth füzyonu ve depth GT incelemesi | Mevcut RGB benchmark için opsiyonel |
+| MADS multi-view | Bağlı RGB-only profil için kalibre üç kamera ve mocap ground-truth benchmark'ı | Tarihsel RGB hattını doğrulamak için; ZED RGBD'ye doğrudan uygulanmaz |
+| MADS depth | ZED depth-fusion hattının bağımsız RGB-D benchmark uyarlaması | Mevcut ZED inference için gereksiz; dış depth doğrulaması için opsiyonel |
 | AIST videoları ve AIST++ kamera verisi | Eski dans smoke/regresyon testi | Opsiyonel |
 | SMPL model dosyası | Gerçekçi insan mesh'i çizmek | Opsiyonel; iskelet ve puanlama onsuz çalışır |
 
@@ -159,7 +167,7 @@ OneDrive birkaç KB/MB boyutunda HTML dosyası kaydettiyse bu checkpoint değild
 
 ### 4. MADS veri setini indir, çıkar ve hazırla
 
-MADS ana güvenilirlik benchmark'ıdır. Proje veri setini yeniden dağıtmaz; resmî sayfadan indirin:
+MADS, bağlı olduğu RGB-only koşu/profil için tarihsel dış doğruluk benchmark'ıdır. Güncel ZED RGBD sonucuna otomatik uygulanmaz; proje veri setini yeniden dağıtmaz, resmî sayfadan indirin:
 
 - https://visal.cs.cityu.edu.hk/downloads/
 - Sayfada `Human Pose Datasets -> MADS -> download here`
@@ -314,10 +322,10 @@ Codex/sandbox ortamında pytest temp izni sorun çıkarırsa:
 python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 ```
 
-Beklenen test sonucu:
+Bu bölüm yazıldığında doğrulanan test sonucu:
 
 ```text
-91 passed
+140 passed
 ```
 
 `--dry-run`, sentetik dünya koordinatlarını üç kameraya projekte edip gerçek triangulation kodundan geçirir. Çıktısı:
@@ -426,6 +434,40 @@ AIST++ API bu projede `external/aistplusplus_api` altına kurulur ve Git'e eklen
 
 ## Kalibrasyon
 
+### ZED SVO2 + ZED Fusion kalibrasyonu
+
+ZED 2i kayıtları için `scripts\prepare_zed_multiview_session.py`, iki veya daha
+fazla SVO/SVO2 dosyasını donanım zaman damgalarıyla ortak zaman çizelgesine
+eşler, sol rektifiye görüntüyü çıkarır ve ZED Fusion/ZED360 kalibrasyonunu TK3D
+projeksiyon sözleşmesine dönüştürür. En yüksek inference kalitesi için varsayılan
+`FFV1` çıktısı kayıpsızdır. Komut ZED SDK ile aynı sürümdeki `pyzed` Python
+modülünü gerektirir.
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\prepare_zed_multiview_session.py `
+  --session-id poomsae_take_001 `
+  --task-name poomsae_1 `
+  --fusion-config C:\take01\cal.json `
+  --svo C:\take01\cam01.svo2 C:\take01\cam02.svo2
+
+.\.venv312\Scripts\python.exe scripts\run_vitpose_multiview_3d.py `
+  --session outputs\poomsae_take_001\source\session.yaml `
+  --stride 1 `
+  --run-id poomsae-take-001-ultra
+```
+
+Üçüncü kamera için aynı hazırlama komutunun `--svo` listesine üçüncü dosya
+eklenir; Fusion JSON dosyasında bu kameranın aynı ortak dünya pozunun bulunması
+zorunludur. Hazırlayıcı var olan oturumun üzerine yazmaz. SVO zaman boşlukları,
+yeniden kullanılan/atlanmış kaynak kareler, SHA-256 kimlikleri ve senkron artık
+hataları `outputs/<session_id>/source/reports/` altında korunur.
+
+ZED Fusion pozları `x=sağ, y=ileri, z=yukarı` ve metre olarak alınır; kamera
+ekseni ayrıca OpenCV'nin `x=sağ, y=aşağı, z=ileri` optik projeksiyon eksenine
+dönüştürülür. Bu optik-baz dönüşümü olmadan düşük/yanıltıcı 3B geçerlilik
+oluşabileceği için `zed_fusion_multiview` kalibrasyonu yalnız hazırlayıcı
+tarafından üretilen şemayla kabul edilir.
+
 ```powershell
 python scripts\calibrate_cameras.py --session data\session_001\session.yaml
 ```
@@ -461,8 +503,11 @@ ViTPose multi-view pipeline:
 - Üretim kalibrasyonu yoksa veya ortak dünya extrinsic bilgisi doğrulanmamışsa güvenli biçimde durur. Yaklaşık iki-kamera kalibrasyonu yalnızca açık `--allow-approximate-calibration` seçeneğiyle diagnostik preview için kullanılabilir.
 - Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
 - Her canlı çalışma `outputs/<session_id>/runs/<run_id>/` altında izole edilir; yalnızca kalite kapısını geçen çalışma `latest_run.json` olarak işaretlenir.
-- Canlı çalışmanın kalite raporu yalnız iç geometrik kaliteyi ölçer ve `scoring_ready=false` yazar; ground-truth
-  doğruluk raporu ayrıca geçmeden çıktı puanlama için güvenilir kabul edilmez.
+- Canlı çalışmanın kalite raporu iç geometri ve sensör tutarlılığını ölçer. Bunlar geçerse
+  `provisional_scoring_ready=true` olur ve dış ground-truth beklenmeden açıkça `provisional_not_official` analiz
+  çalışabilir. `official_scoring_ready` ayrı kalır ve uzman kural/hakem doğrulaması olmadan açılmaz. Opsiyonel dış
+  doğrulama komutu tahmin, ground truth ve kalite raporlarını SHA-256 ile aynı koşuya bağlar; başka koşunun metriği
+  veya JSON içine elle yazılmış bir alan yetki kaynağı sayılmaz.
 
 Sentetik dry-run çıktıları `outputs/session_001/runs/<run_id>/` altında, canlı ViTPose çıktıları da aynı izole çalışma yapısında tutulur. Beklenen dry-run dosyaları:
 
@@ -524,7 +569,9 @@ Hazır olanlar:
 - ViTPose-Huge gerçek inference ile AIST videolarından 133 eklemli 2D overlay ve kalibrasyonlu multi-view 3D çıktı
 - MADS multi-view/depth indeksleme, resmî üç kamera kalibrasyonu ve metre cinsinden mocap ground-truth dönüşümü
 - F2'yi eğitimden ayıran domain-adaptation altyapısı ve onaysız adapter'ı üretimde reddeden güvenlik kilidi
-- MADS F2 üzerinde 300 örnekli son kör test: `90,409 mm` MPJPE, `162,504 mm` P95, `13,426°` açı MAE ve `%95,89` geçerli eklem oranı; `50 mm` hedef geçilmediği için resmî skor kapalı
+- Tarihsel MADS F2 RGB-only 300 örnekli kör test: `90,409 mm` MPJPE, `162,504 mm` P95, `13,426°` açı MAE ve `%95,89` geçerli eklem oranı; bu değerler yalnız o bağlı koşuyu tanımlar ve güncel ZED RGBD koşusuna devredilmez
+- İç kalite geçtiğinde ground-truth beklemeden `provisional_scoring_ready=true` üreten; dış benchmark varsa onu
+  yalnız aynı koşuya bağlayan ve başka koşunun metriğini otomatik reddeden puanlama yetkilendirmesi
 - Artifact manifest: her run için beklenen çıktılar, dosya boyutları ve SHA-256 özetleri
 - Quality summary: valid frame/joint oranı, triangulation score, reprojection error, kullanılan kamera sayısı
 - Yönlü torso lean, smoothing sonrası hız, ağırlıklı center-of-mass proxy, adaptif hareket segmentasyonu
@@ -680,16 +727,18 @@ Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 
 ## Puanlama Altyapısı: Güvenli Geliştirme Akışı
 
-Puanlama altyapısı geliştirilebilir durumdadır; fakat mevcut üretim ayarlarının MADS F2 sonucu `90,409 mm` MPJPE olduğu ve `50 mm`
-ground-truth hedefini geçmediği için resmî puanlama kapalıdır. Sistem yalnız kaliteyi geçen karelerden açıklanabilir
-teknik özellik ve `provisional_not_official` durumlu geliştirme skoru üretir. Geçersiz eklem veya yetersiz kamera
-görüşü puana katılmaz.
+Puanlama altyapısı çalışır durumdadır. Güncel ZED RGBD koşusunda iç geometri ve RGB-vs-depth sensör tutarlılığı
+geçtiği için `provisional_scoring_ready=true` olur; sistem mocap veya başka dış ground-truth beklemeden
+`provisional_not_official` skor üretir. Dış doğruluk bilgi amaçlı
+`external_accuracy.status=not_evaluated_for_this_run` kalır ve resmî doğruluk iddiası oluşturmaz. ZED stereo depth,
+confidence, kalibrasyon, zaman damgaları ve IMU sistemin kendi sensör kanıtıdır. Geçersiz eklem veya yetersiz kamera
+görüşü puana katılmaz; `official_scoring_ready` uzman kural/hakem doğrulaması olmadığı için `false` kalır.
 
-Son kör test üç resmî MADS kamerasında, stride 2 ile 300 inference örneği üzerinde yapılmıştır. İç geometri kapısı
-geçmiştir; ancak P95 `162,504 mm`, açı MAE `13,426°`, hız MAE `0,400 m/s`, ivme MAE `5,947 m/s²` ve kemik uzunluğu
-CV `%6,490` olduğundan ground-truth kapısı başarısızdır. Takip ve filtreler görsel kararlılığı artırır; bu sonuçlar
-etiketli Taekwondo verisiyle alan-özel yeniden eğitim yapılmadan PlayVision düzeyinde kusursuzluk iddia edilmemesi
-gerektiğini gösterir.
+27 Temmuz 2026 tarihli tarihsel MADS F2 RGB-only kör testi üç resmî kamera, stride 2 ve 300 inference örneğiyle
+`90,409 mm` MPJPE ölçmüştür; iç geometri geçmesine rağmen o koşunun `50 mm` dış doğruluk hedefi geçmemiştir.
+P95 `162,504 mm`, açı MAE `13,426°`, hız MAE `0,400 m/s`, ivme MAE `5,947 m/s²` ve kemik uzunluğu CV `%6,490`
+değerleri yalnız bu MADS koşusuna bağlı tarihsel referanstır. Güncel ZED RGBD çıktısına kopyalanmaz, onun başarısız
+metriği sayılmaz ve yeni mimarinin dış doğruluğunu ölçmez.
 
 ### MADS F2 üzerinde baştan sona çalıştırma
 
@@ -724,16 +773,22 @@ python scripts\evaluate_ground_truth_3d.py `
 python scripts\analyze_pose_for_scoring.py `
   --session data\mads_test\local\sessions\mads_kata_f2.yaml `
   --input-json "$runRoot\json\vitpose_session_3d.json" `
-  --smoothing-window 5 `
-  --allow-unvalidated-provisional-score
+  --smoothing-window 5
 
 Write-Host "Sonuç klasörü: $runRoot"
 ```
 
-`--allow-low-quality-output`, `--allow-failed-quality-gate` ve `--allow-unvalidated-provisional-score` yalnız
-geliştirme/teşhis içindir. Kalite kapılarını geçmiş gibi göstermezler. Bu izinler olmadan doğrulanmamış çalışma
-puanlanmaz. Hızlı bir smoke test için yalnız 3B üretim komutunda `--stride 20 --max-frames 30` kullanılabilir; 30
+`--allow-low-quality-output`, `--allow-failed-quality-gate` ve opsiyonel
+`--allow-unvalidated-provisional-score` yalnız geliştirme/teşhis içindir. Normal provisional akış bu son bayrağı
+istemez; bunun yerine aynı koşunun `run_quality_report.json` iç kalite kapılarını doğrular. Hızlı bir smoke test için
+yalnız 3B üretim komutunda `--stride 20 --max-frames 30` kullanılabilir; 30
 kare güvenilirlik kararı veya model onayı için yeterli değildir.
+
+Ground-truth bulunursa `evaluate_ground_truth_3d.py` ayrıca koşuya bağlı dış doğruluk raporu üretir. Bulunmaması
+provisional analizi durdurmaz. Normal puanlama komutu 3B tahmin ile aynı klasördeki iç kalite raporunun session/run
+kimliğini, üretim kalibrasyonunu, sensör tutarlılığını ve SHA-256 özetlerini kontrol eder. Tarihsel MADS raporu veya
+başka koşuya ait yetkilendirme kabul edilmez. `official_scoring_ready`, uzman onaylı poomsae kural/hakem doğrulaması
+tamamlanana kadar ayrı olarak `false` kalır.
 
 ### Çıktılar nerede?
 
@@ -743,9 +798,10 @@ Bütün sonuçlar `outputs/mads_kata_f2/runs/<run_id>/` altında aynı çalışm
 | --- | --- | --- |
 | 1 | `scoring_readiness_analysis.xlsx` | Kalite, biomekanik, segment, kare/adım skoru ve teknik hataları tek dosyada gösterir. |
 | 2 | `ground_truth_validation/ground_truth_validation_report.json` | MPJPE, P95, PCK, açı hatası ve ground-truth kalite kapısı sonucunu gösterir. |
-| 3 | `json/scoring_readiness_report.json` | Kaç kare ve eklemin değerlendirmeye uygun olduğunu gösterir. |
-| 4 | `json/provisional_scoring_report.json` | Geçici toplam/bileşen skorları ve `provisional_not_official` durumunu gösterir. |
-| 5 | `videos/vitpose_skeleton_3d_world.mp4` | Üretilen 3B iskeleti görsel olarak kontrol etmeyi sağlar. |
+| 3 | `ground_truth_validation/scoring_authorization.json` | Koşuya bağlı `scoring_ready` kararı, dosya özetleri ve ret nedenlerini gösterir. |
+| 4 | `json/scoring_readiness_report.json` | Kaç kare ve eklemin değerlendirmeye uygun olduğunu gösterir. |
+| 5 | `json/provisional_scoring_report.json` | Geçici toplam/bileşen skorları ve `provisional_not_official` durumunu gösterir. |
+| 6 | `videos/vitpose_skeleton_3d_world.mp4` | Üretilen 3B iskeleti görsel olarak kontrol etmeyi sağlar. |
 
 Diğer ayrıntılı çıktılar:
 
