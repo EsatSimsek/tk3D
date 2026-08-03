@@ -1,0 +1,101 @@
+schema_version: 1
+profile_id: taegeuk1-m01-m06-engineering-v1
+version: 1.0.0
+status: provisional_engineering
+rule_pack_id: wt_recognized_2024-09-30
+poomsae_id: taegeuk_1_jang
+scope:
+  recording_scope: partial_sequence
+  movement_ids: [M01, M02, M03, M04, M05, M06]
+  reference_accuracy_score: 4.0
+provenance:
+  threshold_origin: engineering_hypothesis_not_official_rule
+  rule_semantics_refs:
+    - wt_poomsae_rules_2024-09-30#Article15-1.1
+    - wt_poomsae_rules_2024-09-30#Article16-1.2.2
+    - wt_poomsae_rules_2024-09-30#Article16-1.2.3
+  technique_semantics: Movement, stance, side and phase identities come from the source-transcribed Taegeuk 1 PoomsaeSpec.
+  disclaimer: Numeric ranges are conservative engineering hypotheses, not WT or Kukkiwon judging tolerances.
+quality_gates:
+  min_body17_valid_ratio: 0.90
+  min_used_cameras: 2.0
+  max_median_reprojection_error_px: 8.0
+  min_label_confidence: 0.85
+policy:
+  numeric_deviations_candidate_kind: minor
+  deduplicate_by: movement_family_phase
+  automatic_major_detection: false
+  score_field: partial_engineering_trial_score
+criteria:
+  - criterion_id: balance.torso_vertical
+    family: balance
+    selector: {field: all, values: []}
+    phase_id: fixation
+    metric: torso_lean_deg
+    acceptable_range: [0.0, 15.0]
+    deduction_kind: minor
+    rationale: Broad upright-torso screening range for an engineering candidate; not a judging angle.
+  - criterion_id: stance.ap_seogi.span
+    family: stance
+    selector: {field: stance, values: [left_ap_seogi, right_ap_seogi]}
+    phase_id: fixation
+    metric: stance_span_ratio
+    acceptable_range: [0.20, 0.60]
+    deduction_kind: minor
+    rationale: Ankle separation normalized by leg length; broad hypothesis for compact walking stance.
+  - criterion_id: stance.ap_seogi.front_knee
+    family: stance
+    selector: {field: stance, values: [left_ap_seogi, right_ap_seogi]}
+    phase_id: fixation
+    metric: front_knee_deg
+    acceptable_range: [155.0, 180.0]
+    deduction_kind: minor
+    rationale: Broad near-straight front-knee hypothesis for walking stance.
+  - criterion_id: stance.ap_gubi.span
+    family: stance
+    selector: {field: stance, values: [left_ap_gubi, right_ap_gubi]}
+    phase_id: fixation
+    metric: stance_span_ratio
+    acceptable_range: [0.45, 0.95]
+    deduction_kind: minor
+    rationale: Ankle separation normalized by leg length; broad hypothesis for long forward stance.
+  - criterion_id: stance.ap_gubi.front_knee
+    family: stance
+    selector: {field: stance, values: [left_ap_gubi, right_ap_gubi]}
+    phase_id: fixation
+    metric: front_knee_deg
+    acceptable_range: [120.0, 170.0]
+    deduction_kind: minor
+    rationale: Broad flexed front-knee hypothesis for long forward stance.
+  - criterion_id: technique.momtong_jireugi.elbow
+    family: technique
+    selector: {field: technique, values: [momtong_jireugi]}
+    phase_id: fixation
+    metric: executing_elbow_deg
+    acceptable_range: [150.0, 180.0]
+    deduction_kind: minor
+    rationale: Broad extension hypothesis for the executing punch arm at fixation.
+  - criterion_id: technique.momtong_jireugi.height
+    family: technique
+    selector: {field: technique, values: [momtong_jireugi]}
+    phase_id: fixation
+    metric: executing_wrist_height_torso_ratio
+    acceptable_range: [0.20, 1.15]
+    deduction_kind: minor
+    rationale: Wrist height relative to hip-shoulder torso height; broad middle-target hypothesis.
+  - criterion_id: technique.arae_makki.elbow
+    family: technique
+    selector: {field: technique, values: [arae_makki]}
+    phase_id: fixation
+    metric: executing_elbow_deg
+    acceptable_range: [135.0, 180.0]
+    deduction_kind: minor
+    rationale: Broad lower-block arm-shape hypothesis at fixation.
+  - criterion_id: technique.arae_makki.height
+    family: technique
+    selector: {field: technique, values: [arae_makki]}
+    phase_id: fixation
+    metric: executing_wrist_height_torso_ratio
+    acceptable_range: [0.0, 0.45]
+    deduction_kind: minor
+    rationale: Wrist height relative to hip-shoulder torso height; broad lower-target hypothesis.

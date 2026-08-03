@@ -1,0 +1,1072 @@
+from __future__ import annotations
+
+from copy import deepcopy
+import hashlib
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from src.data_structures import coco_hand_joint
+from src.poomsae_scoring import (
+    ScoringContractError,
+    assess_accuracy_readiness,
+    build_movement_evidence,
+    build_partial_engineering_trial,
+    build_review_html,
+    build_source_bound_accuracy_decisions,
+    build_wholebody_diagnostics,
+    evaluate_accuracy,
+    inspect_source_intake,
+    load_movement_timeline,
+    load_engineering_profile,
+    load_poomsae_spec,
+    load_rule_pack,
+    load_source_bound_accuracy_profile,
+    load_wholebody_diagnostic_profile,
+    overlay_state_for_frame,
+    validate_movement_timeline,
+    validate_engineering_profile,
+    validate_poomsae_spec,
+    validate_source_intake,
+    validate_source_bound_accuracy_profile,
+    validate_wholebody_diagnostic_profile,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RULE_PACK_PATH = ROOT / "config" / "scoring" / "rules" / "wt_recognized_2024-09-30.yaml"
+DRAFT_SPEC_PATH = ROOT / "config" / "scoring" / "poomsae" / "taegeuk_1_jang_v0_draft.yaml"
+DRAFT_TIMELINE_PATH = ROOT / "config" / "scoring" / "timelines" / "poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml"
+ENGINEERING_PROFILE_PATH = ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_m01_m06_v1.yaml"
+WHOLEBODY_PROFILE_PATH = ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v2.yaml"
+SOURCE_BOUND_ACCURACY_PATH = ROOT / "config" / "scoring" / "accuracy" / "taegeuk_1_source_bound_v1.yaml"
+
+
+def _source() -> dict:
+    return {
+        "source_id": "test_source",
+        "authority": "Test Authority",
+        "title": "Test Poomsae Specification",
+        "url": "https://example.test/poomsae",
+        "effective_date": "2026-08-02",
+        "accessed_at": "2026-08-02",
+        "language": "English",
+        "access": "public",
+        "content_sha256": None,
+        "sections": ["movement table"],
+    }
+
+
+def _movement(sequence_index: int) -> dict:
+    return {
+        "movement_id": f"M{sequence_index:02d}",
+        "sequence_index": sequence_index,
+        "display_name": f"Test movement {sequence_index}",
+        "direction": "forward",
+        "stance": "test_stance",
+        "techniques": [{"technique_id": "test_technique", "side": "left"}],
+        "phases": ["preparation", "execution", "apex"],
+        "measurable_criteria": ["test.metric"],
+        "source_refs": ["test_source#movement-table"],
+    }
+
+
+def _active_spec() -> dict:
+    return validate_poomsae_spec(
+        {
+            "schema_version": 1,
+            "poomsae_id": "test_poomsae",
+            "version": "1.0.0",
+            "status": "active",
+            "display_name": "Test Poomsae",
+            "rule_pack_id": "wt_recognized_2024-09-30",
+            "sequence_status": "active",
+            "source_documents": [_source()],
+            "movements": [_movement(1), _movement(2)],
+            "blocked_reasons": [],
+        }
+    )
+
+
+def _complete_timeline() -> dict:
+    return {
+        "schema_version": 2,
+        "timeline_id": "test_timeline",
+        "poomsae_id": "test_poomsae",
+        "poomsae_version": "1.0.0",
+        "status": "complete",
+        "label_source": "manual",
+        "frame_index_space": "sample_index",
+        "frame_count": 30,
+        "fps": 30.0,
+        "source_binding": {
+            "session_id": "test_session",
+            "run_id": "test_run",
+            "pose_file": "outputs/test_session/runs/test_run/json/pose.json",
+            "pose_file_sha256": "a" * 64,
+        },
+        "coverage": {
+            "recording_scope": "complete_performance",
+            "observed_movement_ids": ["M01", "M02"],
+            "missing_movement_ids": [],
+            "source_end_reason": None,
+        },
+        "segments": [
+            {
+                "sequence_index": 1,
+                "movement_id": "M01",
+                "start_frame": 0,
+                "end_frame": 10,
+                "anchors": {"apex": 5},
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            },
+            {
+                "sequence_index": 2,
+                "movement_id": "M02",
+                "start_frame": 11,
+                "end_frame": 29,
+                "anchors": {"apex": 20},
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            },
+        ],
+    }
+
+
+def _event(
+    event_id: str,
+    deduction_kind: str,
+    movement_id: str | None,
+    start_frame: int,
+    end_frame: int,
+    **overrides,
+) -> dict:
+    payload = {
+        "event_id": event_id,
+        "deduplication_key": f"{movement_id}:{event_id}",
+        "deduction_kind": deduction_kind,
+        "movement_id": movement_id,
+        "phase_id": None if deduction_kind == "restart" else "apex",
+        "start_frame": start_frame,
+        "end_frame": end_frame,
+        "evidence_status": "observed",
+        "decision_status": "confirmed_by_rule",
+        "confidence": 0.95,
+        "metric_id": "test.metric",
+        "criterion_id": "test.metric",
+        "description": "Synthetic rule-confirmed event",
+        "rule_confirmation": {
+            "rule_id": {
+                "minor": "WT-2024-09-30-A16-1.2.2",
+                "major": "WT-2024-09-30-A16-1.2.3",
+                "restart": "WT-2024-09-30-A16-EXPLANATION-3",
+            }[deduction_kind],
+            "source_ref": {
+                "minor": "wt_poomsae_rules_2024-09-30#Article16-1.2.2",
+                "major": "wt_poomsae_rules_2024-09-30#Article16-1.2.3",
+                "restart": "wt_poomsae_rules_2024-09-30#Article16-Explanation3",
+            }[deduction_kind],
+            "confirmation_method": "observed_restart" if deduction_kind == "restart" else "manual_rule_review",
+            "review_record_id": f"review:{event_id}",
+        },
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_project_rule_pack_uses_source_backed_accuracy_values() -> None:
+    pack = load_rule_pack(RULE_PACK_PATH)
+
+    assert pack["rule_pack_id"] == "wt_recognized_2024-09-30"
+    assert pack["status"] == "active"
+    assert pack["scoring"]["accuracy"]["initial_score"] == 4.0
+    assert pack["scoring"]["accuracy"]["deductions"]["minor"]["amount"] == 0.1
+    assert pack["scoring"]["accuracy"]["deductions"]["major"]["amount"] == 0.3
+    assert pack["scoring"]["accuracy"]["deductions"]["restart"]["amount"] == 0.6
+
+
+def test_taegeuk_1_draft_contains_source_transcribed_sequence_but_stays_fail_closed() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+
+    assert spec["status"] == "draft"
+    assert spec["sequence_status"] == "source_transcribed"
+    assert len(spec["movements"]) == 18
+    assert spec["movements"][13]["movement_id"] == "M14"
+    assert len(spec["movements"][13]["techniques"]) == 2
+    assert spec["blocked_reasons"]
+    historical = next(
+        source for source in spec["source_documents"] if source["source_id"] == "wtf_poomsae_scoring_guidelines_2014"
+    )
+    assert historical["content_sha256"] == ("46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f")
+    assert any("historical" in reason.lower() for reason in spec["blocked_reasons"])
+    assert any(ref.startswith("wtf_poomsae_scoring_guidelines_2014#") for ref in spec["movements"][0]["source_refs"])
+    assert all(movement["measurable_criteria"] for movement in spec["movements"])
+    assert {
+        "technique.ap_chagi.knee_extension",
+        "technique.ap_chagi.rechamber",
+        "technique.ap_chagi.support_foot_pivot",
+        "timing.kick_landing_punch.sequence",
+    }.issubset(spec["movements"][13]["measurable_criteria"])
+    assert "audio.kihap.timing" in spec["movements"][17]["measurable_criteria"]
+
+    empty_complete_timeline = {
+        **_complete_timeline(),
+        "poomsae_id": spec["poomsae_id"],
+        "poomsae_version": spec["version"],
+        "coverage": {
+            "recording_scope": "complete_performance",
+            "observed_movement_ids": [movement["movement_id"] for movement in spec["movements"]],
+            "missing_movement_ids": [],
+            "source_end_reason": None,
+        },
+        "segments": [
+            {
+                "sequence_index": movement["sequence_index"],
+                "movement_id": movement["movement_id"],
+                "start_frame": 2 * (movement["sequence_index"] - 1),
+                "end_frame": 2 * movement["sequence_index"] - 1,
+                "anchors": {movement["phases"][-1]: 2 * movement["sequence_index"] - 1},
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            }
+            for movement in spec["movements"]
+        ],
+        "frame_count": 36,
+    }
+    with pytest.raises(ScoringContractError, match="complete MovementTimeline"):
+        validate_movement_timeline(empty_complete_timeline, spec)
+
+
+def test_project_timeline_draft_binds_exact_rgbd_pose_artifact() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+
+    assert timeline["status"] == "draft"
+    assert timeline["frame_count"] == 741
+    assert timeline["fps"] == 60.0
+    assert len(timeline["segments"]) == 6
+    assert timeline["segments"][0]["movement_id"] == "M01"
+    assert timeline["segments"][-1]["movement_id"] == "M06"
+    assert all(segment["label_status"] == "confirmed" for segment in timeline["segments"])
+    assert timeline["coverage"]["recording_scope"] == "partial_sequence"
+    assert timeline["coverage"]["missing_movement_ids"] == [f"M{index:02d}" for index in range(7, 19)]
+    assert timeline["source_binding"]["pose_file_sha256"] == (
+        "a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947"
+    )
+
+
+def test_project_engineering_profile_is_explicitly_non_official_and_minor_only() -> None:
+    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
+
+    assert profile["status"] == "provisional_engineering"
+    assert profile["scope"]["movement_ids"] == [f"M{index:02d}" for index in range(1, 7)]
+    assert profile["provenance"]["threshold_origin"] == "engineering_hypothesis_not_official_rule"
+    assert profile["policy"]["automatic_major_detection"] is False
+    assert {criterion["deduction_kind"] for criterion in profile["criteria"]} == {"minor"}
+
+
+def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps() -> None:
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        load_poomsae_spec(DRAFT_SPEC_PATH),
+        load_movement_timeline(DRAFT_TIMELINE_PATH, load_poomsae_spec(DRAFT_SPEC_PATH)),
+        workspace_root=ROOT,
+    )
+
+    assert report["status"] == "blocked"
+    assert report["rule_scoring_ready"] is False
+    assert report["pose_binding"]["status"] == "verified"
+    blocker_codes = {blocker["code"] for blocker in report["blockers"]}
+    assert blocker_codes == {
+        "movement_sequence_not_active",
+        "movement_timeline_not_complete",
+        "partial_source_recording",
+        "poomsae_spec_has_source_gaps",
+        "poomsae_spec_not_active",
+    }
+
+
+def test_project_overlay_labels_partial_recording_without_inventing_missing_movements() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+
+    assert overlay_state_for_frame(spec, timeline, 139) is None
+    first = overlay_state_for_frame(spec, timeline, 205)
+    assert first is not None
+    assert first["movement_id"] == "M01"
+    assert first["phase_id"] == "execution"
+    sixth = overlay_state_for_frame(spec, timeline, 728)
+    assert sixth is not None
+    assert sixth["movement_id"] == "M06"
+    assert sixth["phase_id"] == "fixation"
+    assert sixth["expected_movement_count"] == 18
+
+
+def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    evidence = {
+        "timeline": {"timeline_id": timeline["timeline_id"]},
+        "observability": {"anchor_count": 24, "observed_anchor_ratio": 22 / 24},
+        "segments": [
+            {
+                "movement_id": segment["movement_id"],
+                "body17_valid_ratio": 0.98,
+                "median_reprojection_error_px": 2.5,
+                "median_used_cameras": 2.0,
+            }
+            for segment in timeline["segments"]
+        ],
+        "interpretation": "Measurement evidence only.",
+    }
+    readiness = {
+        "movement_timeline": {"timeline_id": timeline["timeline_id"]},
+        "pose_binding": {"status": "verified"},
+        "blockers": [{"code": "partial_source_recording", "message": "Partial recording."}],
+    }
+    engineering_trial = {
+        "movement_timeline_id": timeline["timeline_id"],
+        "status": "deprecated_body17_screening_no_score",
+        "partial_engineering_trial_score": None,
+        "reference_accuracy_score": 4.0,
+        "trial_deductions": [],
+        "summary": {
+            "measurement_count": 30,
+            "measurable_count": 25,
+            "candidate_count": 2,
+            "not_measurable_count": 5,
+        },
+        "measurement_coverage_ratio": 25 / 30,
+        "engineering_profile": {"disclaimer": "Engineering hypothesis only."},
+    }
+    wholebody = {
+        "movement_timeline_id": timeline["timeline_id"],
+        "accuracy_score": None,
+        "summary": {"review_candidate_count": 1},
+        "coverage": {
+            "measurable_metric_count": 65,
+            "thresholded_metric_count": 90,
+            "measurement_coverage_ratio": 65 / 90,
+            "coverage_gate_passed": False,
+        },
+        "candidate_events": [
+            {
+                "movement_id": "M01",
+                "family": "fixation",
+                "metric_id": "fixation_wrist_jitter_ratio",
+                "value": 0.07,
+            }
+        ],
+    }
+
+    rendered = build_review_html(
+        spec,
+        timeline,
+        evidence,
+        readiness,
+        {
+            "ZED 35151067": "../videos/a.mp4",
+            "ZED 37137479": "../videos/b.mp4",
+            "Gelecek kamera": "../videos/c.mp4",
+        },
+        engineering_trial,
+        wholebody,
+    )
+
+    assert "Kısmi kayıt · 6/18" in rendered
+    assert "Accuracy</span><b>Hesaplanmadı" in rendered
+    assert "M06" in rendered and "M18" in rendered
+    assert "../videos/a.mp4" in rendered and "../videos/b.mp4" in rendered
+    assert "../videos/c.mp4" in rendered and "3 kamera" in rendered
+    assert "partial_source_recording" in rendered
+    assert "İkisini oynat" in rendered
+    assert "BODY-17 sayısal denemesi iptal edildi" in rendered
+    assert "WholeBody-133 hata inceleme adayları" in rendered
+    assert "fixation_wrist_jitter_ratio" in rendered
+    assert "Skor yok" in rendered
+
+
+def test_movement_evidence_reports_measurements_without_scoring() -> None:
+    spec = _active_spec()
+    timeline = _complete_timeline()
+    keypoints = [[[0.0, 0.0, 0.0] for _ in range(133)] for _ in range(30)]
+    for frame in keypoints:
+        frame[5] = [0.2, 0.0, 1.4]
+        frame[6] = [-0.2, 0.0, 1.4]
+        frame[7] = [0.35, 0.0, 1.1]
+        frame[8] = [-0.35, 0.0, 1.1]
+        frame[9] = [0.45, 0.0, 0.9]
+        frame[10] = [-0.45, 0.0, 0.9]
+        frame[11] = [0.15, 0.0, 0.9]
+        frame[12] = [-0.15, 0.0, 0.9]
+        frame[13] = [0.15, 0.2, 0.5]
+        frame[14] = [-0.15, -0.2, 0.5]
+        frame[15] = [0.15, 0.4, 0.0]
+        frame[16] = [-0.15, -0.4, 0.0]
+    matrix = [[1.0 for _ in range(133)] for _ in range(30)]
+    cameras = [[2 for _ in range(133)] for _ in range(30)]
+    payload = {
+        "session_id": "test_session",
+        "run_id": "test_run",
+        "coordinate_system": {
+            "name": "tk3d_analysis",
+            "unit": "meter",
+            "axes": {"x": "right", "y": "forward", "z": "up"},
+            "handedness": "right",
+        },
+        "keypoints_3d_world": keypoints,
+        "reliability_valid_mask": [[True for _ in range(133)] for _ in range(30)],
+        "reprojection_error": matrix,
+        "triangulation_score": matrix,
+        "used_cameras": cameras,
+    }
+
+    report, rows = build_movement_evidence(payload, spec, timeline)
+
+    assert report["status"] == "measurement_evidence_only"
+    assert report["scoring_status"] == "not_scored_source_thresholds_inactive"
+    assert report["accuracy_score"] is None
+    assert report["deductions"] == []
+    assert report["observability"]["observed_anchor_ratio"] == 1.0
+    assert len(rows) == 2
+    assert all(row["evidence_status"] == "observed" for row in rows)
+    assert all("stance_span_ratio" in row and "body_scale_m" in row for row in rows)
+
+
+def test_partial_engineering_trial_gates_quality_and_deduplicates_families() -> None:
+    pack = load_rule_pack(RULE_PACK_PATH)
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
+    rows = []
+    for movement_id in timeline["coverage"]["observed_movement_ids"]:
+        rows.append(
+            {
+                "movement_id": movement_id,
+                "phase_id": "fixation",
+                "frame_index": 100,
+                "evidence_status": "observed",
+                "valid_body17_ratio": 0.99,
+                "median_reprojection_error_px": 2.0,
+                "median_used_cameras": 2.0,
+                "torso_lean_deg": 5.0,
+                "stance_span_ratio": 0.4 if movement_id in {"M01", "M02", "M03", "M04"} else 0.6,
+                "left_knee_deg": 170.0 if movement_id != "M05" else 150.0,
+                "right_knee_deg": 170.0,
+                "left_elbow_deg": 170.0,
+                "right_elbow_deg": 170.0,
+                "left_wrist_height_torso_ratio": 0.3,
+                "right_wrist_height_torso_ratio": 0.3,
+            }
+        )
+    rows[0]["stance_span_ratio"] = 0.1
+    rows[0]["left_knee_deg"] = 140.0
+    rows[2]["evidence_status"] = "partially_observed"
+    rows[2]["valid_body17_ratio"] = 0.88
+    evidence = {
+        "timeline": {"timeline_id": timeline["timeline_id"]},
+        "scoring_status": "not_scored_partial_recording",
+    }
+
+    report = build_partial_engineering_trial(pack, spec, timeline, profile, evidence, rows)
+
+    assert report["status"] == "deprecated_body17_screening_no_score"
+    assert report["accuracy_score"] is None
+    assert report["applied_deductions"] == []
+    assert report["partial_engineering_trial_score"] is None
+    assert report["total_engineering_trial_deduction"] is None
+    assert report["summary"] == {
+        "measurement_count": 30,
+        "measurable_count": 25,
+        "pass_count": 23,
+        "candidate_count": 2,
+        "not_measurable_count": 5,
+        "selected_trial_deduction_count": 0,
+        "diagnostic_candidate_family_count": 1,
+        "deduplicated_candidate_count": 1,
+    }
+    assert report["automatic_major_detection"]["enabled"] is False
+    assert report["measurement_coverage_ratio"] == pytest.approx(25 / 30)
+    assert report["trial_score_confidence"] == "not_scored"
+    assert report["trial_deductions"] == []
+    assert any(item["trial_application_status"] == "review_candidate_no_score" for item in report["measurements"])
+    m03 = [item for item in report["measurements"] if item["movement_id"] == "M03"]
+    assert {item["measurement_status"] for item in m03} == {"not_measurable"}
+    assert all(item["trial_deduction_points"] == 0.0 for item in m03)
+
+
+def test_wholebody_diagnostics_use_133_points_and_fail_closed() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    frame_count = timeline["frame_count"]
+    points = np.zeros((frame_count, 133, 3), dtype=float)
+    points[..., 2] = 0.8
+
+    body_points = {
+        5: [0.20, 0.0, 1.40],
+        6: [-0.20, 0.0, 1.40],
+        7: [0.35, 0.0, 1.10],
+        8: [-0.35, 0.0, 1.10],
+        9: [0.45, 0.0, 0.95],
+        10: [-0.45, 0.0, 0.95],
+        11: [0.15, 0.0, 0.90],
+        12: [-0.15, 0.0, 0.90],
+        13: [0.15, 0.2, 0.48],
+        14: [-0.15, 0.2, 0.48],
+        15: [0.15, 0.4, 0.04],
+        16: [-0.15, 0.4, 0.04],
+        17: [0.15, 0.62, 0.02],
+        18: [0.12, 0.60, 0.02],
+        19: [0.15, 0.40, 0.02],
+        20: [-0.15, 0.62, 0.02],
+        21: [-0.12, 0.60, 0.02],
+        22: [-0.15, 0.40, 0.02],
+    }
+    for index, value in body_points.items():
+        points[:, index] = value
+    points[:, 59:65] = [0.06, 0.0, 1.62]
+    points[:, 65:71] = [-0.06, 0.0, 1.62]
+    for side, wrist in (("left", [0.45, 0.0, 0.95]), ("right", [-0.45, 0.0, 0.95])):
+        for local_index in range(21):
+            points[:, coco_hand_joint(side, "wrist") + local_index] = [
+                wrist[0] + 0.002 * local_index,
+                wrist[1] + 0.004 * local_index,
+                wrist[2],
+            ]
+    first_fixation = timeline["segments"][0]["anchors"]["fixation"]
+    points[first_fixation, 17:23] = np.nan
+
+    payload = {
+        "keypoints_3d_world": points,
+        "reliability_valid_mask": np.ones((frame_count, 133), dtype=bool),
+        "used_cameras": np.full((frame_count, 133), 2),
+        "reprojection_error": np.ones((frame_count, 133), dtype=float),
+    }
+    report = build_wholebody_diagnostics(payload, spec, timeline, profile)
+
+    assert report["status"] == "wholebody_diagnostics_only"
+    assert report["numeric_score_enabled"] is False
+    assert report["accuracy_score"] is None
+    assert report["partial_engineering_trial_score"] is None
+    assert report["deductions"] == []
+    assert report["keypoint_contract"]["keypoint_count"] == 133
+    assert report["keypoint_contract"]["groups_used"] == [
+        "body17",
+        "feet",
+        "face",
+        "left_hand",
+        "right_hand",
+    ]
+    assert all(event["decision_status"] == "review_candidate_not_deduction" for event in report["candidate_events"])
+    assert all(event["score_effect"] is None for event in report["candidate_events"])
+    assert all(
+        event["rule_eligibility"] == "blocked_unvalidated_screening_threshold" for event in report["candidate_events"]
+    )
+    first_foot_yaw = next(
+        metric
+        for metric in report["movements"][0]["metrics"]
+        if metric["metric_id"] == "back_foot_yaw_to_stance_direction_deg"
+    )
+    assert first_foot_yaw["screening_status"] == "measured_diagnostic_only"
+    assert first_foot_yaw["measurement_evidence"]["scope"] == "fixation_window"
+    assert first_foot_yaw["measurement_evidence"]["required_groups"] == ["body17", "feet"]
+    assert first_foot_yaw["direction_basis"] == "back_ankle_to_front_ankle"
+    assert first_foot_yaw["sample_count"] >= 3
+    assert first_foot_yaw["uncertainty_95"] is not None
+
+
+def test_wholebody_full_prefix_adds_compound_kick_diagnostics_without_thresholds() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    observed = spec["movements"][:14]
+    frame_count = 12 * len(observed)
+    segments = []
+    for movement in observed:
+        start = 12 * (movement["sequence_index"] - 1)
+        anchors = {phase: start + offset + 1 for offset, phase in enumerate(movement["phases"])}
+        segments.append(
+            {
+                "sequence_index": movement["sequence_index"],
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": start + 11,
+                "anchors": anchors,
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            }
+        )
+    timeline = validate_movement_timeline(
+        {
+            "schema_version": 2,
+            "timeline_id": "compound-kick-test",
+            "poomsae_id": spec["poomsae_id"],
+            "poomsae_version": spec["version"],
+            "status": "draft",
+            "label_source": "manual",
+            "frame_index_space": "sample_index",
+            "frame_count": frame_count,
+            "fps": 60.0,
+            "source_binding": {
+                "session_id": "compound-test",
+                "run_id": "compound-test-run",
+                "pose_file": "outputs/compound-test/pose.json",
+                "pose_file_sha256": None,
+            },
+            "coverage": {
+                "recording_scope": "partial_sequence",
+                "observed_movement_ids": [movement["movement_id"] for movement in observed],
+                "missing_movement_ids": [movement["movement_id"] for movement in spec["movements"][14:]],
+                "source_end_reason": "synthetic prefix",
+            },
+            "segments": segments,
+        },
+        spec,
+    )
+    points = np.zeros((frame_count, 133, 3), dtype=float)
+    body_points = {
+        5: [0.20, 0.0, 1.40],
+        6: [-0.20, 0.0, 1.40],
+        7: [0.35, 0.0, 1.10],
+        8: [-0.35, 0.0, 1.10],
+        9: [0.45, 0.0, 0.95],
+        10: [-0.45, 0.0, 0.95],
+        11: [0.15, 0.0, 0.90],
+        12: [-0.15, 0.0, 0.90],
+        13: [0.15, 0.2, 0.48],
+        14: [-0.15, 0.2, 0.48],
+        15: [0.15, 0.4, 0.04],
+        16: [-0.15, 0.4, 0.04],
+        17: [0.15, 0.62, 0.02],
+        18: [0.12, 0.60, 0.02],
+        19: [0.15, 0.40, 0.02],
+        20: [-0.15, 0.62, 0.02],
+        21: [-0.12, 0.60, 0.02],
+        22: [-0.15, 0.40, 0.02],
+    }
+    for index, value in body_points.items():
+        points[:, index] = value
+    payload = {
+        "keypoints_3d_world": points,
+        "reliability_valid_mask": np.ones((frame_count, 133), dtype=bool),
+        "used_cameras": np.full((frame_count, 133), 2),
+        "reprojection_error": np.ones((frame_count, 133), dtype=float),
+    }
+    report = build_wholebody_diagnostics(payload, spec, timeline, profile)
+    m14 = next(item for item in report["movements"] if item["movement_id"] == "M14")
+    kick_metrics = [metric for metric in m14["metrics"] if metric["family"] == "kick"]
+    landing_metric = next(metric for metric in m14["metrics"] if metric["metric_id"] == "kick_landing_to_punch_sec")
+
+    assert m14["technique_ids"] == ["ap_chagi", "momtong_jireugi"]
+    assert {metric["metric_id"] for metric in kick_metrics} == {
+        "kick_knee_extension_deg",
+        "kick_ankle_height_body_scale_ratio",
+        "kick_rechamber_knee_deg",
+        "support_foot_pivot_deg",
+    }
+    assert all(metric["screening_status"] == "measured_diagnostic_only" for metric in kick_metrics)
+    assert all(metric["screening_rule"] is None for metric in kick_metrics)
+    assert landing_metric["screening_status"] == "measured_diagnostic_only"
+    assert landing_metric["criterion_id"] == "timing.kick_landing_punch.sequence"
+
+
+def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [
+            {
+                "movement_id": segment["movement_id"],
+                "metrics": (
+                    [
+                        {
+                            "metric_id": "back_foot_yaw_to_stance_direction_deg",
+                            "value": 32.0,
+                            "uncertainty_95": 1.0,
+                        },
+                        {
+                            "metric_id": "arae_fist_to_thigh_fist_ratio",
+                            "value": 2.5,
+                            "uncertainty_95": 0.1,
+                        },
+                    ]
+                    if segment["movement_id"] == "M01"
+                    else []
+                ),
+            }
+            for segment in timeline["segments"]
+        ],
+    }
+
+    report = build_source_bound_accuracy_decisions(
+        diagnostics,
+        spec,
+        timeline,
+        profile,
+    )
+
+    m01 = [item for item in report["numeric_decisions"] if item["movement_id"] == "M01"]
+    foot = next(item for item in m01 if item["metric_id"].startswith("back_foot"))
+    arae = next(item for item in m01 if item["metric_id"].startswith("arae_fist"))
+    assert foot["decision_status"] == "boundary_uncertain"
+    assert foot["effective_uncertainty_95"] == 5.0
+    assert foot["deduction_points"] is None
+    assert arae["decision_status"] == "confirmed_source_bound_minor"
+    assert arae["deduction_points"] == 0.1
+    assert report["observed_scope_provisional_deduction_total"] == 0.1
+    assert report["accuracy_score"] is None
+    assert report["scoring_status"] == "observed_scope_only_no_accuracy_score"
+
+
+def test_source_bound_accuracy_major_requires_explicit_categorical_observation() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [{"movement_id": segment["movement_id"], "metrics": []} for segment in timeline["segments"]],
+    }
+    first = timeline["segments"][0]
+    observations = [
+        {
+            "observation_id": "obs-wrong-action-m01",
+            "event_kind": "wrong_action",
+            "movement_id": "M01",
+            "start_frame": first["start_frame"],
+            "end_frame": first["end_frame"],
+            "evidence_status": "observed",
+            "confidence": 0.95,
+            "description": "Sequence identity differs from the required action.",
+            "measurement": None,
+            "confirmation_method": "deterministic_sequence_violation",
+        }
+    ]
+
+    report = build_source_bound_accuracy_decisions(
+        diagnostics,
+        spec,
+        timeline,
+        profile,
+        observations,
+    )
+
+    event = report["categorical_decisions"][0]
+    assert event["application_status"] == "applied"
+    assert event["deduction_kind"] == "major"
+    assert event["deduction_points"] == 0.3
+    assert report["accuracy_score"] is None
+
+
+def test_source_bound_profile_rejects_numeric_major_deductions() -> None:
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    profile["numeric_rules"][0]["deduction_kind"] = "major"
+    with pytest.raises(ScoringContractError, match="minor deductions only"):
+        validate_source_bound_accuracy_profile(profile)
+
+
+def test_source_intake_never_auto_activates_and_blocks_historical_numeric_tolerances(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "candidate.pdf"
+    source.write_bytes(b"%PDF-1.4\nsynthetic source\n")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    manifest = {
+        "schema_version": 1,
+        "source_id": "candidate_rule_source",
+        "status": "candidate",
+        "authority": "Test Official Authority",
+        "title": "Candidate scoring source",
+        "document_date": "2026-08-03",
+        "effective_date": "2026-08-03",
+        "retrieved_at": "2026-08-03",
+        "authority_tier": "current_official_rule",
+        "language": "English",
+        "access": "user_supplied",
+        "local_path": str(source),
+        "expected_sha256": digest,
+        "intended_uses": ["numeric_tolerance"],
+        "activation_request": {
+            "requested": True,
+            "requested_claims": ["ap-seogi rear foot tolerance"],
+            "numeric_thresholds_requested": True,
+        },
+        "notes": "Synthetic contract test.",
+    }
+    report = inspect_source_intake(validate_source_intake(manifest), workspace_root=tmp_path)
+
+    assert report["status"] == "ready_for_manual_activation_review"
+    assert report["activation"]["automatic_activation_allowed"] is False
+    assert report["activation"]["ready_for_manual_review"] is True
+    assert report["source"]["hash_status"] == "match"
+
+    historical = deepcopy(manifest)
+    historical["authority_tier"] = "historical_official"
+    blocked = inspect_source_intake(historical, workspace_root=tmp_path)
+    blocker_codes = {item["code"] for item in blocked["activation"]["blockers"]}
+
+    assert blocked["status"] == "candidate_blocked"
+    assert "numeric_threshold_authority_insufficient" in blocker_codes
+    assert blocked["activation"]["automatic_activation_allowed"] is False
+
+
+def test_wholebody_diagnostics_reject_body17_only_payload() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    frame_count = timeline["frame_count"]
+    payload = {
+        "keypoints_3d_world": np.zeros((frame_count, 17, 3)),
+        "reliability_valid_mask": np.ones((frame_count, 17), dtype=bool),
+        "used_cameras": np.full((frame_count, 17), 2),
+        "reprojection_error": np.ones((frame_count, 17)),
+    }
+
+    with pytest.raises(ScoringContractError, match="exactly 133|shape"):
+        build_wholebody_diagnostics(payload, spec, timeline, profile)
+
+
+def test_wholebody_profile_rejects_inverted_ranges() -> None:
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    profile["thresholds"]["ap_seogi_span_ratio_min"] = 0.8
+    profile["thresholds"]["ap_seogi_span_ratio_max"] = 0.2
+
+    with pytest.raises(ScoringContractError, match="cannot exceed"):
+        validate_wholebody_diagnostic_profile(profile)
+
+
+def test_engineering_profile_rejects_automatic_major_detection() -> None:
+    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
+    profile["policy"]["automatic_major_detection"] = True
+
+    with pytest.raises(ScoringContractError, match="major detection"):
+        validate_engineering_profile(profile)
+
+
+def test_accuracy_readiness_verifies_complete_bound_artifact(tmp_path: Path) -> None:
+    pose_path = tmp_path / "outputs" / "test_session" / "runs" / "test_run" / "json" / "pose.json"
+    pose_path.parent.mkdir(parents=True)
+    pose_path.write_text('{"keypoints_3d_world": []}\n', encoding="utf-8")
+    timeline = _complete_timeline()
+    timeline["source_binding"]["pose_file_sha256"] = hashlib.sha256(pose_path.read_bytes()).hexdigest()
+    diagnostics = {
+        "movement_timeline_id": timeline["timeline_id"],
+        "keypoint_contract": {
+            "keypoint_count": 133,
+            "groups_used": ["body17", "feet", "face", "left_hand", "right_hand"],
+        },
+        "bindings": {"pose": {"sha256": timeline["source_binding"]["pose_file_sha256"]}},
+        "numeric_score_enabled": False,
+        "accuracy_score": None,
+        "coverage": {
+            "coverage_gate_passed": True,
+            "measurement_coverage_ratio": 0.95,
+            "minimum_required_ratio": 0.90,
+        },
+    }
+
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        timeline,
+        workspace_root=tmp_path,
+        wholebody_diagnostics=diagnostics,
+    )
+
+    assert report["status"] == "ready"
+    assert report["rule_scoring_ready"] is True
+    assert report["judge_calibrated_ready"] is False
+    assert report["official_scoring_ready"] is False
+    assert report["pose_binding"]["status"] == "verified"
+    assert report["wholebody_diagnostic_binding"]["status"] == "verified"
+    assert report["blockers"] == []
+
+
+def test_accuracy_readiness_blocks_low_wholebody_coverage(tmp_path: Path) -> None:
+    pose_path = tmp_path / "outputs" / "test_session" / "runs" / "test_run" / "json" / "pose.json"
+    pose_path.parent.mkdir(parents=True)
+    pose_path.write_text('{"keypoints_3d_world": []}\n', encoding="utf-8")
+    timeline = _complete_timeline()
+    pose_sha256 = hashlib.sha256(pose_path.read_bytes()).hexdigest()
+    timeline["source_binding"]["pose_file_sha256"] = pose_sha256
+    diagnostics = {
+        "movement_timeline_id": timeline["timeline_id"],
+        "keypoint_contract": {
+            "keypoint_count": 133,
+            "groups_used": ["body17", "feet", "face", "left_hand", "right_hand"],
+        },
+        "bindings": {"pose": {"sha256": pose_sha256}},
+        "numeric_score_enabled": False,
+        "accuracy_score": None,
+        "coverage": {
+            "coverage_gate_passed": False,
+            "measurement_coverage_ratio": 0.67,
+            "minimum_required_ratio": 0.90,
+        },
+    }
+
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        timeline,
+        workspace_root=tmp_path,
+        wholebody_diagnostics=diagnostics,
+    )
+
+    assert report["status"] == "blocked"
+    assert report["wholebody_diagnostic_binding"]["status"] == "wholebody_metric_coverage_below_minimum"
+    assert {blocker["code"] for blocker in report["blockers"]} == {"wholebody_metric_coverage_below_minimum"}
+
+
+def test_accuracy_readiness_rejects_changed_pose_artifact(tmp_path: Path) -> None:
+    pose_path = tmp_path / "outputs" / "test_session" / "runs" / "test_run" / "json" / "pose.json"
+    pose_path.parent.mkdir(parents=True)
+    pose_path.write_text("changed\n", encoding="utf-8")
+
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        _complete_timeline(),
+        workspace_root=tmp_path,
+    )
+
+    assert report["status"] == "blocked"
+    assert report["pose_binding"]["status"] == "pose_sha256_mismatch"
+    assert {blocker["code"] for blocker in report["blockers"]} == {"pose_sha256_mismatch"}
+
+
+def test_accuracy_engine_applies_minor_and_major_deductions() -> None:
+    result = evaluate_accuracy(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        _complete_timeline(),
+        [
+            _event("E01", "minor", "M01", 4, 6),
+            _event("E02", "major", "M02", 18, 22),
+        ],
+    )
+
+    assert result["status"] == "rule_based_provisional"
+    assert result["judge_calibrated"] is False
+    assert result["official_scoring_ready"] is False
+    assert result["initial_accuracy_score"] == 4.0
+    assert result["total_deduction"] == pytest.approx(0.4)
+    assert result["accuracy_score"] == pytest.approx(3.6)
+    assert result["summary"] == {
+        "event_count": 2,
+        "applied_count": 2,
+        "not_applied_count": 0,
+        "movement_count": 2,
+    }
+
+
+def test_accuracy_engine_applies_restart_as_performance_event() -> None:
+    result = evaluate_accuracy(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        _complete_timeline(),
+        [_event("RESTART", "restart", None, 0, 0)],
+    )
+
+    assert result["accuracy_score"] == pytest.approx(3.4)
+    assert result["applied_deductions"][0]["rule_id"] == "WT-2024-09-30-A16-EXPLANATION-3"
+
+
+def test_accuracy_engine_does_not_deduct_without_observed_confirmed_evidence() -> None:
+    duplicate = _event("E05", "minor", "M01", 4, 6, deduplication_key="same-error")
+    events = [
+        _event("E01", "minor", "M01", 4, 6, decision_status="candidate"),
+        _event("E02", "minor", "M01", 4, 6, evidence_status="inferred"),
+        _event("E03", "minor", "M01", 4, 6, confidence=0.5),
+        _event("E04", "minor", "M01", 4, 6, deduplication_key="same-error"),
+        duplicate,
+        _event("E06", "major", "M01", 11, 12),
+        _event("E07", "restart", None, 30, 30),
+        _event("E08", "minor", "M01", 4, 6, phase_id="not_a_real_phase"),
+        _event("E09", "minor", "M01", 4, 6, criterion_id="unknown.metric"),
+    ]
+
+    result = evaluate_accuracy(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        _complete_timeline(),
+        events,
+    )
+
+    assert result["accuracy_score"] == pytest.approx(3.9)
+    assert result["summary"]["applied_count"] == 1
+    reasons = {item["reason"] for item in result["not_applied_events"]}
+    assert reasons == {
+        "decision_not_confirmed",
+        "insufficient_independent_evidence",
+        "confidence_below_threshold",
+        "duplicate_error_event",
+        "event_outside_movement_interval",
+        "event_outside_timeline",
+        "unknown_movement_phase",
+        "metric_not_authorized_for_movement",
+    }
+
+
+def test_accuracy_engine_rejects_duplicate_event_ids() -> None:
+    event = _event("E01", "minor", "M01", 4, 6)
+
+    with pytest.raises(ScoringContractError, match="duplicate Accuracy event_id"):
+        evaluate_accuracy(
+            load_rule_pack(RULE_PACK_PATH),
+            _active_spec(),
+            _complete_timeline(),
+            [event, deepcopy(event)],
+        )
+
+
+def test_accuracy_engine_rejects_forged_rule_confirmation() -> None:
+    event = _event("E01", "minor", "M01", 4, 6)
+    event["rule_confirmation"]["rule_id"] = "forged-rule"
+
+    with pytest.raises(ScoringContractError, match="rule_id does not match"):
+        evaluate_accuracy(
+            load_rule_pack(RULE_PACK_PATH),
+            _active_spec(),
+            _complete_timeline(),
+            [event],
+        )
+
+
+def test_complete_timeline_must_match_poomsae_order() -> None:
+    timeline = _complete_timeline()
+    timeline["segments"][0]["movement_id"] = "M02"
+
+    with pytest.raises(ScoringContractError, match="movement order"):
+        validate_movement_timeline(timeline, _active_spec(), require_complete=True)
+
+
+def test_timeline_rejects_shared_boundary_frame() -> None:
+    timeline = _complete_timeline()
+    timeline["segments"][1]["start_frame"] = timeline["segments"][0]["end_frame"]
+
+    with pytest.raises(ScoringContractError, match="overlap"):
+        validate_movement_timeline(timeline, _active_spec(), require_complete=True)
+
+
+def test_timeline_coverage_must_match_observed_segments() -> None:
+    timeline = _complete_timeline()
+    timeline["coverage"]["recording_scope"] = "partial_sequence"
+    timeline["coverage"]["observed_movement_ids"] = ["M01"]
+    timeline["coverage"]["missing_movement_ids"] = ["M02"]
+    timeline["coverage"]["source_end_reason"] = "Synthetic partial recording"
+    timeline["status"] = "draft"
+
+    with pytest.raises(ScoringContractError, match="exactly match timeline segments"):
+        validate_movement_timeline(timeline, _active_spec())
+
+
+def test_rule_pack_loader_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
+    duplicate = tmp_path / "duplicate.yaml"
+    duplicate.write_text("schema_version: 1\nschema_version: 1\n", encoding="utf-8")
+
+    with pytest.raises(ScoringContractError, match="duplicate key"):
+        load_rule_pack(duplicate)

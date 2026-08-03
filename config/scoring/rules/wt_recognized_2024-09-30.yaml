@@ -1,0 +1,48 @@
+schema_version: 1
+rule_pack_id: wt_recognized_2024-09-30
+version: 1.0.0
+status: active
+authority: World Taekwondo
+discipline: recognized_poomsae
+effective_date: "2024-09-30"
+accessed_at: "2026-08-02"
+source_documents:
+  - source_id: wt_poomsae_rules_2024-09-30
+    authority: World Taekwondo
+    title: Poomsae Competition Rules and Interpretation
+    url: https://www.worldtaekwondo.org/att_file/documents/Poomsae_Competition_Rules_and_Interpretation_%28In_force_as_of_September_30_2024%29.pdf
+    effective_date: "2024-09-30"
+    accessed_at: "2026-08-02"
+    language: Korean and English
+    access: public
+    content_sha256: 3fc994363544ab2a1717d9d4d805b368e283a122d3f3c52fc444c70b8c206e24
+    sections:
+      - Article 15, page 23
+      - Article 16, page 25
+scoring:
+  total_score: 10.0
+  accuracy:
+    initial_score: 4.0
+    deductions:
+      minor:
+        rule_id: WT-2024-09-30-A16-1.2.2
+        amount: 0.1
+        scope: individual_movement
+        definition: Small mistake in an individual movement as defined by the attached scoring guidelines.
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article16-1.2.2
+      major:
+        rule_id: WT-2024-09-30-A16-1.2.3
+        amount: 0.3
+        scope: individual_movement
+        definition: Wrong action or major individual-movement mistake as defined by the attached scoring guidelines.
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article16-1.2.3
+      restart:
+        rule_id: WT-2024-09-30-A16-EXPLANATION-3
+        amount: 0.6
+        scope: performance
+        definition: The contestant restarts the Poomsae regardless of the number of movements performed.
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article16-Explanation3
+  presentation_reserved_score: 6.0

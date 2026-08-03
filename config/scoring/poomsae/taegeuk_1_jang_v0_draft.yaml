@@ -1,0 +1,632 @@
+schema_version: 1
+poomsae_id: taegeuk_1_jang
+version: 0.6.0-draft
+status: draft
+display_name: Taegeuk 1 Jang
+rule_pack_id: wt_recognized_2024-09-30
+sequence_status: source_transcribed
+source_documents:
+  - source_id: kukkiwon_taegeuk_1_page
+    authority: Kukkiwon
+    title: Taegeuk 1 Jang
+    url: https://www.kukkiwon.or.kr/eng/board/read?boardManagementNo=55&boardNo=1347&menuLevel=3&menuNo=72&page=2&searchCategory=&searchType=&searchWord=
+    effective_date: not_specified
+    accessed_at: "2026-08-02"
+    language: English
+    access: public
+    content_sha256: null
+    sections:
+      - Taegeuk 1 Jang meaning and basic-movement purpose
+  - source_id: kukkiwon_taegeuk_1_demonstration_2022
+    authority: Kukkiwon
+    title: 품새_태극1장
+    url: https://www.youtube.com/watch?v=FmlZHqV9Y-M
+    effective_date: "2022-01-06"
+    accessed_at: "2026-08-02"
+    language: Visual demonstration
+    access: public
+    content_sha256: null
+    sections:
+      - Full sequence demonstration, 00:12-00:36
+  - source_id: kukkiwon_taegeuk_1_training_2025
+    authority: Kukkiwon World Taekwondo Headquarters
+    title: 유급자 품새 교육 | 태극 1장
+    url: https://www.youtube.com/watch?v=__4pltpaPJo
+    effective_date: "2025-01-16"
+    accessed_at: "2026-08-02"
+    language: Korean with official English and Spanish subtitles
+    access: public
+    content_sha256: null
+    sections:
+      - Taegeuk 1 instruction and demonstration, 08:48-18:11
+      - Kihap timing and ending attitude, 18:18-20:11
+  - source_id: wtf_poomsae_scoring_guidelines_2014
+    authority: World Taekwondo Federation
+    title: Poomsae Scoring Guidelines for International Referees
+    url: https://d17nlwiklbtu7t.cloudfront.net/983/document/Poomsae_scoring_guidelines.pdf
+    effective_date: "2014-03-19"
+    accessed_at: "2026-08-03"
+    language: English
+    access: public
+    content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+    sections:
+      - Historical official technique geometry, pages 5, 7, 16-18, 23 and 33
+      - Terminology and score sheets, pages 36-43
+movements:
+  - movement_id: M01
+    sequence_index: 1
+    display_name: Sol ap-seogi ve sol arae-makki
+    direction: initial_left
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: arae_makki
+        side: left
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.arae_makki.elbow
+      - technique.arae_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#09:25-10:22
+      - wtf_poomsae_scoring_guidelines_2014#pages5,16
+  - movement_id: M02
+    sequence_index: 2
+    display_name: Sağ ap-seogi ve sağ momtong-jireugi
+    direction: initial_left
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: right
+        order: 1
+    phases: [preparation, step, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#10:18-11:35
+      - wtf_poomsae_scoring_guidelines_2014#pages5,23
+  - movement_id: M03
+    sequence_index: 3
+    display_name: Sağ ap-seogi ve sağ arae-makki
+    direction: initial_right
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: arae_makki
+        side: right
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.arae_makki.elbow
+      - technique.arae_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#09:25-10:22
+      - wtf_poomsae_scoring_guidelines_2014#pages5,16
+  - movement_id: M04
+    sequence_index: 4
+    display_name: Sol ap-seogi ve sol momtong-jireugi
+    direction: initial_right
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: left
+        order: 1
+    phases: [preparation, step, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#10:18-11:35
+      - wtf_poomsae_scoring_guidelines_2014#pages5,23
+  - movement_id: M05
+    sequence_index: 5
+    display_name: Sol ap-gubi ve sol arae-makki
+    direction: initial_forward
+    stance: left_ap_gubi
+    techniques:
+      - technique_id: arae_makki
+        side: left
+        order: 1
+    phases: [preparation, turn, weight_transfer, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.arae_makki.elbow
+      - technique.arae_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#11:35-12:46
+      - wtf_poomsae_scoring_guidelines_2014#pages7,16
+  - movement_id: M06
+    sequence_index: 6
+    display_name: Sol ap-gubi içinde sağ momtong-jireugi
+    direction: initial_forward
+    stance: left_ap_gubi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: right
+        order: 1
+    phases: [preparation, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#12:46-13:11
+      - wtf_poomsae_scoring_guidelines_2014#pages7,23
+  - movement_id: M07
+    sequence_index: 7
+    display_name: Sağ ap-seogi ve sol momtong-an-makki
+    direction: initial_left
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: momtong_an_makki
+        side: left
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_an_makki.elbow
+      - technique.momtong_an_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#13:06-13:36
+  - movement_id: M08
+    sequence_index: 8
+    display_name: Sol ap-seogi ve sağ momtong-jireugi
+    direction: initial_left
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: right
+        order: 1
+    phases: [preparation, step, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#13:33-13:55
+  - movement_id: M09
+    sequence_index: 9
+    display_name: Sol ap-seogi ve sağ momtong-an-makki
+    direction: initial_right
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: momtong_an_makki
+        side: right
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_an_makki.elbow
+      - technique.momtong_an_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#13:52-14:10
+  - movement_id: M10
+    sequence_index: 10
+    display_name: Sağ ap-seogi ve sol momtong-jireugi
+    direction: initial_right
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: left
+        order: 1
+    phases: [preparation, step, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#14:07-14:10
+  - movement_id: M11
+    sequence_index: 11
+    display_name: Sağ ap-gubi ve sağ arae-makki
+    direction: initial_forward
+    stance: right_ap_gubi
+    techniques:
+      - technique_id: arae_makki
+        side: right
+        order: 1
+    phases: [preparation, turn, weight_transfer, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.arae_makki.elbow
+      - technique.arae_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#14:10-14:41
+  - movement_id: M12
+    sequence_index: 12
+    display_name: Sağ ap-gubi içinde sol momtong-jireugi
+    direction: initial_forward
+    stance: right_ap_gubi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: left
+        order: 1
+    phases: [preparation, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#12:46-14:10
+  - movement_id: M13
+    sequence_index: 13
+    display_name: Sol ap-seogi ve sol eolgul-makki
+    direction: initial_left
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: eolgul_makki
+        side: left
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.eolgul_makki.elbow
+      - technique.eolgul_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#14:41-15:31
+      - wtf_poomsae_scoring_guidelines_2014#pages5,17
+  - movement_id: M14
+    sequence_index: 14
+    display_name: Sağ ap-chagi, sağ ap-seogi ve sağ momtong-jireugi
+    direction: initial_left
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: ap_chagi
+        side: right
+        order: 1
+      - technique_id: momtong_jireugi
+        side: right
+        order: 2
+    phases: [preparation, kick_execution, kick_apex, rechamber, landing, punch_execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.ap_chagi.knee_extension
+      - technique.ap_chagi.height
+      - technique.ap_chagi.rechamber
+      - technique.ap_chagi.support_foot_pivot
+      - timing.kick_landing_punch.sequence
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#15:28-17:18
+      - wtf_poomsae_scoring_guidelines_2014#pages5,23,33
+  - movement_id: M15
+    sequence_index: 15
+    display_name: Sağ ap-seogi ve sağ eolgul-makki
+    direction: initial_right
+    stance: right_ap_seogi
+    techniques:
+      - technique_id: eolgul_makki
+        side: right
+        order: 1
+    phases: [preparation, turn, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.eolgul_makki.elbow
+      - technique.eolgul_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#14:41-15:42
+      - wtf_poomsae_scoring_guidelines_2014#pages5,17
+  - movement_id: M16
+    sequence_index: 16
+    display_name: Sol ap-chagi, sol ap-seogi ve sol momtong-jireugi
+    direction: initial_right
+    stance: left_ap_seogi
+    techniques:
+      - technique_id: ap_chagi
+        side: left
+        order: 1
+      - technique_id: momtong_jireugi
+        side: left
+        order: 2
+    phases: [preparation, kick_execution, kick_apex, rechamber, landing, punch_execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_seogi.span
+      - stance.ap_seogi.front_knee
+      - technique.ap_chagi.knee_extension
+      - technique.ap_chagi.height
+      - technique.ap_chagi.rechamber
+      - technique.ap_chagi.support_foot_pivot
+      - timing.kick_landing_punch.sequence
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#15:35-17:18
+      - wtf_poomsae_scoring_guidelines_2014#pages5,23,33
+  - movement_id: M17
+    sequence_index: 17
+    display_name: Sol ap-gubi ve sol arae-makki
+    direction: initial_backward
+    stance: left_ap_gubi
+    techniques:
+      - technique_id: arae_makki
+        side: left
+        order: 1
+    phases: [preparation, turn, weight_transfer, execution, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.arae_makki.elbow
+      - technique.arae_makki.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#17:15-18:04
+      - wtf_poomsae_scoring_guidelines_2014#pages7,16
+  - movement_id: M18
+    sequence_index: 18
+    display_name: Sağ ap-gubi, sağ momtong-jireugi ve kihap
+    direction: initial_backward
+    stance: right_ap_gubi
+    techniques:
+      - technique_id: momtong_jireugi
+        side: right
+        order: 1
+      - technique_id: kihap
+        side: none
+        order: 2
+    phases: [preparation, step, execution, kihap, fixation]
+    measurable_criteria:
+      - balance.torso_vertical
+      - stance.ap_gubi.span
+      - stance.ap_gubi.front_knee
+      - technique.momtong_jireugi.elbow
+      - technique.momtong_jireugi.height
+      - stance.foot_direction
+      - rotation.shoulder_hip
+      - gaze.direction
+      - technique.side
+      - technique.hikite.position
+      - technique.hand.wrist_alignment
+      - technique.hand.fist
+      - timing.hand_foot.simultaneity
+      - technique.fixation.stability
+      - stance.weight_transfer
+      - technique.trajectory
+      - audio.kihap.timing
+    source_refs:
+      - kukkiwon_taegeuk_1_demonstration_2022#00:12-00:36
+      - kukkiwon_taegeuk_1_training_2025#18:01-19:43
+      - wtf_poomsae_scoring_guidelines_2014#pages7,23
+blocked_reasons:
+  - Kick-punch compound movement tolerances need a second current official table-level cross-check before activation; their current metrics are diagnostic-only.
+  - Technique-specific numeric tolerances are engineering hypotheses only and are not approved judging tolerances.
+  - The current WT rules refer to an attached Poomsae Competition Scoring Guideline that was not found in the public current document list.
+  - The recovered 2014 official scoring guideline is historical and cannot establish current numeric judging tolerances by itself.

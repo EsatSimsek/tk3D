@@ -29,6 +29,51 @@ COCO_BODY_JOINT_NAMES: tuple[str, ...] = (
 )
 COCO_BODY_JOINTS: dict[str, int] = {name: idx for idx, name in enumerate(COCO_BODY_JOINT_NAMES)}
 COCO_BODY_JOINT_INDICES: tuple[int, ...] = tuple(COCO_BODY_JOINTS.values())
+COCO_FOOT_JOINTS: dict[str, int] = {
+    "left_big_toe": 17,
+    "left_small_toe": 18,
+    "left_heel": 19,
+    "right_big_toe": 20,
+    "right_small_toe": 21,
+    "right_heel": 22,
+}
+COCO_FACE_INDICES: tuple[int, ...] = tuple(range(23, 91))
+COCO_LEFT_HAND_OFFSET = 91
+COCO_RIGHT_HAND_OFFSET = 112
+COCO_HAND_LOCAL_JOINTS: dict[str, int] = {
+    "wrist": 0,
+    "thumb_cmc": 1,
+    "thumb_mcp": 2,
+    "thumb_ip": 3,
+    "thumb_tip": 4,
+    "index_mcp": 5,
+    "index_pip": 6,
+    "index_dip": 7,
+    "index_tip": 8,
+    "middle_mcp": 9,
+    "middle_pip": 10,
+    "middle_dip": 11,
+    "middle_tip": 12,
+    "ring_mcp": 13,
+    "ring_pip": 14,
+    "ring_dip": 15,
+    "ring_tip": 16,
+    "pinky_mcp": 17,
+    "pinky_pip": 18,
+    "pinky_dip": 19,
+    "pinky_tip": 20,
+}
+COCO_LEFT_HAND_INDICES: tuple[int, ...] = tuple(range(COCO_LEFT_HAND_OFFSET, COCO_RIGHT_HAND_OFFSET))
+COCO_RIGHT_HAND_INDICES: tuple[int, ...] = tuple(range(COCO_RIGHT_HAND_OFFSET, COCO_WHOLEBODY_KEYPOINTS))
+
+
+def coco_hand_joint(side: str, joint_name: str) -> int:
+    if side not in {"left", "right"}:
+        raise ValueError("hand side must be left or right")
+    if joint_name not in COCO_HAND_LOCAL_JOINTS:
+        raise ValueError(f"unknown hand joint: {joint_name}")
+    offset = COCO_LEFT_HAND_OFFSET if side == "left" else COCO_RIGHT_HAND_OFFSET
+    return offset + COCO_HAND_LOCAL_JOINTS[joint_name]
 
 
 @dataclass(slots=True)

@@ -2,7 +2,7 @@
 
 Durum: **uygulama için kabul edilen mimari plan**
 
-Son kaynak doğrulama tarihi: **2 Ağustos 2026**
+Son kaynak doğrulama tarihi: **3 Ağustos 2026**
 
 İlk hedef: **Taegeuk 1 Jang için açıklanabilir, resmî kaynaklara bağlı ve
 uzman gerektirmeden çalışabilen provisional puanlama**
@@ -124,11 +124,29 @@ Puanlama alanında aşağıdaki kaynak sırası uygulanacaktır:
 
 2 Ağustos 2026 tarihinde erişilen resmî kaynaklar:
 
-- [WT Poomsae Competition Rules & Interpretation — yürürlük tarihi 14 Haziran
-  2024](https://www.worldtaekwondo.org/att_file/documents/Poomsae_Competition_Rules_and_Interpretation_%28In_force_as_of_June_14_2024%29.pdf)
-- [World Taekwondo kural belgeleri sayfası](https://www.worldtaekwondo.org/rules-wt/rules.html/rules.html?sc=03)
+- [WT Poomsae Competition Rules & Interpretation — yürürlük tarihi 30 Eylül
+  2024](https://www.worldtaekwondo.org/att_file/documents/Poomsae_Competition_Rules_and_Interpretation_%28In_force_as_of_September_30_2024%29.pdf)
+- [World Taekwondo Rules and Regulations](https://www.worldtaekwondo.org/inside/documents/rar/list)
 - [Kukkiwon Taegeuk 1 Jang resmî sayfası](https://www.kukkiwon.or.kr/eng/board/read?boardManagementNo=55&boardNo=1347&menuLevel=3&menuNo=72&page=2&searchCategory=&searchType=&searchWord=)
 - [Kukkiwon renkli kuşak poomsae eğitim videoları duyurusu](https://kukkiwon.or.kr/eng/board/read?boardManagementNo=49&boardNo=3515&menuLevel=2&menuNo=91%3FselectMenuCode%3DPE020300&page=3&searchCategory=&searchType=&searchWord=)
+- [Kukkiwon 2025 Taegeuk 1 ayrıntılı eğitimi](https://www.youtube.com/watch?v=__4pltpaPJo)
+- [Kukkiwon Taegeuk 1 kısa tam sıra gösterimi](https://www.youtube.com/watch?v=FmlZHqV9Y-M)
+
+WT'nin 2 Ağustos 2026 tarihindeki canlı `POOMSAE / CURRENT` listesi 30 Eylül
+2024 belgesini güncel kural olarak göstermektedir. Yerel olarak doğrulanan
+PDF'nin SHA-256 değeri
+`3fc994363544ab2a1717d9d4d805b368e283a122d3f3c52fc444c70b8c206e24`'tür.
+Article 16'nın atıf yaptığı ayrı scoring guideline dosyası güncel kamuya açık
+listede bulunamamıştır. Ayrıntılı erişim, ücret ve kaynak boşluğu kaydı
+[`SCORING_SOURCE_REGISTER.md`](SCORING_SOURCE_REGISTER.md) içindedir.
+
+3 Ağustos 2026 derin taramasında aynı guideline'ın 2014 WT kural kitabına ekli
+resmî tarihsel sürümü ve ayrı tam 43 sayfalık arşivi doğrulanmıştır.
+Masaüstündeki 35 sayfalık kopya bu belgenin eksik kopyasıdır; ilk 35 sayfanın
+metni tam dosyayla eşleşir. Tarihsel teknik tanımlar hata adayı ve metrik
+tasarımını güçlendirir fakat güncel WT toleransı sayılmaz. Ayrıntılı hata ve
+ölçülebilirlik matrisi
+[`TAEGEUK1_ERROR_TAXONOMY.md`](TAEGEUK1_ERROR_TAXONOMY.md) içindedir.
 
 Kural uygulamasına başlamadan ve her yayımdan önce WT sayfası tekrar kontrol
 edilecektir. Dosyanın URL'si kadar SHA-256 özeti, yürürlük tarihi, erişim tarihi,
@@ -167,7 +185,7 @@ ayrı sürümde güncellenir.
 
 ## 4. WT puan yapısının sistemde temsili
 
-14 Haziran 2024 yürürlük tarihli WT belgesindeki Recognized Poomsae yapısı
+30 Eylül 2024 yürürlük tarihli WT belgesindeki Recognized Poomsae yapısı
 esas alındığında toplam puan `10,0` ve ana bölümler şöyledir:
 
 - Accuracy: `4,0`
@@ -376,7 +394,9 @@ eklem hızları + ayak sabitliği + heading dönüşü + poz değişimi
 
 İlk sürümde önerilen yöntem:
 
-1. Mevcut video elle `start/apex/end` olarak etiketlenir.
+1. Mevcut video elle hareket `start/end` aralıkları ve o harekete özgü faz
+   anchor'larıyla etiketlenir. Tekme-vuruş gibi bileşiklerde tek bir `apex`
+   alanına zorlanmaz; örneğin `kick_apex`, `landing` ve `fixation` ayrı olabilir.
 2. Kinematik olay algılayıcı sınır adayları üretir.
 3. Bilinen Poomsae sırasına Dynamic Time Warping veya dinamik programlama ile
    monoton eşleştirme yapılır.
@@ -508,7 +528,7 @@ Uzman gerektirmeyen zorunlu teknik etiketler:
 - `session_id`, `run_id`, kamera/sensör profili,
 - rule pack ve poomsae spec sürümü,
 - hareket kimliği,
-- `start/apex/end` kareleri,
+- `start/end` kareleri ve harekete özgü faz anchor'ları,
 - görülen teknik/duruş/yön,
 - kaynak tabanlı provisional hata adayı,
 - hatanın kanıtlandığı kamera/kare,
@@ -723,10 +743,14 @@ eski provisional score alanını kullanmamalı.
 
 İşler:
 
-- WT PDF ve eklerini yerel manifestte sürümlemek,
-- Article 15/16 ve ilgili interpretation maddelerini yapılandırmak,
-- accuracy ve presentation semantiğini ayırmak,
-- iki geçişli kaynak denetimini ve şema doğrulamasını kurmak.
+- [tamamlandı] WT PDF kimliği, SHA-256 özeti ve kaynak sicilini kaydetmek,
+- [tamamlandı] Article 15/16 kesinti semantiğini sürümlü RulePack'e geçirmek,
+- [tamamlandı] Accuracy ve Presentation bütçelerini ayırmak,
+- [tamamlandı] benzersiz YAML anahtarı ve fail-closed şema doğrulamasını
+  kurmak,
+- [kısmen kapatıldı] Article 16'nın işaret ettiği scoring guideline'ın 2014
+  resmî tarihsel 43 sayfalık sürümünü edinmek; güncel ayrı ek hâlâ kamuya açık
+  listede bulunmadığından tarihsel ölçüleri aktif tolerans yapmamak.
 
 Çıkış kapısı: Her aktif kuralın belge, sayfa/madde, çıkarım türü ve kaynak
 denetim kaydı bulunmalı. Belgesiz kural aktif olmamalı.
@@ -735,20 +759,33 @@ denetim kaydı bulunmalı. Belgesiz kural aktif olmamalı.
 
 İşler:
 
-- resmî hareket sırasını kaynaklardan çıkarmak,
-- hareket, teknik, duruş, yön ve faz ontolojisini oluşturmak,
-- ölçülebilir/ölçülemez kriterleri belirlemek,
-- aynı hareketi birden fazla resmî gösterim veya açıklamayla çapraz kontrol
-  etmek.
+- [tamamlandı - taslak] 2022 tam sıra gösterimi ve 2025 ayrıntılı eğitimden
+  18 sıralı hareket birimini çıkarmak,
+- [tamamlandı - taslak] hareket, teknik, duruş, yön ve çoklu faz sözleşmesini
+  oluşturmak,
+- [tamamlandı - M01-M06 engineering v1] ölçülebilir/ölçülemez kriterleri ve
+  ayrı, resmî olmayan mühendislik tolerans politikasını doldurmak,
+- [devam ediyor] özellikle tekme-vuruş bileşiklerinin tablo sınırlarını ikinci
+  resmî kaynakla çapraz kontrol etmek.
 
 Çıkış kapısı: Sıra ve tekniklerin kaynak izi tam; belirsiz kural aktif puan
 üretmiyor ve `source_ambiguity` olarak raporlanıyor.
 
 ### Aşama 3 — Annotation ve referans seti
 
+İlerleme: ZED2i pose çıktısı SHA-256 ile taslak `MovementTimeline` sözleşmesine
+bağlandı. İki kamera incelemesinde kısa kaydın yalnız M01-M06'yı içerdiği
+doğrulandı; bu altı hareketin `24` faz anchor'ı girildi. İki kameralı temas
+sayfası incelemesinden sonra zaman sınırları `confirmed` oldu; bu teknik
+doğruluk onayı değildir.
+M07-M18 videoda bulunmadığı için üretilmedi ve hazırlık kapısı kapalıdır.
+MovementTimeline v2 bunu `partial_sequence` kapsamıyla etiket eksikliğinden
+ayırır. Senkron iki-kamera HTML inceleme ekranı aynı zaman çizelgesine bağlıdır.
+
 İşler:
 
-- mevcut 12,35 saniyelik videoda hareket `start/apex/end` etiketlemek,
+- mevcut 12,35 saniyelik videoda hareket aralığı ve hareketin anlamlı faz
+  anchor'larını etiketlemek,
 - resmî/referans gösterimleri aynı şemada etiketlemek,
 - annotation aracı ve gözden geçirme geçmişi oluşturmak,
 - tek videodan evrensel tolerans üretmemek.
@@ -770,6 +807,27 @@ geçmeli.
 
 ### Aşama 5 — Metrik ve observability motoru
 
+İlerleme: İlk BODY-17 v1 ölçümü yetersiz bulunarak sayısal sonuç üretme yetkisi
+kaldırıldı. WholeBody-133 v2; gövde, ayak, yüz ve iki eli kullanarak stance,
+ayak yönü, uygulayan taraf, hikite, el/bilek geometrisi, bakış-gövde yönü,
+eşzaman, fixation, ağırlık aktarımı ve trajectory ölçer. Gerçek kayıtta eşikli
+`96` metriğin `74` tanesi ölçülebilir, `22` tanesi ölçülemez kaldı; `%77,08`
+kapsam `%90` kapısını geçmedi.
+
+3 Ağustos 2026 genişletmesinde bütün M01-M18 hareketleri ölçülebilir kriter
+listesine kavuştu. M14/M16 `ap-chagi + momtong-jireugi` hareketlerinde tekme
+zirvesi, dizin yeniden toplanması, destek ayağı pivotu, iniş ve yumruk zamanı
+ayrı metriklerdir. Güncel sayısal tolerans olmadığı için bu beş metrik yalnız
+teşhis değeri üretir; aday/kesinti üretmez. `momtong-an-makki` ve
+`eolgul-makki` yükseklik/dirsek değerleri de kaynak gelene kadar eşiksiz
+teşhistir.
+
+WholeBody v2.4, eski `iki ayağın birbirine göre yaw farkı` metriğini kaldırır.
+Arka ayak yönü, arka ayak bileğinden ön ayak bileğine duruş doğrultusuna göre
+ölçülür. Fixation penceresindeki sağlam MAD dağılımından `%95` belirsizlik ve
+örnek sayısı taşınır. Arae-makki için yumruk merkezi-uyluk uzaklığı yumruk
+genişliğine normalize edilir.
+
 İşler:
 
 - body-frame ve ölçek normalizasyonu,
@@ -782,6 +840,30 @@ geçmeli.
 puan kesmiyor.
 
 ### Aşama 6 — Accuracy 4,0 motoru
+
+İlerleme: Kaynak bağlı `4,0` başlangıç ve `0,1 / 0,3 / 0,6` kesintilerini
+uygulayan çekirdek motor tamamlandı. Motor yalnız aktif PoomsaeSpec, eksiksiz
+MovementTimeline ve gözlenmiş/kuralca doğrulanmış olay kabul eder. Buna ek
+olarak resmî motordan ayrılmış WholeBody-133 v2 teşhis motoru tamamlandı. İlk
+BODY-17 `4,0` denemesi maksimum skor izlenimi verdiği için geçersizleştirildi;
+artık `partial_engineering_trial_score=null` üretir. WholeBody koşusu `13`
+video-inceleme adayı üretti fakat eşikler resmî/kalibre olmadığı için kesinti
+ve skor üretmedi; `accuracy_score=null` kaldı.
+
+Source-bound v1 katmanı, tarihsel resmî 2014 kılavuzundaki açık geometrileri
+güncel WT eki diye sunmadan ayrı profile bağlar: ap-seogi/apkubi arka ayak
+`30°`, arae-makki yumruk-uyluk `1–2 yumruk`, momtong-an-makki dirsek
+`90–120°`. Ölçümün `%95` aralığı kaynak sınırının tamamıyla dışına çıkmadıkça
+kesinti uygulanmaz. Sayısal geometri yalnız `minor=-0,1` oluşturabilir;
+`major=-0,3` sayısal açı şiddetinden türetilemez ve doğrudan gözlenen kategorik
+olay gerektirir. Aynı hareketin aynı fiziksel `error_unit` değeri tekilleştirilir.
+Kısmi kayıtta yalnız `observed_scope_provisional_deduction_total` raporlanır;
+tam `accuracy_score` üretilmez.
+
+Gerçek M01-M06 regresyonunda dokuz source-bound kararın beşi küçük hata olarak
+uygulandı, biri kaynak aralığında kaldı, üçü ölçülemedi. Gözlenen kapsam kesinti
+toplamı `0,5`; kategorik major olayı `0`; `accuracy_score=null` oldu. Bu sayı
+tam Poomsae puanı veya güncel WT tolerans doğrulaması değildir.
 
 İşler:
 
@@ -856,12 +938,42 @@ Uzman/yetkili kurum olmadığı için `judge_calibrated_ready=false` ve
 
 İlk uygulama sprintinin kapsamı yalnız şunlar olmalıdır:
 
-1. Eksen hatasını ve sentetik metrik testlerini düzeltmek.
-2. RulePack ve PoomsaeSpec JSON/YAML şemalarını oluşturmak.
-3. WT 2024 puan semantiğini kaynak referanslarıyla girmek.
-4. Taegeuk 1 hareket tablosunu doldurmak için kaynak denetim şablonu üretmek.
-5. Mevcut videoyu elle `start/apex/end` etiketlemek.
-6. Puan vermeden önce hareket zaman çizelgesi ve metrik kanıt raporu üretmek.
+1. [tamamlandı] Eksen hatasını ve sentetik metrik testlerini düzeltmek.
+2. [tamamlandı] RulePack, PoomsaeSpec ve MovementTimeline YAML sözleşmelerini
+   oluşturmak.
+3. [tamamlandı] WT 2024-09-30 puan semantiğini kaynak referanslarıyla girmek.
+4. [tamamlandı - taslak] Taegeuk 1 hareket tablosunu ücretsiz resmî Kukkiwon
+   kaynaklarından çıkarmak.
+5. [tamamlandı - kısa kayıt] Mevcut videodaki M01-M06'yı hareket aralığı ve
+   faz anchor'larıyla etiketlemek; kayıtta olmayan M07-M18'i üretmemek.
+6. [tamamlandı - puansız kanıt] Hareket zaman çizelgesi, iki etiketli inceleme
+   videosu ve faz bazlı metrik/observability raporu üretmek.
+7. [tamamlandı - inceleme yüzeyi] İki kamerayı senkron oynatan, hareket/faz
+   seçimi, readiness engelleri, BODY-17 iptal uyarısı ve WholeBody adaylarını
+   gösteren, kendi başına puan üretmeyen HTML raporu eklemek.
+8. [tamamlandı - WholeBody teşhisi] M01-M06 için 133 noktalı gövde/ayak/yüz/el,
+   trajectory, zamanlama ve fixation ölçülerini; grup/metric güven kapılarını
+   ve gerçek kayıt koşusunu eklemek. Adayları ceza yapmamak, otomatik major ve
+   bütün sayısal skorları kapalı tutmak.
+9. [tamamlandı - source-bound observed scope] Tarihsel açık geometriyi
+   hash/sayfa bağlı profile almak; `%95` belirsizlik kapısı, küçük-hata sınırı,
+   kategorik major sözleşmesi, hata tekilleştirme ve kısmi-kayıt `score=null`
+   korumasıyla gerçek M01-M06 regresyonunu üretmek.
+10. [sıradaki] M01-M18'in tamamını içeren yeni kaydı aynı sözleşmeyle
+   etiketlemek ve kısıtlı sıra hizalamasını sınamak.
+
+Hazırlık kapısı kalıcı komutla denetlenir:
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\assess_poomsae_scoring_readiness.py `
+  --rule-pack config\scoring\rules\wt_recognized_2024-09-30.yaml `
+  --poomsae-spec config\scoring\poomsae\taegeuk_1_jang_v0_draft.yaml `
+  --timeline config\scoring\timelines\poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml
+```
+
+Komutun `blocked` çıkması mevcut aşamada hata değildir: pose dosyasının doğru
+koşuya ait olduğu ayrıca doğrulanırken eksik kaynak/etiketler puan üretmeden
+listelenir.
 
 Bu sprintte yapılmayacaklar:
 

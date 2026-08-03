@@ -1,0 +1,52 @@
+schema_version: 1
+profile_id: taegeuk1-wholebody-diagnostics-v2
+version: 2.4.0
+status: diagnostic_only_unvalidated
+poomsae_id: taegeuk_1_jang
+required_keypoint_count: 133
+score_policy:
+  numeric_score_enabled: false
+  insufficient_coverage_blocks_score: true
+  minimum_metric_coverage: 0.90
+quality_gates:
+  min_used_cameras: 2.0
+  max_reprojection_error_px: 8.0
+  min_segment_group_valid_ratio: 0.75
+  anchor_window_radius_frames: 5
+  min_anchor_window_valid_samples: 3
+  face_eye_separation_body_scale_min: 0.04
+  face_eye_separation_body_scale_max: 0.15
+  hand_palm_length_body_scale_min: 0.04
+  hand_palm_length_body_scale_max: 0.25
+  foot_length_body_scale_min: 0.10
+  foot_length_body_scale_max: 0.50
+thresholds:
+  torso_lean_p95_deg_max: 15.0
+  shoulder_hip_twist_deg_max: 20.0
+  head_torso_yaw_mismatch_deg_max: 25.0
+  expected_side_dominance_ratio_min: 1.10
+  hikite_hip_distance_body_scale_max: 0.45
+  wrist_forearm_alignment_deg_max: 30.0
+  fist_closure_ratio_max: 0.90
+  simultaneity_sec_max: 0.20
+  fixation_wrist_jitter_body_scale_max: 0.05
+  weight_transfer_body_scale_min: 0.03
+  path_efficiency_punch_max: 1.80
+  path_efficiency_block_max: 2.60
+  ap_seogi_span_ratio_min: 0.20
+  ap_seogi_span_ratio_max: 0.60
+  ap_seogi_front_knee_deg_min: 155.0
+  ap_seogi_front_knee_deg_max: 180.0
+  ap_gubi_span_ratio_min: 0.45
+  ap_gubi_span_ratio_max: 0.95
+  ap_gubi_front_knee_deg_min: 120.0
+  ap_gubi_front_knee_deg_max: 170.0
+  punch_wrist_height_torso_ratio_min: 0.20
+  punch_wrist_height_torso_ratio_max: 1.00
+  block_wrist_height_torso_ratio_min: 0.00
+  block_wrist_height_torso_ratio_max: 0.40
+  punch_elbow_deg_min: 150.0
+  punch_elbow_deg_max: 180.0
+  block_elbow_deg_min: 80.0
+  block_elbow_deg_max: 165.0
+disclaimer: Screening thresholds are engineering hypotheses informed by current Kukkiwon technique teaching and the historical official 2014 WTF scoring guideline; they are not current WT judging tolerances and cannot produce a score.

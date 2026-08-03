@@ -18,13 +18,18 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - 3D iskelet üretimi projenin asıl amacı değil, puanlama için gerekli ara çıktıdır.
 - Ana ara veri sözleşmesi `keypoints_3d_world[t, 133, 3]` formatındaki COCO-WholeBody tabanlı 3D dünya koordinatlarıdır.
 - Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları -> açıklanabilir geçici teknik skor.
-- Geçici skor resmi hakem puanı değildir. Sıradaki alan işi, gerçek poomsae kayıtlarında phase/step etiketleri ve onaylı teknik hedefler oluşturmaktır.
+- Geçici skor resmî hakem puanı değildir. Sıradaki iş, gerçek poomsae
+  kayıtlarında hareket/faz etiketlerini kaynak bağlı olarak tamamlamak ve açık
+  mühendislik toleranslarını ayrı sürümde tanımlamaktır; hakem/uzman etiketi
+  provisional kural motorunun önkoşulu değildir.
 - AIST Dance/AIST++ verisi gerçek poomsae videosu gelmeden kamera, triangulation, ViTPose inference, SMPL mesh ve scoring-readiness akışını test etmek için kullanılıyor.
 - MADS Karate/Tai-chi verisi, kalibre üç RGB kamera ve motion-capture ground truth kullanan tarihsel RGB-only dış benchmark'tır; F2 dizisi model uyarlamasından tamamen ayrı testtir ve sonuçları başka koşulara devredilmez.
 - Üretim 2B hattı RF-DETR kişi tespiti, ByteTrack kimlik takibi, adaptif kişi-kutusu stabilizasyonu, ViTPose flip-test ve zamansal eklem filtresi kullanır.
 - ZED SVO/SVO2 oturumlarında NEURAL stereo depth ve confidence, RGB çok-kamera triangulation'ı ana kanıt olarak koruyan güven kapılı yardımcı BODY-17 ölçümüdür; aynı koşudaki saf RGB referans dalı kötüleşirse depth adayı otomatik reddedilir.
 - 27 Temmuz 2026 tarihli 300 örnekli MADS F2 RGB-only kör testinde iç geometri geçti, global MPJPE `90,409 mm` ile `50 mm` hedefi geçmedi. Bu tarihsel sonuç güncel ZED RGBD koşusunun doğruluğu değildir ve ona uygulanmaz.
-- Kendi poomsae videoları geldiğinde ortak checkerboard kalibrasyonu yapılmalı; çok kişili çekimlerde kimlik eşleme, poomsae adım etiketleri ve hakem/koç onaylı puan hedefleri eklenmelidir.
+- Kendi poomsae videolarında ortak dünya kalibrasyonu ve poomsae hareket/faz
+  etiketleri gerekir. Çok kişili çekimlerde ayrıca kimlik eşleme gerekir;
+  hakem/koç puanları yalnız gelecekte hakem kalibrasyonu istenirse opsiyoneldir.
 
 Ana ara hedef veri:
 
@@ -49,6 +54,114 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - JSON, CSV, Excel ve figür export iskeleti
 - Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
+
+## Taegeuk 1 Accuracy puanlama altyapısı
+
+Yeni kural motoru üç sürümlü ve fail-closed sözleşme kullanır:
+
+- `RulePack`: yürürlükteki WT puan bütçesi ve kesinti miktarları;
+- `PoomsaeSpec`: Kukkiwon kaynaklı Taegeuk 1 hareket, teknik ve faz sırası;
+- `MovementTimeline`: belirli pose dosyasına SHA-256 ile bağlı video etiketleri
+  ve kaydın tam/kısmi kapsam bildirimi.
+
+Güncel WT RulePack aktiftir. Taegeuk 1'in 18 hareketlik kaynak
+transkripsiyonu taslaktır. Gerçek `741` karelik kısa ZED2i kaydında yalnız
+M01-M06 bulundu ve iki kameralı son sınır incelemesinden sonra çoklu faz
+anchor'larıyla zaman çizelgesi bakımından `confirmed` olarak etiketlendi;
+kayıt M07-M18'i içermiyor. Bu yüzden komut doğru biçimde `6/18`, `blocked`
+raporu üretir ve kısa kayıttan tam Poomsae puanı uydurmaz:
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\assess_poomsae_scoring_readiness.py `
+  --rule-pack config\scoring\rules\wt_recognized_2024-09-30.yaml `
+  --poomsae-spec config\scoring\poomsae\taegeuk_1_jang_v0_draft.yaml `
+  --timeline config\scoring\timelines\poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml
+```
+
+Kaynaklar, erişim durumu ve ücretli seçenekler
+[`docs/SCORING_SOURCE_REGISTER.md`](docs/SCORING_SOURCE_REGISTER.md), uygulama
+yolu [`docs/PUANLAMA_PLANI.md`](docs/PUANLAMA_PLANI.md), kaynak otoritesiyle
+ayrılmış bütün hata/ölçülebilirlik matrisi
+[`docs/TAEGEUK1_ERROR_TAXONOMY.md`](docs/TAEGEUK1_ERROR_TAXONOMY.md), gerçek kayıt
+etiketleri ise
+[`docs/POOMSAE1_KISA_KAYIT_ETIKETLERI.md`](docs/POOMSAE1_KISA_KAYIT_ETIKETLERI.md)
+içindedir.
+
+Mevcut kısa kayıt için iki kamerayı birlikte oynatan, hareket kartlarından aynı
+zamana atlayan, WholeBody-133 hata adaylarını ve ölçüm kapsamını gösteren güncel
+inceleme ekranı:
+[`poomsae1_scoring_review.html`](outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-scoring-expand-v2_3-20260803-123907/review/poomsae1_scoring_review.html).
+Rapor üreticisi en az iki kamera ister; gelecekteki üçüncü kamera tekrar
+edilebilir `--video-extra "Etiket=dosya"` argümanıyla eklenebilir.
+
+v2.4 motoru fixation ölçülerini tek kareden değil ±5 karelik sağlam faz
+penceresinden çıkarır. Yüz, el ve ayak geometrisi vücut ölçeğine göre fiziksel
+makullük kapısından geçmeden teknik aday olamaz. Her aday ölçüm ve kriter
+kimliğini, kare/zaman kanıtını, eşik farkını ve bekleyen inceleme durumunu taşır;
+inceleme ekranındaki `Videoda aç` düğmesi bütün kameraları kanıt anına götürür.
+Bir olayın kesintiye girmesi ayrıca hareketin izin verdiği `criterion_id`, doğru
+WT `rule_id/source_ref` ve ayrı kural doğrulama kaydı gerektirir.
+
+v2.4 ile iki ayağın birbirine göre açısını kullanan hatalı yaklaşım kaldırıldı;
+arka ayak, `arka ayak bileği -> ön ayak bileği` duruş doğrultusuna göre ölçülür.
+Fixation penceresinden sağlam MAD tabanlı `%95` belirsizlik hesaplanır. Tarihsel
+resmî 2014 kılavuzundaki açık geometriler ayrı
+`taegeuk1-source-bound-accuracy-v1` profilindedir: ap-seogi/apkubi arka ayak
+`30°`, arae-makki yumruk-uyluk uzaklığı `1–2 yumruk`, momtong-an-makki dirsek
+`90–120°`. Bunlar güncel WT eki diye gösterilmez. Ölçüm aralığı sınırla
+çakışırsa kesinti yoktur; sayısal geometri yalnız küçük hata `-0,1` üretebilir.
+`-0,3` yalnız doğrudan gözlenen kategorik yanlış hareket/duruş, kihap,
+en az üç saniyelik duraklama veya bakış yönü olayıyla uygulanabilir.
+
+Eski BODY-17 v1 denemesi teknik ayrıntıları kaçırdığı için sayısal sonuç üretme
+yetkisi kaldırılarak yalnız tarihsel teşhis olarak bırakıldı. Güncel v2 motoru
+133 noktanın gövde, ayak, yüz ve iki el gruplarını; hareket boyunca trajectory,
+eşzaman, fixation ve kalite kanıtıyla birlikte işler. Eşikler WT/Kukkiwon
+toleransı değildir; adaylar ceza değildir ve tüm skor alanları `null` kalır:
+
+PoomsaeSpec artık M01-M18'in tamamında ölçülebilir kriter taşır. M14/M16
+`ap-chagi + momtong-jireugi` bileşikleri tek final poza indirgenmez;
+`kick_apex`, `rechamber`, destek ayağı pivotu, `landing` ve
+`punch_execution` ayrı teşhis metrikleridir. Güncel sayısal tolerans kaynağı
+olmadığı için yeni tekme metrikleri yalnız `measured_diagnostic_only` üretir.
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\run_wholebody_poomsae_diagnostics.py `
+  --pose outputs\poomsae_1_zed2i_20260731_trimmed\runs\poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802\json\vitpose_session_3d.json `
+  --poomsae-spec config\scoring\poomsae\taegeuk_1_jang_v0_draft.yaml `
+  --timeline config\scoring\timelines\poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml `
+  --diagnostic-profile config\scoring\engineering\taegeuk_1_wholebody_diagnostics_v2.yaml `
+  --output-json outputs\<session_id>\runs\<yeni_run_id>\json\wholebody_diagnostics_report.json `
+  --output-csv outputs\<session_id>\runs\<yeni_run_id>\csv\wholebody_metrics.csv
+
+.\.venv312\Scripts\python.exe scripts\build_source_bound_accuracy_decisions.py `
+  --wholebody-diagnostics outputs\<session_id>\runs\<yeni_run_id>\json\wholebody_diagnostics_report.json `
+  --poomsae-spec config\scoring\poomsae\taegeuk_1_jang_v0_draft.yaml `
+  --timeline config\scoring\timelines\poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml `
+  --accuracy-profile config\scoring\accuracy\taegeuk_1_source_bound_v1.yaml `
+  --output-json outputs\<session_id>\runs\<yeni_run_id>\json\source_bound_accuracy_decisions.json
+```
+
+Gerçek kısa kayıt v2.4 koşusu
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260803-151214/`
+altındadır. Dokuz kaynak-bağlı kararın beşi küçük hata olarak uygulandı, üçü
+ölçülemedi, biri aralık içinde kaldı. Gözlenen kapsam kesinti toplamı `0,5`;
+M07-M18 videoda olmadığı için `accuracy_score=null` kalır.
+
+Yeni bir kural/teknik PDF geldiğinde önce
+[`docs/scoring_sources/SOURCE_INTAKE_TEMPLATE.yaml`](docs/scoring_sources/SOURCE_INTAKE_TEMPLATE.yaml)
+kopyalanıp doldurulur ve şu komut çalıştırılır:
+
+```powershell
+.\.venv312\Scripts\python.exe scripts\validate_scoring_source_intake.py `
+  --manifest <doldurulan-kaynak-manifesti.yaml> `
+  --output outputs\source-intake\<benzersiz-kaynak-raporu>.json
+```
+
+Araç dosya imzası ve SHA-256 bağını denetler, kaynak otoritesini kullanım
+amacıyla karşılaştırır ve hiçbir belgeyi otomatik olarak aktif kurala
+dönüştürmez. Tarihsel/ikincil kaynak güncel sayısal tolerans talep ederse kapı
+fail-closed kapanır.
 
 ## Sıfırdan Kurulum ve Gerekli İndirmeler
 

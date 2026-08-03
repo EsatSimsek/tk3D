@@ -1,0 +1,20 @@
+schema_version: 1
+source_id: replace_with_stable_source_id
+status: candidate
+authority: Replace with the exact publishing institution
+title: Replace with the exact document title
+document_date: "YYYY-MM-DD or not_specified"
+effective_date: "YYYY-MM-DD or not_specified"
+retrieved_at: "YYYY-MM-DD"
+authority_tier: unknown
+language: Replace with document language
+access: user_supplied
+local_path: C:\Users\WWWW\Desktop\tk\replace_with_document.pdf
+expected_sha256: null
+intended_uses:
+  - technique_definition
+activation_request:
+  requested: false
+  requested_claims: []
+  numeric_thresholds_requested: false
+notes: Explain where the document was obtained and why it may be authoritative.

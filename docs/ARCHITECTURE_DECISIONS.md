@@ -231,6 +231,144 @@ Presentation 0–6 dönüşümü yapılırsa `judge_calibrated=false` ve
 `official_scoring_ready` gelecekteki opsiyonel kapılardır; bunların kapalı
 olması provisional puanlamayı durdurmaz.
 
+Uygulama ayrımı üç sözleşmeyle yapılır:
+
+- `RulePack`: yürürlükteki WT puan bütçesi ve kesinti miktarları,
+- `PoomsaeSpec`: Kukkiwon kaynaklı hareket, teknik, yön ve faz sırası,
+- `MovementTimeline`: belirli pose run'ının SHA-256 ile bağlanmış hareket/faz
+  zamanları ve kaydın `complete_performance`/`partial_sequence` kapsamı.
+
+MovementTimeline v2'de kapsam zorunludur. `partial_sequence` kaydı, gözlenen ve
+kaynakta bulunmayan hareketleri sıralı iki küme olarak taşır ve nedenini yazar.
+Bu ayrım sayesinde videoda olmayan bir hareket, algılama/etiketleme hatası gibi
+raporlanmaz; kısmi kayıt tam performans puanına giremez.
+
+Hareket zaman çizelgesi tek bir `apex` alanına indirgenmez. Tekme ardından
+vuruş gibi bileşik hareketlerde `kick_apex`, `rechamber`, `landing`,
+`punch_execution` ve `fixation` gibi birden fazla sıralı anchor taşınabilir.
+Ekrandaki hareket/faz yazısı bu zaman çizelgesinden türetilir; overlay kuralın
+veya puanın kaynağı değildir.
+
+2 Ağustos 2026 kaynak denetiminde WT canlı `CURRENT` listesi 30 Eylül 2024
+Poomsae kuralını güncel gösterdi. Article 16'nın atıf yaptığı ayrı scoring
+guideline eki kamuya açık güncel listede bulunmadığı için kesinti miktarları
+aktif, teknik bazlı küçük/büyük hata eşikleri ise fail-closed taslaktır.
+Kukkiwon'un 2022 tam sıra gösterimi ve 2025 ayrıntılı Taegeuk 1 eğitimi ücretsiz
+resmî hareket kaynakları olarak kullanılır. Kaynak ve erişim durumu
+[`SCORING_SOURCE_REGISTER.md`](SCORING_SOURCE_REGISTER.md) içinde tutulur.
+
+Uygulamadaki `assess_accuracy_readiness` kapısı RulePack, PoomsaeSpec,
+MovementTimeline ve bağlanan pose dosyasının SHA-256 değerini birlikte
+doğrular. Hazırlık raporunun `blocked` olması depth/ground-truth eksikliğiyle
+otomatik olarak eş tutulmaz; her engel ayrı kodla raporlanır. Mevcut ZED2i
+koşusunda pose bağı doğrulanmış, kaynak aktivasyonu ve 18 hareketin zaman/faz
+etiketleri açık kalmıştır.
+
+Kısa veya yarım Poomsae kaydı tam performans gibi puanlanmaz. Bilinen sıranın
+videoda gerçekten görülen başlangıç bölümü hareket/faz ölçüm kanıtı üretebilir;
+eksik hareketler otomatik eklenmez, toplam Accuracy puanı `null` kalır ve durum
+`not_scored_partial_recording` olarak raporlanır. Böyle bir kayıt hareket
+etiketleme ve metrik geliştirme için kullanılabilir fakat tam Poomsae skor
+testinin yerine geçemez.
+
+İnceleme yüzeyi puan motorundan ayrıdır. Senkron video, hareket/faz atlama,
+ölçüm özeti, hazırlık engelleri ve önceden üretilmiş mühendislik denemesini
+gösterebilir; kendisi deduction olayı veya Accuracy değeri üretemez. Gösterdiği
+sonuçlar kaynak bağlı evidence/readiness/trial JSON'larından gelir ve ayrı
+manifestte hash'lenir.
+
+Sayısal mühendislik hipotezleri resmî RulePack'e yazılmaz; ayrı
+`EngineeringToleranceProfile` sözleşmesinde sürümlenir. Profil yalnız gözlenen
+M01-M06'ya, fixation fazına ve geniş body-normalize aralıklara uygulanır.
+Düşük BODY-17, iki kameradan az kanıt, yüksek reprojection veya düşük timeline
+güveni `not_measurable` üretir. Aynı hareket/aile/fazdaki sapmalar tek trial
+olayında birleştirilir. Sayısal sapma WT'nin “yanlış hareket” anlamındaki büyük
+hatasını kanıtlamadığı için otomatik major kapalıdır.
+
+BODY-17 v1 denemesinin sayısal alanı sonradan geçersizleştirilmiştir;
+`partial_engineering_trial_score=null`, `accuracy_score=null` ve
+`applied_deductions=[]` kalır. Tarihsel dosyalar silinmez fakat güncel sonuç
+olarak gösterilmez.
+
+## AD-018 — Poomsae tekniği WholeBody-133 ölçülür ve skor fail-closed kalır
+
+Karar: Pose hattının BODY-17 optimizasyonu puanlama girişini 17 noktaya
+daraltamaz. Poomsae teşhisi `keypoints_3d_world[t,133,3]` içindeki gövde,
+ayak, yüz, sol el ve sağ el gruplarını açıkça tüketir. Ayak yönü, bakış/gövde
+yönü, hikite, bilek-el hizası, yumruk kapanması, zamanlama, fixation ve
+trajectory hareket/faz boyunca ayrı metriklerdir.
+
+Gerekçe: İlk v1 denemesi yalnız beş kaba BODY-17 ölçüsüyle hata bulamayınca
+başlangıç değerini koruyup yanlış bir maksimum izlenimi verdi. Ölçülemeyen veya
+eşikte kalan özellik doğruluk kanıtı değildir.
+
+Koruma: WholeBody v2 `numeric_score_enabled=false` sözleşmesini doğrular; 17
+noktalı giriş reddedilir, düşük grup/metric kapsamı raporlanır, eşik aşımı
+yalnız `review_candidate_not_deduction` üretir. Resmî/kalibre tolerans ve kabul
+edilmiş hata olayı olmadan Accuracy veya WT kesintisi üretilemez.
+
+## AD-019 — Ölçüm adayı doğrudan kesinti olayı değildir
+
+Karar: WholeBody ölçüsü `metric_id` ile, hareket sözleşmesindeki anlamı ayrı
+`criterion_id` ile taşınır. Accuracy motoru yalnız ilgili hareketin
+`measurable_criteria` listesinde bulunan kriteri; kesinti türüyle eşleşen WT
+`rule_id`, yetkili `source_ref`, doğrulama yöntemi ve `review_record_id` ile
+birlikte kabul eder.
+
+Gerekçe: Yalnız `decision_status=confirmed_by_rule` yazılmış serbest bir JSON
+olayı, önceki sözleşmede keyfî metriği kesintiye sokabiliyordu. Ölçüm eşiğinin
+aşılması, o eşiğin WT küçük/büyük hata tanımı olduğu anlamına gelmez.
+
+Koruma: Sahte/uyuşmayan kural kimliği sözleşme hatasıdır; hareket için yetkisiz
+kriter `metric_not_authorized_for_movement` ile uygulanmaz. WholeBody adayları
+`human_review_status=pending`, `rule_eligibility=blocked_unvalidated_screening_threshold`
+ve `score_effect=null` taşır. Hazırlık kapısı ayrıca WholeBody raporunun timeline,
+pose SHA-256, 133-nokta grupları ve minimum kapsam bağını doğrular.
+
+## AD-020 — Yeni scoring kaynağı otomatik kural aktivasyonu yapamaz
+
+Karar: Kullanıcıdan, web'den veya yerel arşivden gelen her yeni PDF önce
+`SourceIntake` aday manifestine alınır. PDF imzası, SHA-256, kurum, belge ve
+yürürlük tarihi, otorite sınıfı, kullanım amacı ve talep edilen iddialar
+doğrulanır. Başarılı intake sonucu yalnız
+`ready_for_manual_activation_review` olabilir; `automatic_activation_allowed`
+daima `false` kalır.
+
+Gerekçe: Resmî logolu tarihsel bir belge, ulusal federasyon yorumu veya hakem
+eğitim notu güncel WT toleransı olmayabilir. Dosyanın gerçek ve faydalı olması,
+içindeki her ölçünün güncel RulePack'e taşınabileceği anlamına gelmez.
+
+Koruma: Tarihsel/ikincil/akademik kaynak güncel sayısal tolerans talep ederse
+`numeric_threshold_authority_insufficient` engeli oluşur. Hash'i sabitlenmeyen,
+otoritesi sınıflandırılmayan veya PDF olmayan kaynak manuel aktivasyon
+incelemesine giremez. İnceleme sonrasında bile madde/sayfa iddiası, ölçüm
+sözleşmesi, sentetik test ve gerçek regresyon ayrı olarak tamamlanır.
+
+## AD-021 — Sayısal Accuracy kararı belirsizlik kapılı ve küçük hatayla sınırlıdır
+
+Karar: Açık bir kaynak geometrisine bağlı sayısal ölçüm, `%95` ölçüm aralığının
+tamamı kaynak sınırının dışında kaldığında yalnız `minor=-0,1` oluşturabilir.
+Aralık sınırla çakışırsa sonuç `boundary_uncertain` olur ve puan kesilmez.
+Sayısal sapmanın büyüklüğü hiçbir zaman kendiliğinden `major=-0,3` olmaz.
+
+Tarihsel 2014 resmî geometri ölçüleri sürümlü, hash ve sayfa bağlı ayrı
+`provisional_historical_geometry` profilde kullanılabilir; her karar kaynağın
+güncel WT eki olmadığını taşır. Güncel WT `-0,3` yalnız yanlış hareket/duruş,
+kihap, üç saniyelik duraklama ve bakış yönü gibi doğrudan gözlenen kategorik
+olay sözleşmesiyle; restart `-0,6` performans kapsamlı gözlemle uygulanır.
+
+Gerekçe: Kural kitabı kesinti miktarını verir ama açı sapmasının kaç derecede
+“major” olacağını tanımlamaz. Pose oynaklığını yok saymak sınırdaki ölçümleri
+yanlış hataya, büyük sayısal sapmayı `-0,3` yapmak ise kaynakta olmayan bir
+şiddet formülüne dönüştürürdü.
+
+Koruma: Arka ayak açısı iki ayağın birbirine göre değil, arka ayak bileğinden
+ön ayak bileğine duruş doğrultusuna göre ölçülür. Fixation penceresinin sağlam
+MAD belirsizliği ile metrik tabanı birlikte kullanılır. Hareket ve `error_unit`
+anahtarı aynı fiziksel hatayı iki kez kesmeyi engeller. Kısmi timeline yalnız
+`observed_scope_provisional_deduction_total` üretir; `accuracy_score=null`
+kalır.
+
 Uygulama ve doğrulama aşamaları:
 [`docs/PUANLAMA_PLANI.md`](PUANLAMA_PLANI.md).
 

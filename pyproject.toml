@@ -23,7 +23,7 @@ pose = ["torch>=2.5", "timm>=1.0", "pycocotools>=2.0"]
 smpl = ["smplx>=0.1.28", "trimesh>=4.0", "chumpy>=0.70", "open3d>=0.19"]
 
 [tool.setuptools]
-packages = ["src"]
+packages = ["src", "src.poomsae_scoring"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

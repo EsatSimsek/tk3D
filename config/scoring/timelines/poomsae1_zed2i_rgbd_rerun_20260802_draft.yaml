@@ -1,0 +1,86 @@
+schema_version: 2
+timeline_id: poomsae1-zed2i-rgbd-rerun-20260802-draft
+poomsae_id: taegeuk_1_jang
+poomsae_version: 0.6.0-draft
+status: draft
+label_source: manual
+frame_index_space: sample_index
+frame_count: 741
+fps: 60.0
+source_binding:
+  session_id: poomsae_1_zed2i_20260731_trimmed
+  run_id: poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802
+  pose_file: outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802/json/vitpose_session_3d.json
+  pose_file_sha256: a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947
+coverage:
+  recording_scope: partial_sequence
+  observed_movement_ids: [M01, M02, M03, M04, M05, M06]
+  missing_movement_ids: [M07, M08, M09, M10, M11, M12, M13, M14, M15, M16, M17, M18]
+  source_end_reason: Recording ends after M06 fixation; M07-M18 are not present in the source video.
+segments:
+  - sequence_index: 1
+    movement_id: M01
+    start_frame: 140
+    end_frame: 229
+    anchors:
+      preparation: 145
+      turn: 178
+      execution: 205
+      fixation: 218
+    confidence: 0.86
+    label_status: confirmed
+  - sequence_index: 2
+    movement_id: M02
+    start_frame: 230
+    end_frame: 353
+    anchors:
+      preparation: 230
+      step: 260
+      execution: 289
+      fixation: 301
+    confidence: 0.88
+    label_status: confirmed
+  - sequence_index: 3
+    movement_id: M03
+    start_frame: 354
+    end_frame: 473
+    anchors:
+      preparation: 354
+      turn: 388
+      execution: 432
+      fixation: 448
+    confidence: 0.86
+    label_status: confirmed
+  - sequence_index: 4
+    movement_id: M04
+    start_frame: 474
+    end_frame: 569
+    anchors:
+      preparation: 474
+      step: 490
+      execution: 517
+      fixation: 529
+    confidence: 0.89
+    label_status: confirmed
+  - sequence_index: 5
+    movement_id: M05
+    start_frame: 570
+    end_frame: 685
+    anchors:
+      preparation: 570
+      turn: 588
+      weight_transfer: 616
+      execution: 628
+      fixation: 637
+    confidence: 0.88
+    label_status: confirmed
+  - sequence_index: 6
+    movement_id: M06
+    start_frame: 686
+    end_frame: 740
+    anchors:
+      preparation: 686
+      execution: 722
+      fixation: 728
+    confidence: 0.87
+    label_status: confirmed

@@ -1,7 +1,7 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **2 Ağustos 2026**
-Doğrulanan çalışma ağacı: **temel `402eaa9` + korunmuş yerel değişiklikler**
+Son doğrulama tarihi: **3 Ağustos 2026**
+Doğrulanan çalışma ağacı: **temel `ad3f113` + puanlama altyapısı yerel değişiklikleri**
 Dal: **`main`**
 
 Bu dosya değişken proje durumunun tek kısa kaynağıdır. Yeni oturumlarda geçmiş
@@ -19,7 +19,9 @@ Sistem henüz resmî poomsae puanlamasına hazır değildir:
 - Güncel ZED RGBD koşusuna bağlı bağımsız dış 3B ground-truth değerlendirmesi yoktur.
 - Tarihsel MADS F2 RGB-only sonucu yalnız kendi koşusunu tanımlar; ZED RGBD
   koşusuna devredilmez ve güncel doğruluk metriği sayılmaz.
-- Gerçek poomsae phase/step etiketleri ve hakem/koç onaylı hedefler yok.
+- Gerçek poomsae hareket/faz zaman çizelgesi henüz tamamlanmadı.
+- Hakem/koç etiketi yoktur; bu, provisional kural motorunun önkoşulu değildir.
+  Bu nedenle `judge_calibrated_ready` ve `official_scoring_ready` kapalı kalır.
 - İç geometri raporunun geçmesi gerçek 3B doğruluğu tek başına kanıtlamaz.
 - Normal çok-kameralı run iç kalite geçtiğinde `provisional_scoring_ready:true`
   yazar ve dış ground-truth beklemeden `provisional_not_official` analiz çalışır.
@@ -222,6 +224,112 @@ sensör zincirimizin iç kanıtıdır; dış ground-truth değildir. Depth'in ge
 doğruluğu artırdığı iddiası için bu koşuyla uyumlu bağımsız mocap/ölçüm referansı
 hâlâ gerekir.
 
+### Taegeuk 1 Accuracy kural motoru
+
+2 Ağustos 2026 tarihinde ilk kaynak bağlı puanlama katmanı kuruldu:
+
+- WT'nin canlı `CURRENT` listesinde 30 Eylül 2024 tarihli Poomsae Competition
+  Rules & Interpretation güncel kural olarak doğrulandı;
+- resmî PDF'nin SHA-256 değeri
+  `3fc994363544ab2a1717d9d4d805b368e283a122d3f3c52fc444c70b8c206e24`;
+- Recognized Poomsae Accuracy `4,0`, küçük hata `-0,1`, büyük hata `-0,3`
+  ve yeniden başlatma `-0,6` aktif RulePack'e aktarıldı;
+- Kukkiwon'un 2022 tam sıra gösterimi ve 2025 ayrıntılı resmî eğitiminden
+  Taegeuk 1 için 18 hareketli, çok fazlı `PoomsaeSpec` taslağı çıkarıldı;
+- RulePack, PoomsaeSpec ve MovementTimeline için benzersiz YAML anahtarlı,
+  sürümlü ve fail-closed veri sözleşmeleri eklendi;
+- MovementTimeline v2, gerçek bir kısmi kaynak kaydını etiket eksikliğinden
+  ayırır: `partial_sequence`, gözlenen M01-M06 ve kaynakta bulunmayan M07-M18
+  ayrı alanlarda taşınır;
+- Accuracy motoru yalnız aktif spec, eksiksiz/çakışmasız zaman çizelgesi,
+  gözlenmiş kanıt ve kuralca doğrulanmış olaylarda kesinti uygular; düşük güven,
+  tekrar olay veya bilinmeyen faz puan kesmez;
+- ZED2i pose dosyası gerçek RGBD koşusuna SHA-256 ile bağlandı ve doğrulandı:
+  `a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947`;
+- iki kamera incelemesi kısa kaydın tam Taegeuk 1 olmadığını, yalnız M01-M06'yı
+  içerdiğini gösterdi. Altı hareket, `24` çoklu faz anchor'ıyla etiketlendi;
+  başlangıç/geçiş/fixation temas sayfalarının ikinci kamera kontrolü sonrası
+  zaman etiketleri `confirmed` oldu; videoda olmayan M07-M18 üretilmedi;
+- etiketli iki inceleme videosu `741` kare, `60 FPS`, `1280x720` olarak kaynak
+  zaman çizelgesini korudu;
+- iki kamera videosunu senkron oynatan, hareket/faz düğmeleriyle aynı zamana
+  atlayan; gözlenebilirlik ölçülerini ve ayrı mühendislik denemesini gösteren
+  tek dosyalık HTML inceleme ekranı üretildi;
+- `24` anchor'ın `22` tanesi `observed`, `2` tanesi `partially_observed`, `0`
+  tanesi `not_measurable`; bu yalnız pose gözlenebilirliğidir, teknik doğruluk
+  veya kesinti değildir;
+- kayıt kısmi olduğu ve teknik küçük/büyük hata toleransları
+  kaynaklandırılmadığı için hazırlık raporu bilinçli olarak `6/18`, `blocked`,
+  `rule_scoring_ready=false` üretir; ölçüm raporu
+  `not_scored_partial_recording`, `accuracy_score=null`, `deductions=[]` kalır;
+- M01-M06 için ilk BODY-17 engineering v1 denemesi teknik ayrıntıların büyük
+  kısmını kullanmadığı ve ölçülemeyen alanları başlangıç puanında bıraktığı için
+  **sayısal olarak geçersizleştirildi**. Motor artık
+  `deprecated_body17_screening_no_score`, skor/kesinti alanlarında `null`/boş
+  üretir;
+- güncel `taegeuk1-wholebody-diagnostics-v2` profil `2.4.0`, 133 noktanın gövde, 6 ayak, 68
+  yüz ve iki 21-noktalı el grubunu kullanır. Duruş, ayak yönü, gövde/baş
+  rotasyonu, uygulayan taraf, hikite, el-bilek hizası/yumruk kapanması,
+  hand-foot simultaneity, fixation jitter, ağırlık aktarımı ve bilek trajectory
+  ve teknik dirsek açısı ölçülür. Fixation ölçüleri tek kare yerine ±5 karelik
+  sağlam pencere, yüz/el/ayak ise vücut ölçekli geometri makullük kapısı kullanır;
+- büyük hata WT'deki “yanlış hareket” semantiği nedeniyle yalnız sayısal pose
+  sapmasından çıkarılmaz; otomatik major tespiti bilinçli olarak kapalıdır;
+- gerçek kısa kayıt WholeBody koşusunda eşikli `96` metriğin `74` tanesi
+  ölçülebildi, `22` tanesi yetersiz veya makul olmayan eklem kanıtı nedeniyle
+  ölçülemedi; kapsam `%77,08` ile gerekli `%90` kapısını geçemedi. `13`
+  video-inceleme adayı çıktı. Bunlar ceza değildir;
+  `accuracy_score=null`, `deductions=[]` ve `numeric_score_enabled=false`
+  kalır;
+- bu blokaj depth, mocap veya hakem etiketi beklemekten kaynaklanmaz. Açık işler
+  kamuya açık olmayan resmî scoring eki, M07-M18'i içeren yeni çekim ve tam
+  Poomsae'nin hareket/faz doğrulamasıdır;
+- WT kuralının atıf yaptığı ayrı güncel Poomsae Competition Scoring Guidelines
+  eki kamuya açık `CURRENT` listede bulunamadı. Buna karşılık 3 Ağustos 2026
+  araştırmasında 2014 WT kurallarına ekli resmî tarihsel 43 sayfalık sürüm
+  doğrulandı ve yerel kaynak arşivine alındı. Masaüstündeki 35 sayfalık kopyanın
+  ilk 35 sayfası tam sürümle metinsel olarak eşleşir; tarihsel teknik geometrisi
+  aday metriklerde kullanılabilir fakat güncel resmî tolerans sayılamaz. 2022
+  çevrim içi yarışmaya özgü Poomsae Deduction belgesi güncel ek yerine
+  kullanılmadı;
+- güncel WT olayları, tarihsel teknik geometri, Kukkiwon hareket semantiği,
+  ikincil ulusal kılavuzlar, akademik yöntemler ve sensörle ölçülebilirlik
+  `docs/TAEGEUK1_ERROR_TAXONOMY.md` içinde kaynak sınıflarıyla ayrıldı.
+
+3 Ağustos 2026 tarihli source-bound Accuracy genişletmesi:
+
+- iki ayağın birbirine göre açısını kullanan eski ayak metriği kaldırıldı;
+  arka ayak yönü artık arka ayak bileğinden ön ayak bileğine duruş doğrultusuna
+  göre hesaplanır;
+- fixation ölçülerine `1.96 * 1.4826 * MAD` ile `%95` oynaklık belirsizliği ve
+  örnek sayısı eklendi; profil tabanlarıyla birlikte karar aralığı oluşturulur;
+- 2014 tarihsel resmî kılavuzdan ap-seogi/apkubi `30°`, arae-makki `1–2`
+  yumruk ve momtong-an-makki `90–120°` kuralları hash/sayfa bağlı ayrı profile
+  alındı; profil bunları güncel WT eki olarak işaretleyemez;
+- `%95` aralığının tamamı sınır dışında değilse kesinti uygulanmaz. Sayısal
+  geometri yalnız `minor=-0,1`; `major=-0,3` yalnız açık kategorik gözlem,
+  restart ise `-0,6` üretebilir. Hareket+hata birimiyle tekilleştirme yapılır;
+- gerçek M01-M06 koşusunda 9 kaynak-bağlı kararın 5'i küçük hata, 1'i aralık
+  içi, 3'ü ölçülemez çıktı. Gözlenen kapsam geçici kesinti toplamı `0,5` oldu;
+  kategorik gözlem girilmediği için major yoktur. Kısmi kayıtta
+  `accuracy_score=null` sözleşmesi korunmuştur;
+- başarılı immutable koşu:
+  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260803-151214/`.
+
+Güncel WholeBody teşhis ve senkron inceleme koşusu:
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-scoring-expand-v2_3-20260803-123907/`.
+PoomsaeSpec `0.6.0-draft` bütün M01-M18 hareketlerinde ölçülebilir kriter
+taşır. M14/M16 tekme-yumruk bileşiklerinin beş yeni tekme/faz metriği eşiksiz
+teşhis olarak tanımlıdır; kısa kayıt bu hareketleri içermediği için mevcut
+M01-M06 metrik/kapsam/adet sonuçlarını değiştirmez.
+- yeni `SourceIntake` kapısı kullanıcıdan gelen PDF'nin imza, SHA-256, kurum,
+  tarih, otorite ve kullanım amacını doğrular; otomatik kural aktivasyonu daima
+  kapalıdır. Tarihsel/ikincil bir kaynak güncel sayısal tolerans talep ederse
+  fail-closed engel üretir.
+Etiketli videolar ve temel evidence/readiness dosyaları immutable önceki koşuda
+korunur; güncel manifest bunları SHA-256 ile bağlar.
+Kaynak ve ücretli seçenek sicili `docs/SCORING_SOURCE_REGISTER.md` içindedir.
+
 ### Tam tek-kamera RGB-D kontrol koşusu
 
 28 Temmuz 2026 tarihinde aynı SVO2'nin 666 karesinin tamamı, mevcut RF-DETR,
@@ -244,21 +352,22 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-2 Ağustos 2026 tarihinde scoring eksen düzeltmesi sonrasında mevcut çalışma
-ağacında:
+3 Ağustos 2026 tarihinde Taegeuk 1 Accuracy sözleşmeleri, kısa kayıt
+hareket/faz overlay'i, puansız ölçüm kanıtı, geçersizleştirilmiş BODY-17 denemesi
+ve WholeBody-133 teşhis motoru eklendikten sonra mevcut çalışma ağacında:
 
 ```text
-153 passed in 25.36s
+183 passed in 36.29s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-scoring-axis-full-20260802
+.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-scoring-engine-v2_1-full-20260803
 ```
 
 Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144`, `147`
-ve `151` sayıları kendi
+ve `151`, `173`, `176` sayıları kendi
 tarihlerindeki sonuçlardır; güncel test sayısı değildir.
 
 ### Son korunan tam AIST koşusu
@@ -379,8 +488,8 @@ outputs/<session_id>/runs/<run_id>/
 
 ## Bilinen eksikler ve doğru öncelik
 
-1. Gerçek poomsae phase/step sınırlarını otomatik üretip mevcut hareket segment
-   adaylarını Poomsae 1 adımlarıyla eşlemek.
+1. Gerçek ZED2i videosunun 18 Taegeuk 1 hareket aralığını ve çoklu faz
+   anchor'larını etiketleyip mevcut segment adaylarıyla eşlemek.
 2. Gerçek Taekwondo BODY-17 görüntülerini etiketleyip yüksek çözünürlüklü
    alan-özel pose modeli eğitmek.
 3. El, yüz ve ayak için güvenli cross-view düzeltme/optimizasyonu geliştirmek.
@@ -389,8 +498,9 @@ outputs/<session_id>/runs/<run_id>/
 5. Gerçek poomsae kameralarında senkron checkerboard kalibrasyonu, drift ve
    uzun süreli stres testi yapmak.
 6. Çok sporculu görüntülerde kamera-arası kimlik eşlemeyi doğrulamak.
-7. Poomsae phase/step etiketleri ile hakem/koç onaylı teknik hedefler
-   oluşturmak.
+7. Açık mühendislik toleranslarını kontrollü örneklerle sürümlemek; hakem/koç
+   verisi ileride oluşursa yalnız opsiyonel judge-calibration katmanında
+   kullanmak.
 8. İmkân oluşursa ZED RGBD mimarisini bağımsız mocap/ölçüm ground truth üzerinde
    ayrıca benchmark etmek; bu opsiyonel dış doğrulamayı provisional akışın
    çalışma önkoşulu yapmamak.

@@ -1,0 +1,126 @@
+schema_version: 1
+profile_id: taegeuk1-source-bound-accuracy-v1
+version: 1.0.0
+status: provisional_historical_geometry
+poomsae_id: taegeuk_1_jang
+decision_policy:
+  minor_points: 0.1
+  major_points: 0.3
+  restart_points: 0.6
+  minimum_observation_confidence: 0.80
+  boundary_policy: require_95pct_interval_wholly_outside
+  numeric_geometry_can_create_major: false
+  partial_timeline_score_enabled: false
+numeric_rules:
+  - rule_id: HIST-2014-AP-SEOGI-BACK-FOOT-30
+    error_unit: stance_geometry
+    stances: [left_ap_seogi, right_ap_seogi]
+    technique_ids: []
+    metric_id: back_foot_yaw_to_stance_direction_deg
+    operator: max
+    limits: [30.0]
+    uncertainty_floor: 5.0
+    boundary_guard: 1.0
+    unit: deg
+    deduction_kind: minor
+    source:
+      source_id: wtf_poomsae_scoring_guidelines_2014
+      content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+      pages: [5]
+      authority_status: historical_official_not_current_attachment
+    description: Ap-seogi arka ayak doğrultusu 30 dereceyi aşmamalıdır.
+  - rule_id: HIST-2014-APKUBI-BACK-FOOT-30
+    error_unit: stance_geometry
+    stances: [left_ap_gubi, right_ap_gubi]
+    technique_ids: []
+    metric_id: back_foot_yaw_to_stance_direction_deg
+    operator: max
+    limits: [30.0]
+    uncertainty_floor: 5.0
+    boundary_guard: 1.0
+    unit: deg
+    deduction_kind: minor
+    source:
+      source_id: wtf_poomsae_scoring_guidelines_2014
+      content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+      pages: [7]
+      authority_status: historical_official_not_current_attachment
+    description: Apkubi arka ayak doğrultusu 30 dereceyi aşmamalıdır.
+  - rule_id: HIST-2014-ARAE-FIST-THIGH-ONE-TO-TWO
+    error_unit: technique_target_position
+    stances: []
+    technique_ids: [arae_makki]
+    metric_id: arae_fist_to_thigh_fist_ratio
+    operator: range
+    limits: [1.0, 2.0]
+    uncertainty_floor: 0.15
+    boundary_guard: 0.10
+    unit: fist_width
+    deduction_kind: minor
+    source:
+      source_id: wtf_poomsae_scoring_guidelines_2014
+      content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+      pages: [16]
+      authority_status: historical_official_not_current_attachment
+    description: Arae-makki yumruğu uyluktan bir ile iki yumruk genişliği uzakta olmalıdır.
+  - rule_id: HIST-2014-MOMTONG-AN-ELBOW-90-120
+    error_unit: technique_arm_geometry
+    stances: []
+    technique_ids: [momtong_an_makki]
+    metric_id: executing_elbow_deg
+    operator: range
+    limits: [90.0, 120.0]
+    uncertainty_floor: 5.0
+    boundary_guard: 1.0
+    unit: deg
+    deduction_kind: minor
+    source:
+      source_id: wtf_poomsae_scoring_guidelines_2014
+      content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+      pages: [18]
+      authority_status: historical_official_not_current_attachment
+    description: Momtong-an-makki dirsek açısı 90 ile 120 derece arasında olmalıdır.
+categorical_rules:
+  - rule_id: WT-2024-A16-WRONG-ACTION
+    event_kind: wrong_action
+    error_unit: wrong_action
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [deterministic_sequence_violation, manual_video_review]
+  - rule_id: WT-2024-A16-WRONG-STANCE
+    event_kind: wrong_stance
+    error_unit: wrong_stance
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [deterministic_sequence_violation, manual_video_review]
+  - rule_id: WT-2024-A16-MISSING-KIHAP
+    event_kind: missing_kihap
+    error_unit: kihap
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [audio_event_detection, manual_video_review]
+  - rule_id: WT-2024-A16-WRONG-KIHAP-TIMING
+    event_kind: wrong_kihap_timing
+    error_unit: kihap
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [audio_event_detection, manual_video_review]
+  - rule_id: WT-2024-A16-PAUSE-3SEC
+    event_kind: pause_at_least_3_sec
+    error_unit: prolonged_pause
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [duration_measurement]
+  - rule_id: WT-2024-A16-GAZE-DIRECTION
+    event_kind: gaze_wrong_direction
+    error_unit: gaze_direction
+    deduction_kind: major
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
+    confirmation_methods: [manual_video_review]
+  - rule_id: WT-2024-A16-RESTART
+    event_kind: restart
+    error_unit: restart
+    deduction_kind: restart
+    source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation3
+    confirmation_methods: [observed_restart]
+disclaimer: Bu rapor WT 2024 kesinti miktarlarını, yalnız açık kategorik olaylarda ve tarihsel 2014 geometri tanımlarını belirsizlik kapılı küçük hata adaylarında kullanır. 2014 geometri belgesi güncel WT ekli puanlama kılavuzu değildir; kısmi kayıt tam Accuracy skoru üretmez.

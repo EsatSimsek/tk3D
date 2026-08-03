@@ -37,4 +37,5 @@ __all__ = [
     "zed_svo",
     "zed_depth_fusion",
     "quality_status",
+    "poomsae_scoring",
 ]
