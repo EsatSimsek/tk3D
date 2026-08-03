@@ -61,3 +61,10 @@ def right_knee_ankle_alignment(frame):
     if not np.all(np.isfinite(knee)) or not np.all(np.isfinite(ankle)):
         return float("nan")
     return float(abs(knee[ANALYSIS_RIGHT_AXIS] - ankle[ANALYSIS_RIGHT_AXIS]))
+
+def pelvis_height(frame):
+    """Average vertical height of the two hips (up axis). Lower = deeper stance."""
+    pelvis = _mean_point(frame, ["left_hip", "right_hip"])
+    if not np.all(np.isfinite(pelvis)):
+        return float("nan")
+    return float(pelvis[ANALYSIS_UP_AXIS])

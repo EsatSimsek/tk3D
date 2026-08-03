@@ -4,13 +4,7 @@ from src.biomechanics_3d import angle_deg
 from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM
 from src.scoring_metrics import stance_length_forward, stance_width_lateral, torso_lean_from_vertical_deg
 from src.synthetic_poses import build_frame, build_leg, build_sequence, build_torso_frame
-from src.scoring_metrics import (
-    torso_lean_from_vertical_deg,
-    stance_width_lateral,
-    stance_length_forward,
-    left_knee_ankle_alignment,
-    right_knee_ankle_alignment,
-)
+from src.scoring_metrics import torso_lean_from_vertical_deg, stance_width_lateral, stance_length_forward, left_knee_ankle_alignment, right_knee_ankle_alignment, pelvis_height
 
 def test_scoring_axis_contract_is_right_forward_up():
     assert ANALYSIS_COORDINATE_SYSTEM["axes"] == {"x": "right", "y": "forward", "z": "up"}
@@ -107,3 +101,12 @@ def test_knee_ankle_alignment_nan_when_missing():
     frame = build_frame(180)
     frame[13] = [np.nan, np.nan, np.nan]   # left_knee missing
     assert np.isnan(left_knee_ankle_alignment(frame))
+
+def test_pelvis_height_reads_up_axis():
+    frame = build_frame(180)
+    assert abs(pelvis_height(frame) - 0.9) < 1e-6
+
+def test_pelvis_height_nan_when_hip_missing():
+    frame = build_frame(180)
+    frame[11] = [np.nan, np.nan, np.nan]   # left_hip missing
+    assert np.isnan(pelvis_height(frame))
