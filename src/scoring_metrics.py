@@ -45,3 +45,19 @@ def stance_length_forward(frame):
     if not np.all(np.isfinite(left_ankle)) or not np.all(np.isfinite(right_ankle)):
         return float("nan")
     return float(abs(left_ankle[ANALYSIS_FORWARD_AXIS] - right_ankle[ANALYSIS_FORWARD_AXIS]))
+
+def left_knee_ankle_alignment(frame):
+    """How far the left knee sits sideways from the left ankle (x axis). 0 = aligned."""
+    knee = frame[COCO_BODY_JOINTS["left_knee"]]
+    ankle = frame[COCO_BODY_JOINTS["left_ankle"]]
+    if not np.all(np.isfinite(knee)) or not np.all(np.isfinite(ankle)):
+        return float("nan")
+    return float(abs(knee[ANALYSIS_RIGHT_AXIS] - ankle[ANALYSIS_RIGHT_AXIS]))
+
+def right_knee_ankle_alignment(frame):
+    """How far the right knee sits sideways from the right ankle (x axis). 0 = aligned."""
+    knee = frame[COCO_BODY_JOINTS["right_knee"]]
+    ankle = frame[COCO_BODY_JOINTS["right_ankle"]]
+    if not np.all(np.isfinite(knee)) or not np.all(np.isfinite(ankle)):
+        return float("nan")
+    return float(abs(knee[ANALYSIS_RIGHT_AXIS] - ankle[ANALYSIS_RIGHT_AXIS]))
