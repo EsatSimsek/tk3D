@@ -65,7 +65,6 @@ def load_movement_timeline(
 def load_engineering_profile(path: str | Path) -> dict[str, Any]:
     return validate_engineering_profile(_load_yaml_mapping(path))
 
-
 def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
     data = deepcopy(_require_mapping(payload, "rule pack"))
     _require_exact_keys(
@@ -115,6 +114,7 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
     normalized_deductions: dict[str, dict[str, Any]] = {}
     for kind, raw_rule in deductions.items():
         rule = _require_mapping(raw_rule, f"accuracy.deductions.{kind}")
+        examples = rule.pop("categorical_examples", None)
         _require_exact_keys(
             rule,
             {"rule_id", "amount", "scope", "definition", "source_refs"},
@@ -128,6 +128,61 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
             raise ScoringContractError(f"{kind}.scope is unsupported")
         _require_nonempty_string(rule["definition"], f"{kind}.definition")
         _validate_source_refs(rule["source_refs"], source_ids, f"{kind}.source_refs")
+        if examples is not None:
+            if not isinstance(examples, list) or not examples:
+                raise ScoringContractError(f"{kind}.categorical_examples must be a non-empty list")
+            seen_example_ids: set[str] = set()
+            normalized_examples: list[dict[str, Any]] = []
+            for index, raw_example in enumerate(examples, start=1):
+                label = f"{kind}.categorical_examples[{index}]"
+                example = _require_mapping(raw_example, label)
+                _require_exact_keys(example, {"id", "text", "measurable", "source_ref"}, label)
+                example_id = _require_identifier(example["id"], f"{label}.id")
+                if example_id in seen_example_ids:
+                    raise ScoringContractError(f"duplicate categorical example id: {example_id}")
+                seen_example_ids.add(example_id)
+                _require_nonempty_string(example["text"], f"{label}.text")
+                if example["measurable"] not in {"pose_only", "pose_and_spec", "audio_required"}:
+                    raise ScoringContractError(f"{label}.measurable is unsupported")
+                _validate_source_refs([example["source_ref"]], source_ids, f"{label}.source_ref")
+                normalized_examples.append(example)
+            rule["categorical_examples"] = normalized_examples
+        normalized_deductions: dict[str, dict[str, Any]] = {}
+    for kind, raw_rule in deductions.items():
+        rule = _require_mapping(raw_rule, f"accuracy.deductions.{kind}")
+        examples = rule.pop("categorical_examples", None)
+        _require_exact_keys(
+            rule,
+            {"rule_id", "amount", "scope", "definition", "source_refs"},
+            f"accuracy.deductions.{kind}",
+        )
+        _require_identifier(rule["rule_id"], f"{kind}.rule_id")
+        amount = _finite_nonnegative(rule["amount"], f"{kind}.amount")
+        if amount <= 0.0:
+            raise ScoringContractError(f"{kind}.amount must be positive")
+        if rule["scope"] not in {"individual_movement", "performance"}:
+            raise ScoringContractError(f"{kind}.scope is unsupported")
+        _require_nonempty_string(rule["definition"], f"{kind}.definition")
+        _validate_source_refs(rule["source_refs"], source_ids, f"{kind}.source_refs")
+        if examples is not None:
+            if not isinstance(examples, list) or not examples:
+                raise ScoringContractError(f"{kind}.categorical_examples must be a non-empty list")
+            seen_example_ids: set[str] = set()
+            normalized_examples: list[dict[str, Any]] = []
+            for index, raw_example in enumerate(examples, start=1):
+                label = f"{kind}.categorical_examples[{index}]"
+                example = _require_mapping(raw_example, label)
+                _require_exact_keys(example, {"id", "text", "measurable", "source_ref"}, label)
+                example_id = _require_identifier(example["id"], f"{label}.id")
+                if example_id in seen_example_ids:
+                    raise ScoringContractError(f"duplicate categorical example id: {example_id}")
+                seen_example_ids.add(example_id)
+                _require_nonempty_string(example["text"], f"{label}.text")
+                if example["measurable"] not in {"pose_only", "pose_and_spec", "audio_required"}:
+                    raise ScoringContractError(f"{label}.measurable is unsupported")
+                _validate_source_refs([example["source_ref"]], source_ids, f"{label}.source_ref")
+                normalized_examples.append(example)
+            rule["categorical_examples"] = normalized_examples
         normalized_deductions[kind] = {**rule, "amount": amount}
 
     data["scoring"] = {
@@ -136,7 +191,6 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
         "presentation_reserved_score": presentation_score,
     }
     return data
-
 
 def validate_poomsae_spec(payload: dict[str, Any]) -> dict[str, Any]:
     data = deepcopy(_require_mapping(payload, "PoomsaeSpec"))

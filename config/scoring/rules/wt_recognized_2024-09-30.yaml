@@ -38,6 +38,39 @@ scoring:
         definition: Wrong action or major individual-movement mistake as defined by the attached scoring guidelines.
         source_refs:
           - wt_poomsae_rules_2024-09-30#Article16-1.2.3
+        categorical_examples:
+          - id: MAJ-01
+            text: Eolgul Makki is performed instead of Arae Makki
+            measurable: pose_and_spec
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-02
+            text: Dwit-gubi is performed instead of Juchum-Seogi
+            measurable: pose_and_spec
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-03
+            text: Kihap is not made or made at the wrong moment
+            measurable: audio_required
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-04
+            text: Temporary stop during movements for three seconds or longer
+            measurable: pose_only
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-05
+            text: Eyesight does not follow the side to which actions are made
+            measurable: pose_and_spec
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-06
+            text: The raised foot touches the ground in performing Hakdari-Seogi
+            measurable: pose_only
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-07
+            text: Jittzikgi movement without enough power and sound
+            measurable: audio_required
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
+          - id: MAJ-08
+            text: The contestant makes loud breathing noises
+            measurable: audio_required
+            source_ref: wt_poomsae_rules_2024-09-30#Article16-Explanation2
       restart:
         rule_id: WT-2024-09-30-A16-EXPLANATION-3
         amount: 0.6

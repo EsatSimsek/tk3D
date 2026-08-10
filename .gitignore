@@ -49,3 +49,4 @@ data/aist_test/local/
 # Raw ZED recordings are local capture assets
 *.svo
 *.svo2
+output/

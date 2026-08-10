@@ -1070,3 +1070,42 @@ def test_rule_pack_loader_rejects_duplicate_yaml_keys(tmp_path: Path) -> None:
 
     with pytest.raises(ScoringContractError, match="duplicate key"):
         load_rule_pack(duplicate)
+
+
+def test_rule_pack_accepts_optional_categorical_examples() -> None:
+    pack = load_rule_pack(RULE_PACK_PATH)
+    deductions = pack["scoring"]["accuracy"]["deductions"]
+
+    examples = deductions["major"]["categorical_examples"]
+    assert len(examples) == 8
+    assert {item["measurable"] for item in examples} <= {
+        "pose_only",
+        "pose_and_spec",
+        "audio_required",
+    }
+    assert "categorical_examples" not in deductions["minor"]
+    assert "categorical_examples" not in deductions["restart"]
+
+
+def test_rule_pack_rejects_unsupported_measurable_label(tmp_path: Path) -> None:
+    broken = tmp_path / "broken_measurable.yaml"
+    broken.write_text(
+        RULE_PACK_PATH.read_text(encoding="utf-8").replace(
+            "measurable: pose_only", "measurable: telepathy_required", 1
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ScoringContractError, match="measurable is unsupported"):
+        load_rule_pack(broken)
+
+
+def test_rule_pack_rejects_duplicate_categorical_example_ids(tmp_path: Path) -> None:
+    broken = tmp_path / "duplicate_example_id.yaml"
+    broken.write_text(
+        RULE_PACK_PATH.read_text(encoding="utf-8").replace("id: MAJ-02", "id: MAJ-01", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ScoringContractError, match="duplicate categorical example id"):
+        load_rule_pack(broken)
