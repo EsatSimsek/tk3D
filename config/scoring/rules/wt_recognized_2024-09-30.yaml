@@ -105,3 +105,23 @@ scoring:
       definition: The contestant crosses the boundary line of the competition area.
       source_refs:
         - wt_poomsae_rules_2024-09-30#Article16-3.2
+
+  presentation:
+    total_score: 6.0
+    scoring_mode: holistic
+    scoring_note: >-
+      Presentation is scored for the overall performance, not by deducting for
+      each individual mistake (WT Article 16, Explanation 4).
+    components:
+      speed_and_power:
+        score: 2.0
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article15-1.2.1
+      rhythm_and_tempo:
+        score: 2.0
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article15-1.2.2
+      expression_of_energy:
+        score: 2.0
+        source_refs:
+          - wt_poomsae_rules_2024-09-30#Article15-1.2.3
