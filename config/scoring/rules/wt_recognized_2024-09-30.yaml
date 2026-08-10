@@ -79,3 +79,29 @@ scoring:
         source_refs:
           - wt_poomsae_rules_2024-09-30#Article16-Explanation3
   presentation_reserved_score: 6.0
+  final_score_deductions:
+    time_violation:
+      rule_id: WT-2024-09-30-A16-3.1
+      amount: 0.3
+      applies_to: final_score
+      frequency: per_performance
+      scope: performance
+      definition: The contestant finishes the Poomsae under or over the designated time limit.
+      source_refs:
+        - wt_poomsae_rules_2024-09-30#Article16-3.1
+    boundary_crossing:
+      rule_id: WT-2024-09-30-A16-3.2
+      amount: 0.3
+      applies_to: final_score
+      frequency: per_performance
+      source_ambiguity: >-
+        No reviewed source (WT 2024, BT, USAT, AAU) uses "each time" for individual
+        recognized-Poomsae boundary crossing, unlike accuracy mistakes and team/demo
+        rules which do. Secondary analysis frames it as a referee-managed procedural
+        deduction (not a judge-entered technical fault), applied once to the final
+        score; if two forms are performed in a round, it applies once per form. No
+        explicit WT scoring-guideline/ESS quote was found; referee confirmation advised.
+      scope: performance
+      definition: The contestant crosses the boundary line of the competition area.
+      source_refs:
+        - wt_poomsae_rules_2024-09-30#Article16-3.2
