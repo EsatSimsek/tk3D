@@ -97,6 +97,8 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
 
     source_ids = _validate_sources(data["source_documents"], "rule pack")
     scoring = _require_mapping(data["scoring"], "rule pack scoring")
+    optional_presentation = scoring.pop("presentation", None)
+    optional_final_deductions = scoring.pop("final_score_deductions", None)
     _require_exact_keys(scoring, {"total_score", "accuracy", "presentation_reserved_score"}, "rule pack scoring")
     total_score = _finite_nonnegative(scoring["total_score"], "total_score")
     presentation_score = _finite_nonnegative(scoring["presentation_reserved_score"], "presentation_reserved_score")
@@ -106,6 +108,36 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
     initial_score = _finite_nonnegative(accuracy["initial_score"], "accuracy.initial_score")
     if not np.isclose(initial_score + presentation_score, total_score, atol=1e-9):
         raise ScoringContractError("accuracy.initial_score + presentation_reserved_score must equal total_score")
+    if optional_presentation is not None:
+        presentation = _require_mapping(optional_presentation, "presentation")
+        _require_exact_keys(
+            presentation,
+            {"total_score", "scoring_mode", "scoring_note", "components"},
+            "presentation",
+        )
+        _finite_nonnegative(presentation["total_score"], "presentation.total_score")
+        _require_nonempty_string(presentation["scoring_mode"], "presentation.scoring_mode")
+        _require_nonempty_string(presentation["scoring_note"], "presentation.scoring_note")
+        components = _require_mapping(presentation["components"], "presentation.components")
+        required_components = {"speed_and_power", "rhythm_and_tempo", "expression_of_energy"}
+        if set(components) != required_components:
+            raise ScoringContractError(
+                "presentation.components must contain exactly speed_and_power, rhythm_and_tempo and expression_of_energy"
+            )
+        component_total = 0.0
+        for name, raw_component in components.items():
+            component = _require_mapping(raw_component, f"presentation.components.{name}")
+            _require_exact_keys(component, {"score", "source_refs"}, f"presentation.components.{name}")
+            component_total += _finite_nonnegative(component["score"], f"presentation.components.{name}.score")
+            _validate_source_refs(component["source_refs"], source_ids, f"presentation.components.{name}.source_refs")
+        if not np.isclose(component_total, presentation_score, atol=1e-9):
+            raise ScoringContractError(
+                "presentation.components scores must sum to presentation_reserved_score"
+            )
+        if not np.isclose(presentation["total_score"], presentation_score, atol=1e-9):
+            raise ScoringContractError(
+                "presentation.total_score must equal presentation_reserved_score"
+            )
 
     deductions = _require_mapping(accuracy["deductions"], "accuracy.deductions")
     required_deductions = {"minor", "major", "restart"}
