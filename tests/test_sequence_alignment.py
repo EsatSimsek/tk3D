@@ -92,3 +92,36 @@ def test_pose_dtw_keeps_imperfect_but_present_movement():
     result = _dtw_align_with_skip(cost, skip_penalty=penalty)
     assert result["skipped_movements"] == []
     assert result["pairs"] == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_uncertain_band_flags_borderline_kept_movement():
+    from src.synthetic_poses import build_frame
+    from src.poomsae_scoring.sequence_alignment import (
+        _pose_cost_matrix, _dtw_align_with_skip, _auto_skip_penalty, _flag_uncertain_movements,
+    )
+    expected = [build_frame(90, 90), build_frame(180, 180), build_frame(90, 90)]
+    penalty = _auto_skip_penalty(expected)
+    margin = 0.03
+    # Ortadaki hareket sinirda (125 derece): tutulmali ama belirsiz isaretlenmeli
+    segments = [build_frame(90, 90), build_frame(125, 125), build_frame(90, 90)]
+    cost = _pose_cost_matrix(segments, expected)
+    result = _dtw_align_with_skip(cost, skip_penalty=penalty)
+    assert result["skipped_movements"] == []  # sporcu lehine tutuldu
+    flagged = _flag_uncertain_movements(cost, result["pairs"], penalty, margin)
+    assert any(f["movement_index"] == 1 for f in flagged)  # belirsiz isaretlendi
+
+
+def test_clear_movement_not_flagged_uncertain():
+    from src.synthetic_poses import build_frame
+    from src.poomsae_scoring.sequence_alignment import (
+        _pose_cost_matrix, _dtw_align_with_skip, _auto_skip_penalty, _flag_uncertain_movements,
+    )
+    expected = [build_frame(90, 90), build_frame(180, 180), build_frame(90, 90)]
+    penalty = _auto_skip_penalty(expected)
+    margin = 0.03
+    # Ortadaki hareket iyi (175 derece): tutulmali, belirsiz OLMAMALI
+    segments = [build_frame(90, 90), build_frame(175, 175), build_frame(90, 90)]
+    cost = _pose_cost_matrix(segments, expected)
+    result = _dtw_align_with_skip(cost, skip_penalty=penalty)
+    flagged = _flag_uncertain_movements(cost, result["pairs"], penalty, margin)
+    assert not any(f["movement_index"] == 1 for f in flagged)  # temiz, isaret yok
