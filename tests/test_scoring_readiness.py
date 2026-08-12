@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from scripts.analyze_pose_for_scoring import _flatten_report
 from src.biomechanics_3d import center_of_mass_proxy
 from src.scoring_readiness import (
     adaptive_motion_threshold,
@@ -114,3 +115,19 @@ def test_torso_lean_uses_analysis_z_up_y_forward_contract() -> None:
     assert abs(torso_lean_deg(frame)) < 1e-9
     frame[5:7, 1] = 0.3
     assert torso_lean_deg(frame) > 0.0
+
+
+def test_readiness_summary_is_explicitly_scoreless() -> None:
+    summary = _flatten_report(
+        {
+            "session_id": "scoreless-readiness",
+            "scoring_readiness": {"status": "ready_for_scoring_infrastructure"},
+            "quality_summary": {},
+            "score_generated": False,
+            "next_stage": "source_bound_rulepack_accuracy",
+        }
+    )
+
+    assert summary["score_generated"] is False
+    assert summary["next_stage"] == "source_bound_rulepack_accuracy"
+    assert "provisional_score" not in summary

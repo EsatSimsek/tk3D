@@ -2,9 +2,16 @@ import numpy as np
 
 from src.biomechanics_3d import angle_deg
 from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM
-from src.scoring_metrics import stance_length_forward, stance_width_lateral, torso_lean_from_vertical_deg
+from src.scoring_metrics import (
+    left_knee_ankle_alignment,
+    pelvis_height,
+    right_knee_ankle_alignment,
+    stance_length_forward,
+    stance_width_lateral,
+    torso_lean_from_vertical_deg,
+)
 from src.synthetic_poses import build_frame, build_leg, build_sequence, build_torso_frame
-from src.scoring_metrics import torso_lean_from_vertical_deg, stance_width_lateral, stance_length_forward, left_knee_ankle_alignment, right_knee_ankle_alignment, pelvis_height
+
 
 def test_scoring_axis_contract_is_right_forward_up():
     assert ANALYSIS_COORDINATE_SYSTEM["axes"] == {"x": "right", "y": "forward", "z": "up"}

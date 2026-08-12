@@ -17,7 +17,7 @@ Bu projeyi okuyan bir AI aracı şunu varsaymalıdır:
 - Nihai ürün, poomsae performansını otomatik veya yarı otomatik puanlayan bir analiz sistemidir.
 - 3D iskelet üretimi projenin asıl amacı değil, puanlama için gerekli ara çıktıdır.
 - Ana ara veri sözleşmesi `keypoints_3d_world[t, 133, 3]` formatındaki COCO-WholeBody tabanlı 3D dünya koordinatlarıdır.
-- Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket segment adayları -> açıklanabilir geçici teknik skor.
+- Çalışan zincir: video -> 2D pose -> sağlamlaştırılmış multi-view 3D pose -> kalite analizi -> biomekanik özellikler -> hareket/faz kanıtı -> kaynak-bağlı Accuracy kararları.
 - Geçici skor resmî hakem puanı değildir. Sıradaki iş, gerçek poomsae
   kayıtlarında hareket/faz etiketlerini kaynak bağlı olarak tamamlamak ve açık
   mühendislik toleranslarını ayrı sürümde tanımlamaktır; hakem/uzman etiketi
@@ -50,12 +50,116 @@ Bu ilk sürüm, nihai puanlama sistemine temel olacak şu bileşenleri içerir:
 - Sentetik 3 kamera dry-run verisi ile triangulation doğrulama
 - 3D temporal smoothing
 - 3D validation, kalite ölçümleri ve scoring-readiness analizi
-- Açıklanabilir, kalite kapılı ve açıkça `provisional_not_official` olarak işaretlenen teknik ön skor
+- Kaynak, ölçülebilirlik ve belirsizlik kapılı RulePack Accuracy kararları
 - JSON, CSV, Excel ve figür export iskeleti
 - Pytest tabanlı çekirdek algoritma testleri
 - Gelecekteki 3D poomsae scoring motoruna uygun veri yapıları
 
 ## Taegeuk 1 Accuracy puanlama altyapısı
+
+### Tek komutla trimmed ZED kaydını puanlama
+
+Doğrulanmış ultra RGBD 3B çıktısını bütün kaynak-bağlı aşamalardan geçirmek,
+benzersiz bir run oluşturmak ve iki kameralı inceleme ekranını üretmek için:
+
+```powershell
+cd C:\Users\WWWW\Desktop\tk3d
+.\.venv312\Scripts\python.exe scripts\run_poomsae_scoring.py --profile poomsae1_trimmed
+```
+
+Bu hızlı mod ViTPose/depth işlemesini tekrarlamaz. Timeline'a SHA-256 ile bağlı,
+daha önce kalite kapılarından geçmiş ultra RGBD 3B pozu kullanır ve doğrudan
+WholeBody-133 ölçüm, hareket/faz kanıtı, RulePack kontrolü, Accuracy kararları
+ve HTML inceleme raporunu üretir.
+
+Trimmed videoyu ViTPose-Huge-WholeBody, iki kamera ve ZED NEURAL depth ile
+baştan `stride 1` işleyip ardından puanlamak için yalnız son komuta
+`--process-video` eklenir:
+
+```powershell
+cd C:\Users\WWWW\Desktop\tk3d
+.\.venv312\Scripts\python.exe scripts\run_poomsae_scoring.py --profile poomsae1_trimmed --process-video
+```
+
+İkinci mod, elle doğrulanmış timeline'ı yalnız session kimliği, pose hash'i,
+741 kare, frame indeksleri, 60 FPS ve bütün timestamp'ler referans run ile
+birebir uyuşursa yeni pose dosyasına bağlar; herhangi bir farkta puanlama
+fail-closed durur. Yaklaşık kalibrasyon, düşük kaliteyi zorla kabul etme,
+`stride > 1` veya eski kaynaksız provisional motor bu profil tarafından
+kullanılmaz.
+
+Her iki modda da benzersiz çıktı klasörü otomatik oluşturulur ve tam yolu
+terminalin sonunda `Çıktı klasörü:` satırında gösterilir:
+
+```text
+C:\Users\WWWW\Desktop\tk3d\outputs\poomsae_1_zed2i_20260731_trimmed\runs\<run_id>\
+├── json\
+│   ├── poomsae_scoring_summary.json
+│   ├── source_bound_accuracy_decisions.json
+│   ├── decision_evidence_events.json
+│   ├── rule_scoring_readiness.json
+│   ├── wholebody_diagnostics_report.json
+│   └── movement_evidence_report.json
+├── csv\
+│   ├── wholebody_metrics.csv
+│   └── movement_evidence.csv
+├── config\
+│   ├── workflow_profile.yaml
+│   ├── rule_pack.yaml
+│   ├── poomsae_spec.yaml
+│   ├── movement_timeline.yaml
+│   ├── wholebody_diagnostic_profile.yaml
+│   └── accuracy_profile.yaml
+├── videos\
+│   ├── poomsae_scoring_annotated.mp4
+│   └── poomsae_scoring_annotated_manifest.json
+└── review\
+    ├── poomsae_scoring_review.html
+    └── poomsae_scoring_review_manifest.json
+```
+
+`--process-video` modu bunlara ek olarak `vitpose_session_3d.json`, depth ve
+kalite raporları, kamera overlay videoları, 3B iskelet videosu, HTML 3B viewer
+ve `scoring_readiness_analysis.xlsx` üretir.
+
+En hızlı kontrol sırası:
+
+1. `json/poomsae_scoring_summary.json`: kapsam ve sonuç özeti.
+2. `videos/poomsae_scoring_annotated.mp4`: iki kamerayı yan yana gösteren;
+   karar anında ilgili eklemi, ölçümü, kaynak aralığını ve kesintiyi videoya
+   çizen görsel kanıt çıktısı.
+3. `json/source_bound_accuracy_decisions.json`: kaynak ve belirsizlik bağlı
+   tek tek kararlar.
+4. `review/poomsae_scoring_review.html`: ham iki kamerayı ve işaretli videoyu
+   senkron izleme, `Videoda aç` ile kanıt anına gitme ve her karar için
+   `Doğru / Yanlış / Belirsiz` inceleme kaydı oluşturma ekranı. İnceleme
+   kararları tarayıcıdan JSON olarak indirilebilir; motorun ürettiği kaynak
+   karar dosyası değiştirilmez.
+5. `json/decision_evidence_events.json`: video ve HTML'nin kullandığı değişmez
+   olay sözleşmesi; kare/zaman, ölçüm, `%95` aralığı, kaynak sınırı ve çizilecek
+   eklem geometrisini taşır.
+6. `csv/wholebody_metrics.csv`: bütün sayısal WholeBody-133 ölçümleri.
+
+İşaretli videodaki eklem çizgileri kayıtlı ViTPose 2B noktalarının görsel
+izidir. Kesinti kararı bu çizgiden yeniden hesaplanmaz; kalibre, çok kameralı
+3B ölçüm ve onun belirsizlik aralığından gelir. Böylece kullanıcı hatanın
+nerede görüldüğünü denetleyebilir, fakat görselleştirme ikinci ve gizli bir
+puan motoruna dönüşmez.
+
+Bir kanıt anında her aktif kural ayrı numaralı kutuda gösterilir. Kutuda
+`KURAL`, `ÖLÇÜLEN (KALİBRE 3B)`, `%95 olası aralık`, `FARK`, `SONUÇ`,
+`NASIL DÜZELTİLİR` ve `KAYNAK DURUMU` satırları bulunur. Ayak yönü
+görselleştirmesinde beyaz kesik çizgi duruş doğrultusunu, yeşil çizgiler kabul
+sınırını, renkli çizgi gözlenen ayağı ve yeşil ok önerilen düzeltme yönünü
+gösterir. Aynı karede iki karar varsa `[1]` ve `[2]` işaretleri ilgili kutuyla
+eşleşir. Tarihsel resmî geometri kaynağı, güncel WT ekiymiş gibi gösterilmez.
+
+Mevcut trimmed kayıt yalnız M01-M06'yı içerir. Bu nedenle başarılı çalışmanın
+beklenen özeti `6/18`, dört kaynak-bağlı küçük hata, gözlenen kapsam için `0,4`
+provisional kesinti ve `accuracy_score=null` değeridir. `null` hata değildir:
+M07-M18 videoda olmadığı için sistem eksik kayıttan tam 4,0 Accuracy puanı
+uydurmayı reddeder. Tam Poomsae 1 kaydı ve tamamlanmış timeline olmadan
+`rule_scoring_ready=false` ile `official_scoring_ready=false` kalır.
 
 Yeni kural motoru üç sürümlü ve fail-closed sözleşme kullanır:
 
@@ -143,10 +247,21 @@ olmadığı için yeni tekme metrikleri yalnız `measured_diagnostic_only` üret
 ```
 
 Gerçek kısa kayıt v2.4 koşusu
-`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260803-151214/`
-altındadır. Dokuz kaynak-bağlı kararın beşi küçük hata olarak uygulandı, üçü
-ölçülemedi, biri aralık içinde kaldı. Gözlenen kapsam kesinti toplamı `0,5`;
-M07-M18 videoda olmadığı için `accuracy_score=null` kalır.
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260810-221705/`
+altındadır. Dokuz kaynak-bağlı kararın dördü küçük hata olarak uygulandı, üçü
+ölçülemedi, biri aralık içinde, biri sınır-belirsiz kaldı. Gözlenen kapsam
+kesinti toplamı `0,4`; M07-M18 videoda olmadığı için `accuracy_score=null`
+kalır.
+
+RulePack `1.1.0`, WT Article 16.3.1 süre ihlali ve 16.3.2 sınır geçme
+kesintilerini Accuracy'den ayrı `final_score_deductions` alanında taşır. İkisi
+de final skordan `-0,3` metadata'sıdır. Sınır geçmenin tekrar frekansı kaynakta
+açık olmadığı için otomatik runtime uygulaması kapalıdır.
+
+Kullanılan bütün yerel PDF/TXT kaynakları
+[`output/pdf/scoring_sources/`](output/pdf/scoring_sources/) altında; dosya
+hash'leri, çevrim içi Kukkiwon video bağlantıları ve kaynak statüleri
+[`docs/scoring_sources/README.md`](docs/scoring_sources/README.md) içindedir.
 
 Yeni bir kural/teknik PDF geldiğinde önce
 [`docs/scoring_sources/SOURCE_INTAKE_TEMPLATE.yaml`](docs/scoring_sources/SOURCE_INTAKE_TEMPLATE.yaml)
@@ -617,8 +732,8 @@ ViTPose multi-view pipeline:
 - Gerçek üretim çıktısı için `outputs/<session_id>/calibration/cameras.json` dosyasının ilgili kamera ID'leriyle uyumlu olması gerekir.
 - Her canlı çalışma `outputs/<session_id>/runs/<run_id>/` altında izole edilir; yalnızca kalite kapısını geçen çalışma `latest_run.json` olarak işaretlenir.
 - Canlı çalışmanın kalite raporu iç geometri ve sensör tutarlılığını ölçer. Bunlar geçerse
-  `provisional_scoring_ready=true` olur ve dış ground-truth beklenmeden açıkça `provisional_not_official` analiz
-  çalışabilir. `official_scoring_ready` ayrı kalır ve uzman kural/hakem doğrulaması olmadan açılmaz. Opsiyonel dış
+  `provisional_scoring_ready=true` olur; bu yalnız verinin kaynak-bağlı kural analizine girebileceğini belirtir ve
+  kendi başına puan üretmez. `official_scoring_ready` ayrı kalır ve uzman kural/hakem doğrulaması olmadan açılmaz. Opsiyonel dış
   doğrulama komutu tahmin, ground truth ve kalite raporlarını SHA-256 ile aynı koşuya bağlar; başka koşunun metriği
   veya JSON içine elle yazılmış bir alan yetki kaynağı sayılmaz.
 
@@ -840,9 +955,10 @@ Cikti: `outputs/aist_test/viewer/aist_smpl_viewer.html`
 
 ## Puanlama Altyapısı: Güvenli Geliştirme Akışı
 
-Puanlama altyapısı çalışır durumdadır. Güncel ZED RGBD koşusunda iç geometri ve RGB-vs-depth sensör tutarlılığı
+Puanlama hazırlık altyapısı çalışır durumdadır. Güncel ZED RGBD koşusunda iç geometri ve RGB-vs-depth sensör tutarlılığı
 geçtiği için `provisional_scoring_ready=true` olur; sistem mocap veya başka dış ground-truth beklemeden
-`provisional_not_official` skor üretir. Dış doğruluk bilgi amaçlı
+kalite, biomekanik ve hareket-segmenti kanıtlarını üretir. Kaynaksız eski 0-100 provisional motor kaldırılmıştır;
+puan kararları yalnız kaynak-bağlı RulePack hattında üretilebilir. Dış doğruluk bilgi amaçlı
 `external_accuracy.status=not_evaluated_for_this_run` kalır ve resmî doğruluk iddiası oluşturmaz. ZED stereo depth,
 confidence, kalibrasyon, zaman damgaları ve IMU sistemin kendi sensör kanıtıdır. Geçersiz eklem veya yetersiz kamera
 görüşü puana katılmaz; `official_scoring_ready` uzman kural/hakem doğrulaması olmadığı için `false` kalır.
@@ -891,17 +1007,16 @@ python scripts\analyze_pose_for_scoring.py `
 Write-Host "Sonuç klasörü: $runRoot"
 ```
 
-`--allow-low-quality-output`, `--allow-failed-quality-gate` ve opsiyonel
-`--allow-unvalidated-provisional-score` yalnız geliştirme/teşhis içindir. Normal provisional akış bu son bayrağı
-istemez; bunun yerine aynı koşunun `run_quality_report.json` iç kalite kapılarını doğrular. Hızlı bir smoke test için
+`--allow-low-quality-output` ve `--allow-failed-quality-gate` yalnız geliştirme/teşhis içindir.
+`analyze_pose_for_scoring.py` puan üretmez; kalite, biomekanik ve segment kanıtlarını hazırlar. Hızlı bir smoke test için
 yalnız 3B üretim komutunda `--stride 20 --max-frames 30` kullanılabilir; 30
 kare güvenilirlik kararı veya model onayı için yeterli değildir.
 
 Ground-truth bulunursa `evaluate_ground_truth_3d.py` ayrıca koşuya bağlı dış doğruluk raporu üretir. Bulunmaması
-provisional analizi durdurmaz. Normal puanlama komutu 3B tahmin ile aynı klasördeki iç kalite raporunun session/run
-kimliğini, üretim kalibrasyonunu, sensör tutarlılığını ve SHA-256 özetlerini kontrol eder. Tarihsel MADS raporu veya
-başka koşuya ait yetkilendirme kabul edilmez. `official_scoring_ready`, uzman onaylı poomsae kural/hakem doğrulaması
-tamamlanana kadar ayrı olarak `false` kalır.
+hazırlık analizini durdurmaz. Kaynak-bağlı puanlama katmanı 3B tahmin, RulePack, PoomsaeSpec, MovementTimeline ve
+mühendislik profilinin koşuyla uyumunu ayrı olarak doğrular. Tarihsel MADS raporu başka bir koşunun doğruluğu olarak
+kabul edilmez. `official_scoring_ready`, uzman onaylı poomsae kural/hakem doğrulaması tamamlanana kadar ayrı olarak
+`false` kalır.
 
 ### Çıktılar nerede?
 
@@ -909,12 +1024,11 @@ Bütün sonuçlar `outputs/mads_kata_f2/runs/<run_id>/` altında aynı çalışm
 
 | Öncelik | Dosya | Ne gösterir? |
 | --- | --- | --- |
-| 1 | `scoring_readiness_analysis.xlsx` | Kalite, biomekanik, segment, kare/adım skoru ve teknik hataları tek dosyada gösterir. |
+| 1 | `scoring_readiness_analysis.xlsx` | Kalite, biomekanik ve segment kanıtlarını tek dosyada gösterir; puan içermez. |
 | 2 | `ground_truth_validation/ground_truth_validation_report.json` | MPJPE, P95, PCK, açı hatası ve ground-truth kalite kapısı sonucunu gösterir. |
 | 3 | `ground_truth_validation/scoring_authorization.json` | Koşuya bağlı `scoring_ready` kararı, dosya özetleri ve ret nedenlerini gösterir. |
 | 4 | `json/scoring_readiness_report.json` | Kaç kare ve eklemin değerlendirmeye uygun olduğunu gösterir. |
-| 5 | `json/provisional_scoring_report.json` | Geçici toplam/bileşen skorları ve `provisional_not_official` durumunu gösterir. |
-| 6 | `videos/vitpose_skeleton_3d_world.mp4` | Üretilen 3B iskeleti görsel olarak kontrol etmeyi sağlar. |
+| 5 | `videos/vitpose_skeleton_3d_world.mp4` | Üretilen 3B iskeleti görsel olarak kontrol etmeyi sağlar. |
 
 Diğer ayrıntılı çıktılar:
 
@@ -925,16 +1039,12 @@ Diğer ayrıntılı çıktılar:
 - `csv/pose_quality_joints.csv`: eklem bazında kalite özeti
 - `csv/biomechanics_timeseries.csv`: açı, hız, denge ve diğer biomekanik zaman serileri
 - `csv/movement_segments.csv`: otomatik hareket segment adayları
-- `csv/provisional_frame_scores.csv`: kare bazında geçici skorlar
-- `csv/provisional_step_scores.csv`: segment/adım bazında geçici skorlar
-- `csv/technical_errors.csv`: açıklanabilir teknik hata kodları ve açıklamaları
 - `ground_truth_validation/ground_truth_frame_errors.csv`: kare bazında gerçek 3B hata
 - `ground_truth_validation/ground_truth_joint_errors.csv`: eklem bazında gerçek 3B hata
 
-`provisional_scoring_report.json`, kalite kapısını geçen kareler için duruş, alt vücut, kinematik denge ve kemik
-uzunluğu kararlılığı bileşenlerinden 0-100 arası bir altyapı skoru verir. Hareket segmentleri gerçek poomsae
-adımlarıyla etiketlenmeden, teknik hedefler uzman tarafından onaylanmadan ve hakem puanlarıyla dış doğrulama
-yapılmadan bu değer resmî puan değildir.
+Eski `provisional_scoring_report.json` ve 0-100 generic teknik skor artık üretilmez. Accuracy kararları
+`build_source_bound_accuracy_decisions.py` ile kaynak-bağlı RulePack/PoomsaeSpec hattında oluşturulur; gözlenemeyen
+veya eksik kanıtta puan alanı `null` kalır.
 
 ### AIST üzerinde eski geliştirme akışı
 
@@ -943,8 +1053,7 @@ AIST yalnız akış/smoke testi için korunur; MADS ground-truth doğruluk bench
 ```powershell
 python scripts\analyze_pose_for_scoring.py `
   --session data\aist_test\session_all.yaml `
-  --smoothing-window 5 `
-  --allow-unvalidated-provisional-score
+  --smoothing-window 5
 ```
 
 Tek kamera 2D cubuk overlay gerekiyorsa zaten mevcut komut kullanilir:

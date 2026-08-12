@@ -25,7 +25,6 @@ __all__ = [
     "smpl_mesh",
     "biomechanics_3d",
     "scoring_readiness",
-    "scoring_engine",
     "coordinate_system",
     "config_validation",
     "run_outputs",

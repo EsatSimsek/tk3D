@@ -188,6 +188,10 @@ koşuya kriptografik olarak bağlı bağımsız dış doğrulama yetkisiyle aç�
 
 ## AD-016 — Provisional puanlama dış ground-truth beklemez
 
+Durum: 12 Ağustos 2026 tarihinde AD-023 tarafından kısmen geçersiz kılındı.
+`provisional_scoring_ready` veri hazırlık kapısı olarak korunur; bu kararda
+tanımlanan kaynaksız 0-100 skor üretimi kaldırılmıştır.
+
 Karar: Mocap veya bağımsız ölçülmüş 3B referans bulunmaması normal ZED çalışma
 akışını durdurmaz. Aynı koşunun `run_quality_report.json` dosyasında üretim
 kalibrasyonu, iç geometri ve sensör tutarlılığı geçtiğinde
@@ -368,6 +372,65 @@ MAD belirsizliği ile metrik tabanı birlikte kullanılır. Hareket ve `error_un
 anahtarı aynı fiziksel hatayı iki kez kesmeyi engeller. Kısmi timeline yalnız
 `observed_scope_provisional_deduction_total` üretir; `accuracy_score=null`
 kalır.
+
+## AD-022 — Süre ve sınır ihlali Accuracy değil final skor kesintisidir
+
+Karar: WT Article 16.3.1 süre ihlali ve 16.3.2 yarışma alanı sınırını geçme
+olayları `accuracy.deductions` içine karıştırılmaz. RulePack 1.1.0 bunları ayrı
+`final_score_deductions` alanında, final skordan `-0,3` ve performans kapsamlı
+olaylar olarak taşır.
+
+Gerekçe: Bu kesintiler bireysel hareket tekniği hatası değildir. Accuracy
+skorundan düşülmeleri `4,0` bütçesini yanlış değiştirir; doğru uygulama jüri
+Accuracy ve Presentation birleşiminden sonraki final skordur.
+
+Koruma: RulePack doğrulayıcısı iki final kesintisinin anahtarlarını, pozitif
+miktarını, `applies_to=final_score`, `scope=performance`, kaynak referansını ve
+frekans sözleşmesini doğrular. Article 16.3.2 aynı performansta tekrar eden
+sınır geçişlerinin sıklığını açıkça söylemediği için `per_performance` şimdilik
+provisional metadata'dır; açıklık sağlanana kadar otomatik runtime kesintisi
+uygulanmaz.
+
+## AD-023 — Kaynaksız generic 0-100 puan motoru kaldırılmıştır
+
+Karar: `src/scoring_engine.py`, ona ait `config/scoring_config.yaml` ve
+`provisional_scoring_report.json` üretimi kaldırılmıştır. 3B hazırlık aracı
+yalnız yumuşatılmış iskelet, kalite, biomekanik ve hareket-segmenti kanıtları
+üretir; hiçbir puan hesaplamaz.
+
+Gerekçe: Eski motorun 10°/130°/0,70 eşikleri ve bileşen ağırlıkları resmî WT
+kaynağına bağlı değildi. Açıkça provisional etiketlenmiş olsa da yeni
+RulePack tabanlı motorla birlikte bulunması iki farklı puan gerçeği yaratıyor
+ve tarihsel `71,7178/100` değerinin WT puanı sanılmasına yol açıyordu.
+
+Koruma: Görüntü işleme, RGBD fusion, WholeBody-133, kalite kapıları,
+biomekanik zaman serileri ve segment adayları korunur. Sayısal Accuracy kararı
+yalnız sürümlü kaynak, PoomsaeSpec, timeline, observability ve belirsizlik
+kapılarını kullanan `src/poomsae_scoring/` hattında üretilebilir. Eski run
+çıktıları provenance amacıyla silinmez fakat yeniden üretilmez.
+
+## AD-024 — Puan kararı ve görsel hata kanıtı tek yönlü ayrılır
+
+Karar: Kaynak-bağlı Accuracy kararları değişmez bir `EvidenceEvent`
+sözleşmesine çevrilir. Olay; hareket/faz, kare-zaman aralığı, karar durumu,
+kalibre 3B ölçüm, `%95` belirsizlik aralığı, kaynak sınırı, kesinti ve yalnız
+görselleştirmede kullanılacak eklem geometrisini taşır. İşaretli MP4 ve HTML
+inceleme ekranı bu olayları tüketir; hiçbir görselleştirme çıktısı puan motoruna
+geri beslenmez.
+
+Gerekçe: Kullanıcı “yumruk/dirsek neden hatalı?” sorusunun cevabını doğrudan
+iki kamera üzerinde görebilmelidir. Bununla birlikte kamera üstüne çizilen 2B
+iskelet, çok kameralı 3B kararın bağımsız doğrulaması değildir. 2B çizimden
+yeniden açı veya kesinti hesaplamak iki farklı puan gerçeği ve dairesel kanıt
+oluştururdu.
+
+Koruma: İşaretli video kaynak videolarla aynı tam kare zaman çizelgesini korur;
+kare atmaz ve ham videoların üzerine yazmaz. Renkler yalnız karar durumunu
+anlatır: kırmızı doğrulanmış kesinti, amber sınır-belirsiz, gri ölçülemez,
+yeşil kaynak aralığında. Panel açıkça sayısal kararın 3B'den, çizimin ise
+kayıtlı ViTPose 2B izinden geldiğini yazar. Kullanıcının `Doğru / Yanlış /
+Belirsiz` inceleme girdisi ayrı JSON olarak dışa aktarılır; özgün karar JSON'u
+değiştirilmez ve otomatik olarak RulePack'e geri yazılmaz.
 
 Uygulama ve doğrulama aşamaları:
 [`docs/PUANLAMA_PLANI.md`](PUANLAMA_PLANI.md).

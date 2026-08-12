@@ -24,7 +24,8 @@ Sistem henüz resmî poomsae puanlamasına hazır değildir:
   Bu nedenle `judge_calibrated_ready` ve `official_scoring_ready` kapalı kalır.
 - İç geometri raporunun geçmesi gerçek 3B doğruluğu tek başına kanıtlamaz.
 - Normal çok-kameralı run iç kalite geçtiğinde `provisional_scoring_ready:true`
-  yazar ve dış ground-truth beklemeden `provisional_not_official` analiz çalışır.
+  yazar; bu değer yalnız kaynak-bağlı kural analizi için veri hazırlığını belirtir,
+  kendi başına puan üretmez.
 - `official_scoring_ready:false` kalır; dış doğruluk yokluğu provisional akışı
   durdurmaz fakat resmî doğruluk/hakem puanı iddiasına izin vermez.
 
@@ -204,8 +205,8 @@ bir yeniden kullanılan kaynak kare vardır.
 - iç geometri ve ZED RGB-vs-depth iç sensör tutarlılığı geçti;
 - bu koşuya bağlı dış ground-truth değerlendirilmedi, tarihsel benchmark
   devralınmadı; `external_accuracy=not_evaluated_for_this_run` bilgi amaçlı kaldı;
-- dış ground-truth beklenmeden `provisional_scoring_ready=true`; normal analiz
-  `71,7178` değerli `provisional_not_official` skor üretti;
+- dış ground-truth beklenmeden `provisional_scoring_ready=true`; o tarihte çalışan
+  legacy generic motor `71,7178` değerli `provisional_not_official` skor üretti;
 - hareket eşiğinin sürekli harekette aşırı yükselmesi düzeltildi; ikinci koşuda
   durum `ready_for_scoring_infrastructure`, hazır kare oranı `1,0` oldu;
 - `official_scoring_ready=false`.
@@ -214,9 +215,11 @@ Son yeniden üretilen nihai koşu:
 `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802/`.
 Koşu 741/741 kare, stride 1 ve aynı ultra profille tamamlandı; üç video da
 `60 FPS`, `12,35 s`, `1280x720` çıktı. İç geometri ve depth kapısı geçti,
-`7.669` BODY-17 depth fusion noktası kullanıldı. Normal provisional analiz
+`7.669` BODY-17 depth fusion noktası kullanıldı. Tarihsel legacy analiz
 `71,7178/100`, `ready_for_scoring_infrastructure`, hazır kare oranı `1,0` ve
-`15` hareket segment adayı üretti. Toplam 13 JSON ve 20 CSV doğrulandı;
+`15` hareket segment adayı üretti. Kaynaksız 0-100 legacy motor 12 Ağustos 2026
+tarihinde koddan kaldırıldı; bu sayı yalnız tarihsel koşu kaydıdır ve yeniden
+üretilmez. O koşuda toplam 13 JSON ve 20 CSV doğrulandı;
 `NaN`/`inf` sızıntısı ve tarihsel MADS referansı bulunmadı.
 IMU bu koşuda kamera yerçekimi/yönelim kalibrasyonunda kullanıldı; sporcu
 pozu için kare bazlı IMU düzeltmesi uygulanmadı. ZED depth/confidence kendi
@@ -225,6 +228,36 @@ doğruluğu artırdığı iddiası için bu koşuyla uyumlu bağımsız mocap/ö
 hâlâ gerekir.
 
 ### Taegeuk 1 Accuracy kural motoru
+
+12 Ağustos 2026 tarihinde trimmed ZED kaydı için tek komutlu, profil tabanlı
+çalıştırıcı eklendi. `scripts/run_poomsae_scoring.py --profile
+poomsae1_trimmed` doğrulanmış 3B pozu WholeBody-133 teşhis, hareket/faz kanıtı,
+RulePack readiness, kaynak-bağlı Accuracy kararı ve senkron iki-kamera HTML
+incelemesinden geçirir. `--process-video` modu önce ViTPose/RGBD `stride 1`
+çalıştırır ve manuel timeline'ı yalnız aynı session/frame/FPS/timestamp
+sözleşmesi birebir doğrulanırsa yeni pose hash'ine bağlar. Eski kaynaksız
+provisional motor çağrılmaz.
+
+Sequence-alignment ve Presentation commitleriyle rebase sonrasında detaylı
+görsel açıklama katmanını da içeren son gerçek tek-komut doğrulama koşusu:
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-postrebase-prepush-20260812/`.
+Koşu 6/18 hareket için dört kaynak-bağlı küçük hata ve `0,4` gözlenen-kapsam
+kesintisi üretti; kayıt kısmi olduğu için doğru biçimde `accuracy_score=null`,
+`rule_scoring_ready=false` kaldı. Kaynak kararlar değişmez
+`decision_evidence_events.json` olaylarına dönüştürüldü. İki kamera yan yana,
+741/741 kare ve 60 FPS zaman çizelgesini koruyan
+`poomsae_scoring_annotated.mp4` üretildi. Hata anında ilgili eklem geometrisi,
+3B ölçüm, `%95` aralığı, kaynak sınırı ve kesinti ekranda gösterilir. HTML
+inceleme ekranı aynı olaya atlama, `Doğru / Yanlış / Belirsiz` kullanıcı kaydı
+ve bu kayıtları ayrı JSON olarak indirme işlevlerini içerir. 2B çizimler yalnız
+görsel izdir; puan kararı yeniden hesaplanmaz.
+
+İşaretli videoda aynı karedeki her karar ayrı `[1]`, `[2]` kutusuna ayrılır;
+her kutu olması gerekeni, ölçülen kalibre 3B değeri, `%95` aralığı, sınırdan
+farkı, kesinti gerekçesini, düzeltme önerisini ve kaynağın güncellik durumunu
+açıkça yazar. Ayak açısı için duruş yönü, kabul sınırı ve düzeltme oku ayrı
+çizgi türleriyle gösterilir. M01 kanıt karesi görsel olarak incelendi; iki aktif
+kuralın metinleri ve geometrileri birbirinden ayrılmıştır.
 
 2 Ağustos 2026 tarihinde ilk kaynak bağlı puanlama katmanı kuruldu:
 
@@ -309,12 +342,30 @@ hâlâ gerekir.
 - `%95` aralığının tamamı sınır dışında değilse kesinti uygulanmaz. Sayısal
   geometri yalnız `minor=-0,1`; `major=-0,3` yalnız açık kategorik gözlem,
   restart ise `-0,6` üretebilir. Hareket+hata birimiyle tekilleştirme yapılır;
-- gerçek M01-M06 koşusunda 9 kaynak-bağlı kararın 5'i küçük hata, 1'i aralık
-  içi, 3'ü ölçülemez çıktı. Gözlenen kapsam geçici kesinti toplamı `0,5` oldu;
+- güncel koruma bandıyla gerçek M01-M06 koşusunda 9 kaynak-bağlı kararın 4'ü
+  küçük hata, 1'i aralık içi, 1'i sınır-belirsiz ve 3'ü ölçülemez çıktı.
+  Gözlenen kapsam geçici kesinti toplamı `0,4` oldu;
   kategorik gözlem girilmediği için major yoktur. Kısmi kayıtta
   `accuracy_score=null` sözleşmesi korunmuştur;
 - başarılı immutable koşu:
-  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260803-151214/`.
+  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260810-221705/`.
+
+10 Ağustos 2026 uzak dal entegrasyonu:
+
+- `origin/main` üzerindeki `5394558` ve `9e2bd42` commitleri fast-forward ile
+  alındı;
+- WT Article 16 major hata örnekleri RulePack'te kaynak bağlı kategorik örnek
+  olarak korundu;
+- süre ihlali ve sınır geçme `accuracy` bütçesine değil, ayrı
+  `final_score_deductions` alanına bağlandı; RulePack sürümü `1.1.0` oldu;
+- uzak committe yinelenen kategorik örnek doğrulama döngüsü kaldırıldı ve yeni
+  final kesinti alanı sıkı sözleşmeye eklendi. Entegrasyon öncesi 14 puanlama
+  testi başarısızken düzeltme sonrası ilgili testler `35/35` geçti;
+- sınır geçmenin tekrar frekansı WT metninde açık olmadığı için otomatik
+  runtime uygulaması kapalı, `source_ambiguity` ile provisional tutuldu;
+- bütün yerel PDF/TXT kaynakları `output/pdf/scoring_sources/` altında
+  merkezileştirildi; Git'te tutulan hash ve kullanım indeksi
+  `docs/scoring_sources/README.md` içindedir.
 
 Güncel WholeBody teşhis ve senkron inceleme koşusu:
 `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-scoring-expand-v2_3-20260803-123907/`.
@@ -352,18 +403,18 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-3 Ağustos 2026 tarihinde Taegeuk 1 Accuracy sözleşmeleri, kısa kayıt
-hareket/faz overlay'i, puansız ölçüm kanıtı, geçersizleştirilmiş BODY-17 denemesi
-ve WholeBody-133 teşhis motoru eklendikten sonra mevcut çalışma ağacında:
+12 Ağustos 2026 tarihinde kaynak-bağlı Accuracy, tek-komut çalıştırıcı,
+EvidenceEvent sözleşmesi, iki kameralı işaretli hata videosu ve etkileşimli
+inceleme ekranıyla mevcut çalışma ağacında:
 
 ```text
-183 passed in 36.29s
+199 passed in 16.39s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-scoring-engine-v2_1-full-20260803
+.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-postrebase-prepush-20260812b
 ```
 
 Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144`, `147`
@@ -437,8 +488,8 @@ iyileşme iddia edilemez.
 
 - `evaluate_ground_truth_3d.py` tahmin, ground truth, doğrulama config'i, kare
   eşleşmeleri, validation manifesti ve iç-geometri raporunu SHA-256 ile bağlar.
-- `analyze_pose_for_scoring.py` normal modda yalnız bu sidecar'ı doğrular;
-  tahmin JSON'undaki bağımsız `scoring_ready` değerini güven kaynağı saymaz.
+- `analyze_pose_for_scoring.py` yalnız skorsuz kalite, biomekanik ve segment
+  kanıtları üretir; puanlama yetkilendirmesi uygulamaz.
 - Herhangi bir bağlı dosya değişirse yetki kapanır.
 - `scoring_ready`, dış 3B doğruluğu geçen geçici puanlama altyapısı içindir.
   `official_scoring_ready`, gerçek poomsae kural ve hakem doğrulaması için ayrı

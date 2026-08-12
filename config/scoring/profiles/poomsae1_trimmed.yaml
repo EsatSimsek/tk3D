@@ -1,0 +1,26 @@
+schema_version: 1
+profile_id: poomsae1_trimmed
+session: outputs/poomsae_1_zed2i_20260731_trimmed/source/session.yaml
+output_root: outputs
+reference_pose: outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802/json/vitpose_session_3d.json
+model_config: config/model_config.yaml
+rule_pack: config/scoring/rules/wt_recognized_2024-09-30.yaml
+poomsae_spec: config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml
+movement_timeline: config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml
+diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml
+accuracy_profile: config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml
+bindings:
+  session_sha256: 09ef04662e6281ea2f1f07370e1c29c8fd2d48f3f72b83478eda118cc3000fca
+  reference_pose_sha256: a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947
+  movement_timeline_sha256: 94aba7181c2df19d12145195482403b8b56a4890e6103d52367001b56167fa93
+processing:
+  stride: 1
+  smoothing_window: 11
+  progress_every: 25
+videos:
+  - camera_id: zed_35151067
+    label: ZED 35151067
+    path: outputs/poomsae_1_zed2i_20260731_trimmed/source/videos/zed_35151067.avi
+  - camera_id: zed_37137479
+    label: ZED 37137479
+    path: outputs/poomsae_1_zed2i_20260731_trimmed/source/videos/zed_37137479.avi

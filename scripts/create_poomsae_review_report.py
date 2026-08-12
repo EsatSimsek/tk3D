@@ -21,6 +21,8 @@ def main() -> None:
     parser.add_argument("--readiness", required=True)
     parser.add_argument("--engineering-trial")
     parser.add_argument("--wholebody-diagnostics")
+    parser.add_argument("--accuracy-decisions")
+    parser.add_argument("--decision-evidence-events")
     parser.add_argument("--video-a", required=True)
     parser.add_argument("--video-a-label", default="Kamera A")
     parser.add_argument("--video-b", required=True)
@@ -48,6 +50,10 @@ def main() -> None:
         inputs["engineering_trial_report"] = _resolve(args.engineering_trial)
     if args.wholebody_diagnostics:
         inputs["wholebody_diagnostics_report"] = _resolve(args.wholebody_diagnostics)
+    if args.accuracy_decisions:
+        inputs["accuracy_decisions"] = _resolve(args.accuracy_decisions)
+    if args.decision_evidence_events:
+        inputs["decision_evidence_events"] = _resolve(args.decision_evidence_events)
     extra_videos: list[tuple[str, Path]] = []
     for index, value in enumerate(args.video_extra, start=1):
         label, path = _parse_extra_video(value)
@@ -74,6 +80,14 @@ def main() -> None:
         if "wholebody_diagnostics_report" in inputs
         else None
     )
+    accuracy_decisions = (
+        _read_json(inputs["accuracy_decisions"]) if "accuracy_decisions" in inputs else None
+    )
+    decision_evidence_events = (
+        _read_json(inputs["decision_evidence_events"])
+        if "decision_evidence_events" in inputs
+        else None
+    )
     videos = {
         args.video_a_label: _relative_url(inputs["video_a"], output.parent),
         args.video_b_label: _relative_url(inputs["video_b"], output.parent),
@@ -92,6 +106,8 @@ def main() -> None:
         videos,
         engineering_trial,
         wholebody_diagnostics,
+        accuracy_decisions,
+        decision_evidence_events,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +128,11 @@ def main() -> None:
             None
             if wholebody_diagnostics is None
             else wholebody_diagnostics.get("summary", {}).get("review_candidate_count")
+        ),
+        "source_bound_decision_count": (
+            None
+            if decision_evidence_events is None
+            else decision_evidence_events.get("summary", {}).get("event_count")
         ),
     }
     with manifest.open("x", encoding="utf-8", newline="") as stream:

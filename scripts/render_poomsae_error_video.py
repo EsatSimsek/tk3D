@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.poomsae_scoring.error_video import (  # noqa: E402
+    render_decision_evidence_video,
+    write_render_manifest,
+)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render synchronized cameras with source-bound error evidence.")
+    parser.add_argument("--camera", action="append", required=True, metavar="CAMERA_ID=VIDEO")
+    parser.add_argument("--keypoints-2d", required=True)
+    parser.add_argument("--evidence-events", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--manifest", required=True)
+    args = parser.parse_args()
+
+    cameras = dict(_parse_camera(value) for value in args.camera)
+    if len(cameras) != len(args.camera):
+        raise SystemExit("Camera ids must be unique.")
+    events_path = _resolve(args.evidence_events)
+    if not events_path.is_file():
+        raise SystemExit(f"Evidence event report is missing: {events_path}")
+    events = json.loads(events_path.read_text(encoding="utf-8"))
+    report = render_decision_evidence_video(
+        camera_videos=cameras,
+        keypoints_2d_csv=_resolve(args.keypoints_2d),
+        evidence_events=events,
+        output_path=_resolve(args.output),
+    )
+    report["evidence_events"] = {"path": str(events_path), "sha256": _sha256(events_path)}
+    manifest = write_render_manifest(_resolve(args.manifest), report)
+    print(report["output_video"]["path"])
+    print(manifest)
+
+
+def _parse_camera(value: str) -> tuple[str, Path]:
+    camera_id, separator, raw_path = value.partition("=")
+    if not separator or not camera_id.strip() or not raw_path.strip():
+        raise SystemExit("--camera must use CAMERA_ID=VIDEO format.")
+    return camera_id.strip(), _resolve(raw_path.strip())
+
+
+def _resolve(value: str | Path) -> Path:
+    path = Path(value)
+    return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+if __name__ == "__main__":
+    main()
