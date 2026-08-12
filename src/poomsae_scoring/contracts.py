@@ -65,6 +65,7 @@ def load_movement_timeline(
 def load_engineering_profile(path: str | Path) -> dict[str, Any]:
     return validate_engineering_profile(_load_yaml_mapping(path))
 
+
 def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
     data = deepcopy(_require_mapping(payload, "rule pack"))
     _require_exact_keys(
@@ -108,6 +109,7 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
     initial_score = _finite_nonnegative(accuracy["initial_score"], "accuracy.initial_score")
     if not np.isclose(initial_score + presentation_score, total_score, atol=1e-9):
         raise ScoringContractError("accuracy.initial_score + presentation_reserved_score must equal total_score")
+    normalized_presentation = None
     if optional_presentation is not None:
         presentation = _require_mapping(optional_presentation, "presentation")
         _require_exact_keys(
@@ -138,6 +140,7 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
             raise ScoringContractError(
                 "presentation.total_score must equal presentation_reserved_score"
             )
+        normalized_presentation = presentation
 
     deductions = _require_mapping(accuracy["deductions"], "accuracy.deductions")
     required_deductions = {"minor", "major", "restart"}
@@ -145,84 +148,126 @@ def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
         raise ScoringContractError("accuracy.deductions must contain exactly minor, major and restart")
     normalized_deductions: dict[str, dict[str, Any]] = {}
     for kind, raw_rule in deductions.items():
-        rule = _require_mapping(raw_rule, f"accuracy.deductions.{kind}")
-        examples = rule.pop("categorical_examples", None)
-        _require_exact_keys(
-            rule,
-            {"rule_id", "amount", "scope", "definition", "source_refs"},
-            f"accuracy.deductions.{kind}",
+        normalized_deductions[kind] = _validate_accuracy_deduction(
+            raw_rule,
+            kind=kind,
+            source_ids=source_ids,
         )
-        _require_identifier(rule["rule_id"], f"{kind}.rule_id")
-        amount = _finite_nonnegative(rule["amount"], f"{kind}.amount")
-        if amount <= 0.0:
-            raise ScoringContractError(f"{kind}.amount must be positive")
-        if rule["scope"] not in {"individual_movement", "performance"}:
-            raise ScoringContractError(f"{kind}.scope is unsupported")
-        _require_nonempty_string(rule["definition"], f"{kind}.definition")
-        _validate_source_refs(rule["source_refs"], source_ids, f"{kind}.source_refs")
-        if examples is not None:
-            if not isinstance(examples, list) or not examples:
-                raise ScoringContractError(f"{kind}.categorical_examples must be a non-empty list")
-            seen_example_ids: set[str] = set()
-            normalized_examples: list[dict[str, Any]] = []
-            for index, raw_example in enumerate(examples, start=1):
-                label = f"{kind}.categorical_examples[{index}]"
-                example = _require_mapping(raw_example, label)
-                _require_exact_keys(example, {"id", "text", "measurable", "source_ref"}, label)
-                example_id = _require_identifier(example["id"], f"{label}.id")
-                if example_id in seen_example_ids:
-                    raise ScoringContractError(f"duplicate categorical example id: {example_id}")
-                seen_example_ids.add(example_id)
-                _require_nonempty_string(example["text"], f"{label}.text")
-                if example["measurable"] not in {"pose_only", "pose_and_spec", "audio_required"}:
-                    raise ScoringContractError(f"{label}.measurable is unsupported")
-                _validate_source_refs([example["source_ref"]], source_ids, f"{label}.source_ref")
-                normalized_examples.append(example)
-            rule["categorical_examples"] = normalized_examples
-        normalized_deductions: dict[str, dict[str, Any]] = {}
-    for kind, raw_rule in deductions.items():
-        rule = _require_mapping(raw_rule, f"accuracy.deductions.{kind}")
-        examples = rule.pop("categorical_examples", None)
-        _require_exact_keys(
-            rule,
-            {"rule_id", "amount", "scope", "definition", "source_refs"},
-            f"accuracy.deductions.{kind}",
-        )
-        _require_identifier(rule["rule_id"], f"{kind}.rule_id")
-        amount = _finite_nonnegative(rule["amount"], f"{kind}.amount")
-        if amount <= 0.0:
-            raise ScoringContractError(f"{kind}.amount must be positive")
-        if rule["scope"] not in {"individual_movement", "performance"}:
-            raise ScoringContractError(f"{kind}.scope is unsupported")
-        _require_nonempty_string(rule["definition"], f"{kind}.definition")
-        _validate_source_refs(rule["source_refs"], source_ids, f"{kind}.source_refs")
-        if examples is not None:
-            if not isinstance(examples, list) or not examples:
-                raise ScoringContractError(f"{kind}.categorical_examples must be a non-empty list")
-            seen_example_ids: set[str] = set()
-            normalized_examples: list[dict[str, Any]] = []
-            for index, raw_example in enumerate(examples, start=1):
-                label = f"{kind}.categorical_examples[{index}]"
-                example = _require_mapping(raw_example, label)
-                _require_exact_keys(example, {"id", "text", "measurable", "source_ref"}, label)
-                example_id = _require_identifier(example["id"], f"{label}.id")
-                if example_id in seen_example_ids:
-                    raise ScoringContractError(f"duplicate categorical example id: {example_id}")
-                seen_example_ids.add(example_id)
-                _require_nonempty_string(example["text"], f"{label}.text")
-                if example["measurable"] not in {"pose_only", "pose_and_spec", "audio_required"}:
-                    raise ScoringContractError(f"{label}.measurable is unsupported")
-                _validate_source_refs([example["source_ref"]], source_ids, f"{label}.source_ref")
-                normalized_examples.append(example)
-            rule["categorical_examples"] = normalized_examples
-        normalized_deductions[kind] = {**rule, "amount": amount}
 
-    data["scoring"] = {
+    final_score_deductions = (
+        None
+        if optional_final_deductions is None
+        else _validate_final_score_deductions(optional_final_deductions, source_ids)
+    )
+
+    normalized_scoring = {
         "total_score": total_score,
         "accuracy": {"initial_score": initial_score, "deductions": normalized_deductions},
         "presentation_reserved_score": presentation_score,
     }
+    if normalized_presentation is not None:
+        normalized_scoring["presentation"] = normalized_presentation
+    if final_score_deductions is not None:
+        normalized_scoring["final_score_deductions"] = final_score_deductions
+    data["scoring"] = normalized_scoring
     return data
+
+
+def _validate_accuracy_deduction(
+    raw_rule: Any,
+    *,
+    kind: str,
+    source_ids: set[str],
+) -> dict[str, Any]:
+    rule = deepcopy(_require_mapping(raw_rule, f"accuracy.deductions.{kind}"))
+    examples = rule.pop("categorical_examples", None)
+    _require_exact_keys(
+        rule,
+        {"rule_id", "amount", "scope", "definition", "source_refs"},
+        f"accuracy.deductions.{kind}",
+    )
+    _require_identifier(rule["rule_id"], f"{kind}.rule_id")
+    amount = _finite_positive(rule["amount"], f"{kind}.amount")
+    if rule["scope"] not in {"individual_movement", "performance"}:
+        raise ScoringContractError(f"{kind}.scope is unsupported")
+    _require_nonempty_string(rule["definition"], f"{kind}.definition")
+    _validate_source_refs(rule["source_refs"], source_ids, f"{kind}.source_refs")
+    if examples is not None:
+        rule["categorical_examples"] = _validate_categorical_examples(
+            examples,
+            kind=kind,
+            source_ids=source_ids,
+        )
+    return {**rule, "amount": amount}
+
+
+def _validate_categorical_examples(
+    examples: Any,
+    *,
+    kind: str,
+    source_ids: set[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(examples, list) or not examples:
+        raise ScoringContractError(f"{kind}.categorical_examples must be a non-empty list")
+    seen_example_ids: set[str] = set()
+    normalized_examples: list[dict[str, Any]] = []
+    for index, raw_example in enumerate(examples, start=1):
+        label = f"{kind}.categorical_examples[{index}]"
+        example = deepcopy(_require_mapping(raw_example, label))
+        _require_exact_keys(example, {"id", "text", "measurable", "source_ref"}, label)
+        example_id = _require_identifier(example["id"], f"{label}.id")
+        if example_id in seen_example_ids:
+            raise ScoringContractError(f"duplicate categorical example id: {example_id}")
+        seen_example_ids.add(example_id)
+        _require_nonempty_string(example["text"], f"{label}.text")
+        if example["measurable"] not in {"pose_only", "pose_and_spec", "audio_required"}:
+            raise ScoringContractError(f"{label}.measurable is unsupported")
+        _validate_source_refs([example["source_ref"]], source_ids, f"{label}.source_ref")
+        normalized_examples.append(example)
+    return normalized_examples
+
+
+def _validate_final_score_deductions(
+    value: Any,
+    source_ids: set[str],
+) -> dict[str, dict[str, Any]]:
+    deductions = _require_mapping(value, "final_score_deductions")
+    expected = {"time_violation", "boundary_crossing"}
+    if set(deductions) != expected:
+        raise ScoringContractError("final_score_deductions must contain exactly time_violation and boundary_crossing")
+    normalized: dict[str, dict[str, Any]] = {}
+    for kind, raw_rule in deductions.items():
+        label = f"final_score_deductions.{kind}"
+        rule = deepcopy(_require_mapping(raw_rule, label))
+        source_ambiguity = rule.pop("source_ambiguity", None)
+        _require_exact_keys(
+            rule,
+            {
+                "rule_id",
+                "amount",
+                "applies_to",
+                "frequency",
+                "scope",
+                "definition",
+                "source_refs",
+            },
+            label,
+        )
+        _require_identifier(rule["rule_id"], f"{label}.rule_id")
+        rule["amount"] = _finite_positive(rule["amount"], f"{label}.amount")
+        if rule["applies_to"] != "final_score":
+            raise ScoringContractError(f"{label}.applies_to must be final_score")
+        if rule["frequency"] != "per_performance":
+            raise ScoringContractError(f"{label}.frequency must be per_performance")
+        if rule["scope"] != "performance":
+            raise ScoringContractError(f"{label}.scope must be performance")
+        _require_nonempty_string(rule["definition"], f"{label}.definition")
+        _validate_source_refs(rule["source_refs"], source_ids, f"{label}.source_refs")
+        if source_ambiguity is not None:
+            rule["source_ambiguity"] = _require_nonempty_string(source_ambiguity, f"{label}.source_ambiguity")
+        normalized[kind] = rule
+    return normalized
+
 
 def validate_poomsae_spec(payload: dict[str, Any]) -> dict[str, Any]:
     data = deepcopy(_require_mapping(payload, "PoomsaeSpec"))
@@ -376,16 +421,12 @@ def validate_engineering_profile(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "engineering quality_gates",
     )
-    gates["min_body17_valid_ratio"] = _finite_probability(
-        gates["min_body17_valid_ratio"], "min_body17_valid_ratio"
-    )
+    gates["min_body17_valid_ratio"] = _finite_probability(gates["min_body17_valid_ratio"], "min_body17_valid_ratio")
     gates["min_used_cameras"] = _finite_positive(gates["min_used_cameras"], "min_used_cameras")
     gates["max_median_reprojection_error_px"] = _finite_positive(
         gates["max_median_reprojection_error_px"], "max_median_reprojection_error_px"
     )
-    gates["min_label_confidence"] = _finite_probability(
-        gates["min_label_confidence"], "min_label_confidence"
-    )
+    gates["min_label_confidence"] = _finite_probability(gates["min_label_confidence"], "min_label_confidence")
 
     policy = _require_mapping(data["policy"], "engineering policy")
     _require_exact_keys(
@@ -556,9 +597,7 @@ def validate_movement_timeline(
         movement_phases = spec_movements[movement_id]["phases"]
         unexpected_anchors = set(anchors) - set(movement_phases)
         if unexpected_anchors:
-            raise ScoringContractError(
-                f"{movement_id}.anchors references unknown phases: {sorted(unexpected_anchors)}"
-            )
+            raise ScoringContractError(f"{movement_id}.anchors references unknown phases: {sorted(unexpected_anchors)}")
         normalized_anchors: dict[str, int] = {}
         previous_anchor = start
         for phase_id in movement_phases:
@@ -630,7 +669,9 @@ def validate_movement_timeline(
         and all(segment["anchors"] for segment in normalized_segments)
     )
     if data["status"] == "complete" and not is_complete:
-        raise ScoringContractError("complete MovementTimeline requires every active spec movement with confirmed labels")
+        raise ScoringContractError(
+            "complete MovementTimeline requires every active spec movement with confirmed labels"
+        )
     if require_complete and not is_complete:
         raise ScoringContractError("Accuracy scoring requires a complete MovementTimeline and active PoomsaeSpec")
     data["segments"] = normalized_segments

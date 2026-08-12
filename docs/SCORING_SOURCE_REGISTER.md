@@ -1,6 +1,6 @@
 # Puanlama Kaynak Sicili
 
-Son doğrulama: **3 Ağustos 2026**
+Son doğrulama: **10 Ağustos 2026**
 
 Bu sicil, kural motoruna giren bilginin nereden geldiğini ve hangi iddia için
 kullanılabileceğini kaydeder. Bir kaynağın burada bulunması, içeriğinin otomatik
@@ -33,7 +33,14 @@ Doğrulanan puan yapısı:
 - Presentation toplamı `6,0`;
 - küçük hareket hatası `-0,1`;
 - büyük hareket hatası `-0,3`;
-- poomsae'yi yeniden başlatma `-0,6`.
+- poomsae'yi yeniden başlatma `-0,6`;
+- belirlenen sürenin altında/üstünde bitirme için final skordan `-0,3`;
+- yarışma alanı sınırını geçme için final skordan `-0,3`.
+
+Sınır geçmenin aynı performanstaki tekrar sıklığı Article 16.3.2 metninde açık
+değildir. RulePack bu alanı `per_performance` provisional olay sözleşmesi ve
+`source_ambiguity` notuyla taşır; açıklık sağlanmadan otomatik final skor
+kesintisine bağlanmaz.
 
 Article 16 küçük ve büyük hatayı ekli **Poomsae Competition Scoring
 Guidelines** belgesine bağlar. 2 Ağustos 2026 tarihinde WT'nin canlı
@@ -122,6 +129,19 @@ transkripsiyonunda kullanılır; tek başına sayısal tolerans kaynağı değil
 sayfası formun anlamını ve temel hareketleri doğru öğrenme amacını açıklar.
 Hareket tablosu veya yarışma kesinti eşiği içermez.
 
+### 2.4 Kullanıcının sağladığı eski İngilizce Taekwondo ders kitabı
+
+PDF ve aranabilir TXT kopyası yerel kaynak arşivine alınmıştır:
+
+- `output/pdf/scoring_sources/Kukkiwon_Taekwondo_Textbook_English_legacy.pdf`
+  — SHA-256 `af7cb531e02d1fb07784936ea892fe51c8c8011ba8b4d6031a7608d76c6cd08e`;
+- `output/pdf/scoring_sources/Kukkiwon_Taekwondo_Textbook_English_legacy.txt`
+  — SHA-256 `d9506ba58f4dd9669a73c758baf3f47aab0ba72ff7f9ce96d8c1391c45a80c8e`.
+
+Bu eski kitap teknik terminoloji, duruş ve hareket açıklamalarında çapraz
+kontrol kaynağıdır. 2022 tarihli güncel Kukkiwon Textbook Volume 3 değildir;
+güncel WT kesinti miktarı veya sayısal tolerans kaynağı yapılmaz.
+
 ## 3. Ücretli veya erişimi sınırlı kaynaklar
 
 ### 3.1 Kukkiwon Taekwondo Textbook 3 - Poomsae
@@ -168,10 +188,11 @@ kaynağı yapılmaz.
 
 | Dosya | Statü | SHA-256 | Karar |
 |---|---|---|---|
-| `C:\Users\WWWW\Desktop\tk\Poomsae-Judgement-Handbook.pdf` | Swiss Taekwondo logolu, January 2025 hakem eğitim el kitabı; WT resmî belgesi değil | `7baa05019a7f034896b9a99b24d399ca9f170d5d5c1e87f3f9efa85e0988df14` | Accuracy/presentation örnekleri araştırma çapraz kontrolü; aktif RulePack kaynağı değil |
-| `C:\Users\WWWW\Desktop\tk\BT-Poomsae-Competition-Rules-June-2025-1.pdf` | British Taekwondo MNA kuralı | `7bd3b59239ff410d8aac241e06381ba53d8b5e6540ef6e4244016891273471f9` | Ulusal uygulama farklarını gösterir; genel WT kuralına taşınmaz |
-| `C:\Users\WWWW\Desktop\tk\British-Taekwondo-Poomsae-Competition-Rules-2024-approved-27062024.pdf` | British Taekwondo önceki sürüm | `1219e6308291d93f4c9e6a7fe513169e4c7de5e2319dbd78b7d8b98d49e80002` | Tarihsel ulusal çapraz kontrol |
-| `C:\Users\WWWW\Desktop\tk\Poomsae Competition Rules and Interpretation (In force as of June 14 2024).pdf` | WT resmî, taranmış/görüntü PDF | `b89f796d7d52ab4eb6018289c1702d9f9735508cc4177bda6e697823906802a4` | 30 Eylül sürümünün önceki resmî kuralı |
+| `output/pdf/scoring_sources/secondary/Poomsae_Judgement_Handbook_Swiss_2025.pdf` | Swiss Taekwondo logolu, January 2025 hakem eğitim el kitabı; WT resmî belgesi değil | `7baa05019a7f034896b9a99b24d399ca9f170d5d5c1e87f3f9efa85e0988df14` | Accuracy/presentation örnekleri araştırma çapraz kontrolü; aktif RulePack kaynağı değil |
+| `output/pdf/scoring_sources/secondary/British_Taekwondo_Poomsae_Rules_2025.pdf` | British Taekwondo MNA kuralı | `7bd3b59239ff410d8aac241e06381ba53d8b5e6540ef6e4244016891273471f9` | Ulusal uygulama farklarını gösterir; genel WT kuralına taşınmaz |
+| `output/pdf/scoring_sources/secondary/British_Taekwondo_Poomsae_Rules_2024.pdf` | British Taekwondo önceki sürüm | `1219e6308291d93f4c9e6a7fe513169e4c7de5e2319dbd78b7d8b98d49e80002` | Tarihsel ulusal çapraz kontrol |
+| `output/pdf/scoring_sources/secondary/WT_Poomsae_Rules_2024-06-14.pdf` | WT resmî, taranmış/görüntü PDF | `b89f796d7d52ab4eb6018289c1702d9f9735508cc4177bda6e697823906802a4` | 30 Eylül sürümünün önceki resmî kuralı |
+| `output/pdf/scoring_sources/secondary/WTF_Poomsae_Scoring_Guidelines_partial_35p.pdf` | 2014 tarihsel scoring guideline'ın eksik kopyası | `701543a7c509a38eb8f87dc174b2a832618b0c655fa6cdbf4727403044fbc3dd` | Tam 43 sayfalık arşiv kopyasıyla metinsel çapraz kontrol |
 
 Swiss el kitabı `4,0 + 6,0`, küçük/büyük hata örnekleri ve Taegeuk 1 son
 yumrukta tek kihap bilgisini açıklar. Ancak belgenin kapak iddiası ve güncel
@@ -186,6 +207,7 @@ denge kaybı otomatik `-0,3` yapılmamıştır.
 |---|---|---|
 | WT `4,0 / 6,0` dağılımı | aktif | RulePack |
 | WT `0,1 / 0,3 / 0,6` miktarları | aktif | Accuracy kesinti motoru |
+| WT süre/sınır final skoru `-0,3` | aktif kural metadatası | Runtime olay sözleşmesi tamamlanana kadar otomatik uygulanmaz |
 | Taegeuk 1 sıra transkripsiyonu | taslak, kaynak bağlı | PoomsaeSpec ve video etiketi |
 | Teknik bitiş biçimleri | aday, kaynak bağlı | metrik tasarımı |
 | 2014 WT/WTF teknik geometrisi | tarihsel resmî | hash/sayfa bağlı provisional küçük-hata geometrisi; güncel WT eki değil |

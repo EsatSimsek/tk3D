@@ -28,6 +28,7 @@ from src.poomsae_scoring import (
     validate_movement_timeline,
     validate_engineering_profile,
     validate_poomsae_spec,
+    validate_rule_pack,
     validate_source_intake,
     validate_source_bound_accuracy_profile,
     validate_wholebody_diagnostic_profile,
@@ -180,11 +181,16 @@ def test_project_rule_pack_uses_source_backed_accuracy_values() -> None:
     pack = load_rule_pack(RULE_PACK_PATH)
 
     assert pack["rule_pack_id"] == "wt_recognized_2024-09-30"
+    assert pack["version"] == "1.1.0"
     assert pack["status"] == "active"
     assert pack["scoring"]["accuracy"]["initial_score"] == 4.0
     assert pack["scoring"]["accuracy"]["deductions"]["minor"]["amount"] == 0.1
     assert pack["scoring"]["accuracy"]["deductions"]["major"]["amount"] == 0.3
     assert pack["scoring"]["accuracy"]["deductions"]["restart"]["amount"] == 0.6
+    final_deductions = pack["scoring"]["final_score_deductions"]
+    assert final_deductions["time_violation"]["amount"] == 0.3
+    assert final_deductions["boundary_crossing"]["amount"] == 0.3
+    assert final_deductions["boundary_crossing"]["source_ambiguity"]
 
 
 def test_taegeuk_1_draft_contains_source_transcribed_sequence_but_stays_fail_closed() -> None:
@@ -1109,3 +1115,22 @@ def test_rule_pack_rejects_duplicate_categorical_example_ids(tmp_path: Path) -> 
 
     with pytest.raises(ScoringContractError, match="duplicate categorical example id"):
         load_rule_pack(broken)
+
+
+def test_rule_pack_rejects_invalid_final_score_deduction_frequency(tmp_path: Path) -> None:
+    broken = tmp_path / "invalid_final_frequency.yaml"
+    broken.write_text(
+        RULE_PACK_PATH.read_text(encoding="utf-8").replace("frequency: per_performance", "frequency: per_frame", 1),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ScoringContractError, match="frequency must be per_performance"):
+        load_rule_pack(broken)
+
+
+def test_rule_pack_rejects_missing_final_score_deduction(tmp_path: Path) -> None:
+    payload = load_rule_pack(RULE_PACK_PATH)
+    del payload["scoring"]["final_score_deductions"]["boundary_crossing"]
+
+    with pytest.raises(ScoringContractError, match="must contain exactly"):
+        validate_rule_pack(payload)

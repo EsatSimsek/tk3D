@@ -19,6 +19,8 @@ def build_review_html(
     video_sources: dict[str, str],
     engineering_trial_report: dict[str, Any] | None = None,
     wholebody_diagnostics_report: dict[str, Any] | None = None,
+    accuracy_decisions_report: dict[str, Any] | None = None,
+    decision_evidence_report: dict[str, Any] | None = None,
 ) -> str:
     """Build a self-contained, synchronized two-camera review page."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -34,6 +36,10 @@ def build_review_html(
         raise ScoringContractError("engineering trial must reference the same MovementTimeline")
     if wholebody_diagnostics_report is not None and wholebody_diagnostics_report.get("movement_timeline_id") != timeline["timeline_id"]:
         raise ScoringContractError("WholeBody diagnostics must reference the same MovementTimeline")
+    if accuracy_decisions_report is not None and accuracy_decisions_report.get("timeline_id") != timeline["timeline_id"]:
+        raise ScoringContractError("Accuracy decisions must reference the same MovementTimeline")
+    if decision_evidence_report is not None and decision_evidence_report.get("timeline_id") != timeline["timeline_id"]:
+        raise ScoringContractError("decision evidence must reference the same MovementTimeline")
 
     movement_by_id = {movement["movement_id"]: movement for movement in spec["movements"]}
     evidence_by_id = {segment["movement_id"]: segment for segment in evidence_report.get("segments", [])}
@@ -68,6 +74,7 @@ def build_review_html(
         for source in spec["source_documents"]
     )
     page_data = {
+        "timeline_id": timeline["timeline_id"],
         "fps": timeline["fps"],
         "segments": [
             {
@@ -82,6 +89,23 @@ def build_review_html(
     source_end_reason = timeline["coverage"]["source_end_reason"] or "Tam performans kaydı"
     trial_stat, trial_section = _engineering_trial_html(engineering_trial_report)
     wholebody_stat, wholebody_section = _wholebody_diagnostics_html(wholebody_diagnostics_report)
+    decision_stat, decision_section = _decision_evidence_html(
+        accuracy_decisions_report,
+        decision_evidence_report,
+    )
+    partial_total = (
+        None
+        if accuracy_decisions_report is None
+        else accuracy_decisions_report.get("observed_scope_provisional_deduction_total")
+    )
+    decision_notice = (
+        "Kaynak-bağlı Accuracy kararı sağlanmadı."
+        if accuracy_decisions_report is None
+        else (
+            f"Gözlenen kapsam için {_number(partial_total, '')} provisional kesinti üretildi; "
+            "kayıt kısmi olduğu için tam Accuracy skoru hesaplanmadı."
+        )
+    )
 
     return f'''<!doctype html>
 <html lang="tr">
@@ -120,6 +144,10 @@ def build_review_html(
     .missing-chip {{ color:#c6d3db; background:#17222b; border:1px dashed #4c5d68; border-radius:999px; padding:7px 10px; font-size:12px; }}
     ul {{ padding:0; list-style:none; margin:0; }} li {{ display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #213643; color:var(--muted); }} li:last-child {{ border-bottom:0; }} code {{ color:var(--amber); }}
     .candidate-row {{ display:grid; grid-template-columns:minmax(120px,.35fr) 1fr auto; align-items:center; }} .candidate-row button {{ padding:6px 9px; white-space:nowrap; }}
+    .decision-row {{ display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:12px; align-items:center; }}
+    .decision-row.red {{ border-left:4px solid var(--red); padding-left:10px; }} .decision-row.amber {{ border-left:4px solid var(--amber); padding-left:10px; }}
+    .decision-row.gray {{ border-left:4px solid #8998a3; padding-left:10px; }} .decision-row.green {{ border-left:4px solid var(--green); padding-left:10px; }}
+    .review-actions {{ display:flex; gap:5px; flex-wrap:wrap; }} .review-actions button.selected {{ outline:2px solid var(--cyan); background:#285575; }}
     .sources {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }} a {{ color:var(--cyan); }}
     footer {{ color:#6f8795; font-size:12px; text-align:center; margin-top:20px; }}
     @media(max-width:950px) {{ .stats {{ grid-template-columns:1fr 1fr; }} .videos,.two-col {{ grid-template-columns:1fr; }} .movement-grid {{ grid-template-columns:1fr 1fr; }} }}
@@ -130,14 +158,14 @@ def build_review_html(
   <header><div><div class="eyebrow">TK3D · Ölçüm kanıtı</div><h1>Taegeuk 1 Kısa Kayıt İncelemesi</h1>
     <p>{len(video_sources)} kamera, aynı zaman çizelgesi ve hareket/faz ölçümleri tek ekranda.</p></div>
     <div class="pill">Kısmi kayıt · {len(observed)}/{len(spec["movements"])}</div></header>
-  <section class="notice"><div>⚠</div><div><strong>Bu çıktı puan değildir.</strong><p>Accuracy hesaplanmadı ve kesinti üretilmedi. {_escape(source_end_reason)}</p></div></section>
+  <section class="notice"><div>⚠</div><div><strong>Bu çıktı tam veya resmî puan değildir.</strong><p>{_escape(decision_notice)} {_escape(source_end_reason)}</p></div></section>
   <section class="stats">
     <div class="stat"><span>Kayıttaki hareket</span><b>{len(observed)} / {len(spec["movements"])}</b></div>
     <div class="stat"><span>Ölçülen faz ankrajı</span><b>{anchor_count}</b></div>
     <div class="stat"><span>Tam gözlenen ankraj</span><b>%{observed_ratio * 100:.1f}</b></div>
-    <div class="stat"><span>Accuracy</span><b>Hesaplanmadı</b></div>
-    {trial_stat}
+    {decision_stat}
     {wholebody_stat}
+    {trial_stat}
   </section>
   <section class="section"><h2>Senkron kamera incelemesi</h2><div class="videos">{video_html}</div>
     <div class="toolbar"><button type="button" id="sync-play">▶ İkisini oynat</button><button type="button" id="sync-pause">Ⅱ Duraklat</button><button type="button" id="sync-zero">↺ Başa dön</button><span id="clock">00:00.000</span><p>Bir videoda sarınca diğeri aynı zamana gelir.</p></div>
@@ -145,6 +173,7 @@ def build_review_html(
   <section class="section"><h2>Kayıtta bulunan hareketler</h2><div class="movement-grid">{movement_cards}</div></section>
   {trial_section}
   {wholebody_section}
+  {decision_section}
   <div class="two-col">
     <section class="section"><h2>Kayıtta bulunmayan hareketler</h2><p style="margin-bottom:12px">Bunlar etiketleme hatası değildir; kaynak video M06 sonrasında devam etmiyor.</p><div class="missing-list">{missing_cards}</div></section>
     <section class="section"><h2>Puanlamayı kapalı tutan kapılar</h2><ul>{blocker_html}</ul></section>
@@ -158,6 +187,8 @@ def build_review_html(
   const data = JSON.parse(document.getElementById('review-data').textContent);
   const videos = [...document.querySelectorAll('video')];
   const cards = [...document.querySelectorAll('.movement')];
+  const reviewKey = `tk3d-review-${{data.timeline_id}}`;
+  const reviewSelections = JSON.parse(localStorage.getItem(reviewKey) || '{{}}');
   let propagating = false;
   const seekAll = time => {{ videos.forEach(v => {{ v.currentTime = Math.max(0, time); }}); update(time); }};
   const playAll = () => Promise.allSettled(videos.map(v => v.play()));
@@ -179,6 +210,21 @@ def build_review_html(
   document.getElementById('sync-zero').onclick = () => {{ pauseAll(); seekAll(0); }};
   document.querySelectorAll('[data-seek]').forEach(node => node.addEventListener('click', event => {{ event.stopPropagation(); seekAll(Number(node.dataset.seek)); }}));
   cards.forEach(card => card.addEventListener('click', () => seekAll(Number(card.dataset.start))));
+  document.querySelectorAll('[data-review-event]').forEach(button => {{
+    const eventId = button.dataset.reviewEvent;
+    if (reviewSelections[eventId] === button.dataset.reviewValue) button.classList.add('selected');
+    button.addEventListener('click', event => {{
+      event.stopPropagation(); reviewSelections[eventId] = button.dataset.reviewValue;
+      localStorage.setItem(reviewKey, JSON.stringify(reviewSelections));
+      document.querySelectorAll(`[data-review-event="${{eventId}}"]`).forEach(item => item.classList.toggle('selected', item === button));
+    }});
+  }});
+  const exportButton = document.getElementById('export-review');
+  if (exportButton) exportButton.onclick = () => {{
+    const payload = {{schema_version:1, timeline_id:data.timeline_id, created_at:new Date().toISOString(), reviews:reviewSelections}};
+    const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)], {{type:'application/json'}}));
+    link.download = `tk3d-review-${{data.timeline_id}}.json`; link.click(); URL.revokeObjectURL(link.href);
+  }};
   update(0);
 }})();
 </script></body></html>
@@ -268,6 +314,68 @@ def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str
       kapsama kapısı: {"geçti" if coverage.get("coverage_gate_passed") else "başarısız"} · Accuracy: hesaplanmadı. “Videoda aç” aynı kanıt zamanına bütün kameraları taşır.</p>
       <ul>{candidate_items}</ul></section>'''
     return stat, section
+
+
+def _decision_evidence_html(
+    decisions: dict[str, Any] | None,
+    evidence: dict[str, Any] | None,
+) -> tuple[str, str]:
+    if decisions is None or evidence is None:
+        return '<div class="stat"><span>Accuracy</span><b>Hesaplanmadı</b></div>', ""
+    events = evidence.get("events", [])
+    if not isinstance(events, list):
+        raise ScoringContractError("decision evidence events must be a list")
+    summary = evidence.get("summary", {})
+    partial_total = decisions.get("observed_scope_provisional_deduction_total")
+    rows = "".join(_decision_event_row(event) for event in events)
+    if not rows:
+        rows = "<li><span>Görselleştirilebilir kaynak-bağlı karar bulunmadı.</span></li>"
+    stat = (
+        '<div class="stat"><span>Kaynak-bağlı küçük hata</span>'
+        f'<b>{int(summary.get("confirmed_deduction_candidate_count", 0))} · -{_number(partial_total, "")}</b></div>'
+    )
+    section = f'''<section class="section"><h2>Kaynak-bağlı hata kanıtları</h2>
+      <div class="notice"><div>🎯</div><div><strong>Ölçüm 3B, kamera çizimi yalnız görsel izdir.</strong>
+      <p>{_escape(evidence.get("camera_overlay_warning", ""))} Kırmızı kesinti adayı, sarı sınır-belirsiz,
+      gri ölçülemedi, yeşil kaynak aralığı içinde anlamına gelir.</p></div></div>
+      <p style="margin-bottom:12px">{len(events)} karar · {int(summary.get("confirmed_deduction_candidate_count", 0))} küçük hata ·
+      {int(summary.get("boundary_uncertain_count", 0))} sınır-belirsiz · {int(summary.get("not_measurable_count", 0))} ölçülemedi.
+      Kararı videoda inceleyip kendi kontrolünü kaydedebilirsin.</p>
+      <div class="toolbar" style="margin-bottom:10px"><button type="button" id="export-review">İnceleme kararlarını JSON indir</button></div>
+      <ul>{rows}</ul></section>'''
+    return stat, section
+
+
+def _decision_event_row(event: dict[str, Any]) -> str:
+    measurement = event.get("measurement") or {}
+    window = event.get("evidence_window") or {}
+    value = _number(measurement.get("value"), f" {measurement.get('unit', '')}".rstrip())
+    interval = measurement.get("interval_95")
+    interval_text = "—" if not interval else f"{_number(interval[0], '')}–{_number(interval[1], '')}"
+    limits = measurement.get("rule_limits")
+    if measurement.get("rule_operator") == "max" and isinstance(limits, list) and limits:
+        limit_text = f"≤ {_number(limits[0], '')}"
+    elif isinstance(limits, list) and len(limits) == 2:
+        limit_text = f"{_number(limits[0], '')}–{_number(limits[1], '')}"
+    else:
+        limit_text = "—"
+    deduction = event.get("deduction_points")
+    deduction_text = "kesinti yok" if deduction is None else f"-{_number(deduction, '')}"
+    event_id = _escape(event.get("event_id"))
+    seek = float(window.get("anchor_time_sec", 0.0))
+    source = event.get("source") or {}
+    source_id = source.get("source_id") or source.get("source_ref") or "kaynak belirtilmedi"
+    return f'''<li class="decision-row {_escape(event.get("display_color", "gray"))}">
+      <code>{_escape(event.get("movement_id") or "PERF")} · {_escape(event.get("display_label"))}</code>
+      <span><b>{_escape(event.get("metric_id") or event.get("event_kind"))}</b> · 3B {_escape(value)} · %95 {_escape(interval_text)} ·
+      kaynak sınırı {_escape(limit_text)} · <b>{_escape(deduction_text)}</b><br>
+      {_escape(event.get("description"))} · kaynak: {_escape(source_id)}</span>
+      <div><button type="button" data-seek="{seek:.6f}">Videoda aç</button>
+      <div class="review-actions" style="margin-top:6px">
+        <button type="button" data-review-event="{event_id}" data-review-value="confirmed">Doğru</button>
+        <button type="button" data-review-event="{event_id}" data-review-value="rejected">Yanlış</button>
+        <button type="button" data-review-event="{event_id}" data-review-value="uncertain">Belirsiz</button>
+      </div></div></li>'''
 
 
 def _escape(value: Any) -> str:

@@ -1,6 +1,6 @@
 schema_version: 1
 rule_pack_id: wt_recognized_2024-09-30
-version: 1.0.0
+version: 1.1.0
 status: active
 authority: World Taekwondo
 discipline: recognized_poomsae
@@ -95,12 +95,11 @@ scoring:
       applies_to: final_score
       frequency: per_performance
       source_ambiguity: >-
-        No reviewed source (WT 2024, BT, USAT, AAU) uses "each time" for individual
-        recognized-Poomsae boundary crossing, unlike accuracy mistakes and team/demo
-        rules which do. Secondary analysis frames it as a referee-managed procedural
-        deduction (not a judge-entered technical fault), applied once to the final
-        score; if two forms are performed in a round, it applies once per form. No
-        explicit WT scoring-guideline/ESS quote was found; referee confirmation advised.
+        Article 16.3.2 defines a 0.3 final-score deduction when the boundary is
+        crossed, but the reviewed WT text does not state "each time" or otherwise
+        define repeated-crossing frequency. The per-performance frequency is therefore
+        a provisional event contract and requires referee/rule clarification before
+        automatic application.
       scope: performance
       definition: The contestant crosses the boundary line of the competition area.
       source_refs:

@@ -72,11 +72,12 @@ ayak yönü, teknik dirsek, bakış ve ağırlık aktarımı ailelerinde toplam 
 video-inceleme adayı bulundu.
 Hiçbiri otomatik ceza değildir; gerçek `accuracy_score` `null`dır.
 
-WholeBody v2.4 ve source-bound v1 koşusu
-[`poomsae1-source-bound-20260803-151214`](../outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260803-151214/json/source_bound_accuracy_decisions.json)
-altındadır. Dokuz tarihsel kaynak-bağlı geometrinin beşi `%95` belirsizlik
-aralığıyla küçük hata, biri aralık içi, üçü ölçülemez çıktı. Yalnız gözlenen
-kapsam kesinti toplamı `0,5`; kısmi kayıt nedeniyle `accuracy_score=null`dır.
+WholeBody v2.4 ve güncel source-bound v1 koşusu
+[`poomsae1-source-bound-20260810-221705`](../outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-source-bound-20260810-221705/json/source_bound_accuracy_decisions.json)
+altındadır. Dokuz tarihsel kaynak-bağlı geometrinin dördü `%95` belirsizlik ve
+koruma bandıyla küçük hata, biri aralık içi, biri sınır-belirsiz, üçü ölçülemez
+çıktı. Yalnız gözlenen kapsam kesinti toplamı `0,4`; kısmi kayıt nedeniyle
+`accuracy_score=null`dır.
 
 ## Sonraki kayıt gereksinimi
 

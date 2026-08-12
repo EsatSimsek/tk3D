@@ -50,3 +50,8 @@ data/aist_test/local/
 *.svo
 *.svo2
 output/
+
+# Local scratch and one-off ZED inspection helpers
+tmp/
+check_svo.py
+check_svo_gaps.py

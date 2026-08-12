@@ -77,8 +77,8 @@ Yetkinlik seviyeleri birbirinden ayrılacaktır:
 | `official_scoring_ready` | Opsiyonel; yetkili kurum/uzman kabulü olmadan daima kapalı | Kapsamı belirtilmiş resmî puan iddiası |
 
 Mevcut `provisional_scoring_ready=true` yalnız ilk seviyenin altyapısına yakın
-olduğumuzu gösterir. Bugünkü `71,7178/100` değeri WT puanı değildir ve ileride
-“historical generic technical baseline” olarak açıkça ayrılmalıdır.
+olduğumuzu gösterir. Tarihsel `71,7178/100` generic değeri WT puanı değildir;
+onu üreten kaynaksız legacy motor 12 Ağustos 2026 tarihinde kaldırılmıştır.
 
 ### 2.1 Mevcut çalışma koşulu: uzman/hakem erişimi yok
 
@@ -595,9 +595,9 @@ config/scoring/
   calibration/<profile>.yaml
 ```
 
-Mevcut `src/scoring_engine.py` silinmez. Tarihsel generic baseline olarak
-korunur veya adı daha sonra açıkça `provisional_kinematic_baseline` şeklinde
-değiştirilir. Yeni WT skoruyla aynı alan veya dosya adı kullanılmaz.
+Kaynaksız `src/scoring_engine.py`, yinelenen `config/scoring_config.yaml` ve
+0-100 generic skor çıktıları kaldırılmıştır. Tarihsel sonuçlar yalnız eski run
+provenance'ında korunur; yeni WT skoruyla aynı alan veya dosya adı kullanılmaz.
 
 ### 12.1 Katman sınırları
 
@@ -725,15 +725,15 @@ başarısız sonuç saklanır.
 
 ### Aşama 0 — Teknik sözleşmeyi düzelt
 
-İlerleme: **Eksen düzeltmesi 2 Ağustos 2026 tarihinde tamamlandı.** Scoring
-terimlerinin ayrılması ve tarihsel baseline adlandırması bu aşamada bekliyor.
+İlerleme: **Eksen düzeltmesi 2 Ağustos 2026 tarihinde tamamlandı.** Kaynaksız
+generic baseline 12 Ağustos 2026 tarihinde kaldırıldı.
 
 İşler:
 
 - [tamamlandı] `scoring_metrics.py` eksen uyuşmazlığını düzeltmek ve sentetik
   eksen testlerini eklemek,
-- scoring terimlerini ölçüm/rule/judge/official olarak ayırmak,
-- eski `71,7178` skorunu tarihsel generic baseline olarak etiketlemek,
+- [tamamlandı] scoring terimlerini ölçüm/rule/judge/official olarak ayırmak,
+- [tamamlandı] eski `71,7178` skor motorunu kaldırıp sonucu tarihsel kayıt olarak etiketlemek,
 - sentetik koordinat ve metrik testlerini eklemek.
 
 Çıkış kapısı: Bütün sentetik yön, açı ve birim testleri geçmeli; yeni motor
@@ -860,10 +860,16 @@ olay gerektirir. Aynı hareketin aynı fiziksel `error_unit` değeri tekilleşti
 Kısmi kayıtta yalnız `observed_scope_provisional_deduction_total` raporlanır;
 tam `accuracy_score` üretilmez.
 
-Gerçek M01-M06 regresyonunda dokuz source-bound kararın beşi küçük hata olarak
-uygulandı, biri kaynak aralığında kaldı, üçü ölçülemedi. Gözlenen kapsam kesinti
-toplamı `0,5`; kategorik major olayı `0`; `accuracy_score=null` oldu. Bu sayı
+Güncel gerçek M01-M06 regresyonunda dokuz source-bound kararın dördü küçük hata
+olarak uygulandı, biri kaynak aralığında, biri sınır-belirsiz kaldı, üçü
+ölçülemedi. Gözlenen kapsam kesinti toplamı `0,4`; kategorik major olayı `0`;
+`accuracy_score=null` oldu. Bu sayı
 tam Poomsae puanı veya güncel WT tolerans doğrulaması değildir.
+
+RulePack 1.1.0, süre ihlali ve yarışma alanı sınırını geçmeyi Accuracy
+kesintilerinden ayırıp final skor metadata'sı olarak taşır. Her ikisi `-0,3`
+olsa da sınır geçmenin tekrar frekansı WT metninde açık değildir; runtime olay
+sözleşmesi netleşene kadar otomatik uygulanmaz.
 
 İşler:
 
@@ -979,7 +985,7 @@ Bu sprintte yapılmayacaklar:
 
 - Etiketsiz videolardan nihai skor modeli eğitmek,
 - Keyfî joint-angle eşikleri üretmek,
-- Mevcut `71,7178` değerini WT puanına çevirmek,
+- Tarihsel `71,7178` değerini WT puanına çevirmek veya yeniden üretmek,
 - Ölçülemeyen bakış/kihap/yumruk ayrıntısına kesinti vermek,
 - “resmî” veya “hakemle eşdeğer” doğruluk iddiası.
 

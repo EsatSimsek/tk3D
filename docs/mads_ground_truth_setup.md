@@ -272,9 +272,9 @@ düşük MPJPE, daha kötü olmayan P95 ve en az `%95` geçerli eklem oranı gö
 Bu yine 50 mm ground-truth kalite kapısını veya kendi taekwondo saha doğrulamasını otomatik olarak geçmiş sayılmaz.
 
 Ground-truth değerlendiricisi artık kalite kapısı başarısızsa varsayılan olarak başarısız süreç koduyla çıkar. Yalnız
-tanısal rapor üretiminde açık `--allow-failed-quality-gate` kullanılabilir. Puanlama analizi de doğrulanmamış 3B
-çalışmaları varsayılan olarak reddeder; geliştirme amaçlı geçici skor ancak açık
-`--allow-unvalidated-provisional-score` seçeneğiyle üretilebilir.
+tanısal rapor üretiminde açık `--allow-failed-quality-gate` kullanılabilir. `analyze_pose_for_scoring.py` skorsuz
+kalite, biomekanik ve segment kanıtlarını üretir; kaynaksız provisional skor seçeneği kaldırılmıştır. Accuracy kararı
+yalnız kaynak-bağlı RulePack hattında ve kendi fail-closed kapılarıyla oluşturulur.
 
 ## Ölçülen güvenilirlik
 
