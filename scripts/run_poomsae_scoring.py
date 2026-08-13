@@ -120,7 +120,15 @@ def main() -> None:
     coverage = summary["coverage"]
     print("\n=== TK3D PUANLAMA SONUCU ===")
     print(f"Durum: {summary['status']}")
-    print(f"Hareket kapsamı: {coverage['observed_movement_count']}/{coverage['expected_movement_count']}")
+    print(
+        f"Aktif {coverage['selected_scope_label']} çalışma kapsamı: "
+        f"{coverage['selected_scope_observed_count']}/{coverage['selected_scope_expected_count']}"
+    )
+    print(
+        "Tam Poomsae kapsam bilgisi: "
+        f"{coverage['observed_movement_count']}/{coverage['expected_movement_count']} "
+        "(bu çalışma aşamasında hedef değil)"
+    )
     print(f"Tam Accuracy skoru: {_display(results['accuracy_score'])}")
     print(
         "Gözlenen kapsam provisional kesintisi: "
@@ -129,6 +137,11 @@ def main() -> None:
     print(f"Küçük hata sayısı: {results['confirmed_numeric_minor_count']}")
     print(f"Ölçülemeyen karar: {results['not_measurable_count']}")
     print(f"Sınır-belirsiz karar: {results['boundary_uncertain_count']}")
+    print(
+        "WholeBody ölçüm kapsamı: "
+        f"{results['wholebody_measurable_metric_count']}/{results['wholebody_thresholded_metric_count']}"
+    )
+    print(f"WholeBody teşhis adayı (puan yok): {results['diagnostic_review_candidate_count']}")
     print(f"Rule scoring ready: {str(results['rule_scoring_ready']).lower()}")
     print(f"Çıktı klasörü: {summary['run']['root']}")
     print(f"Ana özet: {summary_path}")
@@ -286,6 +299,8 @@ def run_workflow(
         config_paths["poomsae_spec"],
         "--timeline",
         config_paths["movement_timeline"],
+        "--wholebody-diagnostics",
+        outputs["wholebody_diagnostics"],
         "--output",
         outputs["decision_evidence_events"],
     )
@@ -335,7 +350,6 @@ def run_workflow(
     ]
     for video in videos[2:]:
         review_args.extend(("--video-extra", f"{video['label']}={video['path']}"))
-    review_args.extend(("--video-extra", f"Isaretli hata kaniti={outputs['annotated_error_video']}"))
     review_args.extend(("--output", outputs["review_html"], "--manifest", outputs["review_manifest"]))
     _run_stage("Senkron kamera inceleme ekranı", "scripts/create_poomsae_review_report.py", *review_args)
 
@@ -543,10 +557,22 @@ def _build_summary(
 ) -> dict[str, Any]:
     decisions = _read_json(outputs["accuracy_decisions"])
     readiness = _read_json(outputs["rule_scoring_readiness"])
+    diagnostics = _read_json(outputs["wholebody_diagnostics"])
     timeline = yaml.safe_load(config_paths["movement_timeline"].read_text(encoding="utf-8"))
     summary = decisions.get("summary", {})
     coverage = timeline["coverage"]
     expected_count = len(coverage["observed_movement_ids"]) + len(coverage["missing_movement_ids"])
+    selected_ids = list(coverage["observed_movement_ids"])
+    segment_ids = [segment.get("movement_id") for segment in timeline["segments"]]
+    selected_scope_complete = segment_ids == selected_ids and all(
+        segment.get("label_status") == "confirmed" for segment in timeline["segments"]
+    )
+    selected_scope_label = (
+        selected_ids[0] if len(selected_ids) == 1 else f"{selected_ids[0]}-{selected_ids[-1]}"
+    )
+    selected_scope_id = "current_recording_" + "_".join(item.lower() for item in selected_ids)
+    diagnostic_summary = diagnostics.get("summary", {})
+    diagnostic_coverage = diagnostics.get("coverage", {})
     accuracy_score = decisions.get("accuracy_score")
     partial = decisions.get("observed_scope_provisional_deduction_total")
     if accuracy_score is not None:
@@ -573,6 +599,12 @@ def _build_summary(
             "recording_scope": coverage["recording_scope"],
             "observed_movement_count": len(coverage["observed_movement_ids"]),
             "expected_movement_count": expected_count,
+            "selected_scope_id": selected_scope_id,
+            "selected_scope_label": selected_scope_label,
+            "selected_scope_movement_ids": selected_ids,
+            "selected_scope_observed_count": len(selected_ids),
+            "selected_scope_expected_count": len(selected_ids),
+            "selected_scope_complete": selected_scope_complete,
             "observed_movement_ids": coverage["observed_movement_ids"],
             "missing_movement_ids": coverage["missing_movement_ids"],
         },
@@ -583,6 +615,15 @@ def _build_summary(
             "not_measurable_count": int(summary.get("not_measurable_count", 0)),
             "boundary_uncertain_count": int(summary.get("boundary_uncertain_count", 0)),
             "applied_categorical_count": int(summary.get("applied_categorical_count", 0)),
+            "wholebody_thresholded_metric_count": int(
+                diagnostic_coverage.get("thresholded_metric_count", 0)
+            ),
+            "wholebody_measurable_metric_count": int(
+                diagnostic_coverage.get("measurable_metric_count", 0)
+            ),
+            "diagnostic_review_candidate_count": int(
+                diagnostic_summary.get("review_candidate_count", 0)
+            ),
             "rule_scoring_ready": bool(readiness.get("rule_scoring_ready", False)),
             "judge_calibrated_ready": bool(readiness.get("judge_calibrated_ready", False)),
             "official_scoring_ready": bool(readiness.get("official_scoring_ready", False)),

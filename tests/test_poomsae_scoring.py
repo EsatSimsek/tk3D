@@ -582,6 +582,50 @@ def test_wholebody_diagnostics_use_133_points_and_fail_closed() -> None:
     assert first_foot_yaw["direction_basis"] == "back_ankle_to_front_ankle"
     assert first_foot_yaw["sample_count"] >= 3
     assert first_foot_yaw["uncertainty_95"] is not None
+    not_measurable = [
+        metric
+        for movement in report["movements"]
+        for metric in movement["metrics"]
+        if metric["screening_status"] == "not_measurable"
+    ]
+    assert not_measurable
+    assert all(
+        "required_joint_sample_counts" in metric["measurement_evidence"]
+        and "missing_required_joints" in metric["measurement_evidence"]
+        for metric in not_measurable
+    )
+
+
+def test_fixation_pose_completion_handles_non_simultaneous_joint_gaps() -> None:
+    from src.poomsae_scoring.wholebody_diagnostics import _window_pose_torso_lean
+
+    points = np.full((11, 17, 3), np.nan, dtype=float)
+    critical = {
+        5: [0.20, 0.0, 1.40],
+        6: [-0.20, 0.0, 1.40],
+        11: [0.15, 0.0, 0.90],
+        12: [-0.15, 0.0, 0.90],
+    }
+    for index, value in critical.items():
+        points[:, index] = value
+    for frame in range(points.shape[0]):
+        points[frame, tuple(critical)[frame % len(critical)]] = np.nan
+    assert all(
+        not np.all(np.isfinite(points[frame, list(critical)]))
+        for frame in range(points.shape[0])
+    )
+    arrays = {"points": points}
+
+    value = _window_pose_torso_lean(
+        arrays,
+        center=5,
+        start=0,
+        end=10,
+        radius=5,
+        minimum_samples=3,
+    )
+
+    assert value == pytest.approx(0.0)
 
 
 def test_wholebody_full_prefix_adds_compound_kick_diagnostics_without_thresholds() -> None:
@@ -726,6 +770,72 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
     assert report["observed_scope_provisional_deduction_total"] == 0.1
     assert report["accuracy_score"] is None
     assert report["scoring_status"] == "observed_scope_only_no_accuracy_score"
+
+
+def test_source_bound_accuracy_recognizes_complete_performance_scope_name() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    spec["status"] = "active"
+    spec["sequence_status"] = "active"
+    spec["blocked_reasons"] = []
+    spec = validate_poomsae_spec(spec)
+    movement_ids = [movement["movement_id"] for movement in spec["movements"]]
+    segments = []
+    for movement in spec["movements"]:
+        start = 10 * (movement["sequence_index"] - 1)
+        anchors = {
+            phase: start + min(offset + 1, 8)
+            for offset, phase in enumerate(movement["phases"])
+        }
+        segments.append(
+            {
+                "sequence_index": movement["sequence_index"],
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": start + 9,
+                "anchors": anchors,
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            }
+        )
+    timeline = validate_movement_timeline(
+        {
+            "schema_version": 2,
+            "timeline_id": "complete-taegeuk1-test",
+            "poomsae_id": spec["poomsae_id"],
+            "poomsae_version": spec["version"],
+            "status": "complete",
+            "label_source": "manual",
+            "frame_index_space": "sample_index",
+            "frame_count": 180,
+            "fps": 60.0,
+            "source_binding": {
+                "session_id": "test-session",
+                "run_id": "test-run",
+                "pose_file": "outputs/test-session/runs/test-run/json/pose.json",
+                "pose_file_sha256": "a" * 64,
+            },
+            "coverage": {
+                "recording_scope": "complete_performance",
+                "observed_movement_ids": movement_ids,
+                "missing_movement_ids": [],
+                "source_end_reason": None,
+            },
+            "segments": segments,
+        },
+        spec,
+    )
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [
+            {"movement_id": movement_id, "metrics": []} for movement_id in movement_ids
+        ],
+    }
+
+    report = build_source_bound_accuracy_decisions(diagnostics, spec, timeline, profile)
+
+    assert report["scoring_status"] == "eligible_for_separate_full_accuracy_evaluation"
+    assert report["accuracy_score"] is None
 
 
 def test_source_bound_accuracy_major_requires_explicit_categorical_observation() -> None:

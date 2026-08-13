@@ -10,8 +10,10 @@ import yaml
 
 from src.data_structures import (
     COCO_BODY_JOINTS,
+    COCO_BODY_JOINT_NAMES,
     COCO_FACE_INDICES,
     COCO_FOOT_JOINTS,
+    COCO_HAND_LOCAL_JOINTS,
     COCO_LEFT_HAND_INDICES,
     COCO_RIGHT_HAND_INDICES,
     COCO_WHOLEBODY_KEYPOINTS,
@@ -264,6 +266,9 @@ def build_wholebody_diagnostics(
                     "metric_id": metric["metric_id"],
                     "criterion_id": metric["criterion_id"],
                     "value": metric["value"],
+                    "unit": metric["unit"],
+                    "uncertainty_95": metric.get("uncertainty_95"),
+                    "sample_count": metric.get("sample_count"),
                     "screening_rule": metric["screening_rule"],
                     "threshold_margin": metric["threshold_margin"],
                     "normalized_threshold_margin": metric["normalized_threshold_margin"],
@@ -311,8 +316,6 @@ def _movement_diagnostics(
     t = profile["thresholds"]
     radius = profile["quality_gates"]["anchor_window_radius_frames"]
     minimum_samples = profile["quality_gates"]["min_anchor_window_valid_samples"]
-    fixation_frames = np.arange(max(start, fixation - radius), min(end, fixation + radius) + 1)
-
     def fixation_metric(function: Any, *args: Any) -> float | None:
         return _window_median(
             function,
@@ -337,7 +340,10 @@ def _movement_diagnostics(
             *args,
         )
 
-    metrics.append(_upper_metric(movement, "balance", "torso_lean_p95_deg", _torso_lean_p95(arrays, fixation_frames), t["torso_lean_p95_deg_max"], "deg"))
+    robust_torso_lean = _window_pose_torso_lean(
+        arrays, fixation, start, end, radius, minimum_samples
+    )
+    metrics.append(_upper_metric(movement, "balance", "torso_lean_p95_deg", robust_torso_lean, t["torso_lean_p95_deg_max"], "deg"))
     back_foot_yaw = fixation_estimate(
         _back_foot_yaw_to_stance_direction,
         movement["stance"],
@@ -358,8 +364,21 @@ def _movement_diagnostics(
             direction_basis="back_ankle_to_front_ankle",
         )
     )
-    metrics.append(_upper_metric(movement, "rotation", "shoulder_hip_twist_deg", fixation_metric(_shoulder_hip_twist), t["shoulder_hip_twist_deg_max"], "deg"))
-    metrics.append(_upper_metric(movement, "gaze", "head_torso_yaw_mismatch_deg", fixation_metric(_head_torso_yaw_mismatch, scale, profile["quality_gates"]), t["head_torso_yaw_mismatch_deg_max"], "deg"))
+    robust_twist = _window_pose_shoulder_hip_twist(
+        arrays, fixation, start, end, radius, minimum_samples
+    )
+    metrics.append(_upper_metric(movement, "rotation", "shoulder_hip_twist_deg", robust_twist, t["shoulder_hip_twist_deg_max"], "deg"))
+    robust_head_direction = _window_pose_head_torso_yaw_mismatch(
+        arrays,
+        fixation,
+        start,
+        end,
+        radius,
+        minimum_samples,
+        scale,
+        profile["quality_gates"],
+    )
+    metrics.append(_upper_metric(movement, "gaze", "head_torso_yaw_mismatch_deg", robust_head_direction, t["head_torso_yaw_mismatch_deg_max"], "deg"))
     dominance = _expected_side_dominance(
         arrays,
         prep,
@@ -372,11 +391,33 @@ def _movement_diagnostics(
         minimum_samples,
     )
     metrics.append(_lower_metric(movement, "wrong_side", "expected_side_dominance_ratio", dominance, t["expected_side_dominance_ratio_min"], "ratio"))
-    hikite = fixation_metric(_hikite_distance_ratio, other_side, scale)
+    hikite = _window_pose_hikite_distance_ratio(
+        arrays, fixation, start, end, radius, minimum_samples, other_side, scale
+    )
     metrics.append(_upper_metric(movement, "hikite", "reaction_hand_hip_distance_ratio", hikite, t["hikite_hip_distance_body_scale_max"], "body_scale"))
-    alignment = fixation_metric(_wrist_forearm_alignment, executing_side, scale, profile["quality_gates"])
+    alignment = _window_pose_wrist_forearm_alignment(
+        arrays,
+        fixation,
+        start,
+        end,
+        radius,
+        minimum_samples,
+        executing_side,
+        scale,
+        profile["quality_gates"],
+    )
     metrics.append(_upper_metric(movement, "hand", "wrist_forearm_alignment_deg", alignment, t["wrist_forearm_alignment_deg_max"], "deg"))
-    closure = fixation_metric(_fist_closure_ratio, executing_side, scale, profile["quality_gates"])
+    closure = _window_pose_fist_closure_ratio(
+        arrays,
+        fixation,
+        start,
+        end,
+        radius,
+        minimum_samples,
+        executing_side,
+        scale,
+        profile["quality_gates"],
+    )
     metrics.append(_upper_metric(movement, "hand", "fist_closure_ratio", closure, t["fist_closure_ratio_max"], "ratio"))
     simultaneity = _settle_time_difference(arrays, prep, fixation, executing_side, _stance_side(movement["stance"]), fps)
     metrics.append(_upper_metric(movement, "timing", "hand_foot_settle_difference_sec", simultaneity, t["simultaneity_sec_max"], "sec"))
@@ -400,7 +441,9 @@ def _movement_diagnostics(
     peak_speed = _peak_speed_normalized(arrays, prep, execution, executing_side, scale, fps)
     metrics.append(_diagnostic_metric(movement, "kinematics", "executing_wrist_peak_speed_body_scale_per_sec", peak_speed, "body_scale/sec"))
 
-    stance_span = fixation_metric(_stance_span_ratio, scale)
+    stance_span = _window_pose_stance_span_ratio(
+        arrays, fixation, start, end, radius, minimum_samples, scale
+    )
     knee = fixation_metric(_front_knee_angle, _stance_side(movement["stance"]))
     if "ap_seogi" in movement["stance"]:
         span_range = [t["ap_seogi_span_ratio_min"], t["ap_seogi_span_ratio_max"]]
@@ -410,7 +453,9 @@ def _movement_diagnostics(
         knee_range = [t["ap_gubi_front_knee_deg_min"], t["ap_gubi_front_knee_deg_max"]]
     metrics.append(_range_metric(movement, "stance", "stance_span_ratio", stance_span, span_range, "body_scale"))
     metrics.append(_range_metric(movement, "stance", "front_knee_deg", knee, knee_range, "deg"))
-    wrist_height = fixation_metric(_wrist_height_ratio, executing_side)
+    wrist_height = _window_pose_wrist_height_ratio(
+        arrays, fixation, start, end, radius, minimum_samples, executing_side
+    )
     if technique_id == "momtong_jireugi":
         height_range = [t["punch_wrist_height_torso_ratio_min"], t["punch_wrist_height_torso_ratio_max"]]
         metrics.append(
@@ -532,6 +577,7 @@ def _movement_diagnostics(
         technique_id,
         executing_side,
         other_side,
+        arrays,
         group_coverage,
         minimum_group_coverage,
         radius,
@@ -639,6 +685,255 @@ def _p_window(
     if np.count_nonzero(valid) < minimum_samples:
         return None
     return np.median(values[valid], axis=0)
+
+
+def _completed_window_point_sets(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    indices: tuple[int, ...],
+) -> list[list[np.ndarray]]:
+    """Build fixation samples, filling isolated joint gaps from the same local window."""
+    low, high = max(start, center - radius), min(end, center + radius)
+    completed: list[list[np.ndarray]] = []
+    for frame in range(low, high + 1):
+        points: list[np.ndarray] = []
+        for index in indices:
+            point = _p(arrays, frame, index)
+            if point is None:
+                point = _p_window(
+                    arrays,
+                    frame,
+                    index,
+                    low,
+                    high,
+                    radius,
+                    minimum_samples,
+                )
+            if point is None:
+                break
+            points.append(point)
+        if len(points) == len(indices):
+            completed.append(points)
+    return completed
+
+
+def _window_pose_torso_lean(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+) -> float | None:
+    indices = tuple(
+        COCO_BODY_JOINTS[name]
+        for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip")
+    )
+    values = []
+    for left_shoulder, right_shoulder, left_hip, right_hip in _completed_window_point_sets(
+        arrays, center, start, end, radius, minimum_samples, indices
+    ):
+        vector = (left_shoulder + right_shoulder) / 2.0 - (left_hip + right_hip) / 2.0
+        norm = float(np.linalg.norm(vector))
+        if norm > 1e-9:
+            values.append(float(np.degrees(np.arccos(np.clip(vector[2] / norm, -1.0, 1.0)))))
+    return float(np.percentile(values, 95)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_shoulder_hip_twist(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+) -> float | None:
+    indices = tuple(
+        COCO_BODY_JOINTS[name]
+        for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip")
+    )
+    values = [
+        _vector_angle(right_shoulder - left_shoulder, right_hip - left_hip, undirected=True)
+        for left_shoulder, right_shoulder, left_hip, right_hip in _completed_window_point_sets(
+            arrays, center, start, end, radius, minimum_samples, indices
+        )
+    ]
+    finite = [float(value) for value in values if value is not None and np.isfinite(value)]
+    return float(np.median(finite)) if len(finite) >= minimum_samples else None
+
+
+def _window_pose_head_torso_yaw_mismatch(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    scale: float | None,
+    gates: dict[str, Any],
+) -> float | None:
+    if scale is None or scale <= 0:
+        return None
+    indices = (*range(23 + 36, 23 + 48), COCO_BODY_JOINTS["left_shoulder"], COCO_BODY_JOINTS["right_shoulder"])
+    values = []
+    for points in _completed_window_point_sets(
+        arrays, center, start, end, radius, minimum_samples, tuple(indices)
+    ):
+        left_eye = np.mean(points[:6], axis=0)
+        right_eye = np.mean(points[6:12], axis=0)
+        eye_line = right_eye - left_eye
+        eye_ratio = float(np.linalg.norm(eye_line) / scale)
+        if not gates["face_eye_separation_body_scale_min"] <= eye_ratio <= gates[
+            "face_eye_separation_body_scale_max"
+        ]:
+            continue
+        angle = _vector_angle(eye_line, points[13] - points[12], undirected=True)
+        if angle is not None:
+            values.append(angle)
+    return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_hikite_distance_ratio(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    side: str,
+    scale: float | None,
+) -> float | None:
+    if scale is None or scale <= 0:
+        return None
+    indices = (coco_hand_joint(side, "wrist"), COCO_BODY_JOINTS[f"{side}_hip"])
+    values = [
+        float(np.linalg.norm(wrist - hip) / scale)
+        for wrist, hip in _completed_window_point_sets(
+            arrays, center, start, end, radius, minimum_samples, indices
+        )
+    ]
+    return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_wrist_forearm_alignment(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    side: str,
+    scale: float | None,
+    gates: dict[str, Any],
+) -> float | None:
+    indices = (
+        COCO_BODY_JOINTS[f"{side}_elbow"],
+        COCO_BODY_JOINTS[f"{side}_wrist"],
+        coco_hand_joint(side, "middle_mcp"),
+    )
+    values = []
+    for elbow, wrist, middle in _completed_window_point_sets(
+        arrays, center, start, end, radius, minimum_samples, indices
+    ):
+        if not _plausible_palm_scale(wrist, middle, scale, gates):
+            continue
+        angle = _angle(elbow, wrist, middle)
+        if angle is not None:
+            values.append(abs(180.0 - angle))
+    return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_fist_closure_ratio(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    side: str,
+    scale: float | None,
+    gates: dict[str, Any],
+) -> float | None:
+    names = tuple(COCO_HAND_LOCAL_JOINTS)
+    indices = tuple(coco_hand_joint(side, name) for name in names)
+    wrist_index = names.index("wrist")
+    middle_index = names.index("middle_mcp")
+    palm_indices = tuple(names.index(name) for name in (
+        "wrist", "thumb_cmc", "thumb_mcp", "index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp"
+    ))
+    distal_indices = tuple(names.index(name) for name in (
+        "thumb_ip", "thumb_tip", "index_pip", "index_dip", "index_tip",
+        "middle_pip", "middle_dip", "middle_tip", "ring_pip", "ring_dip",
+        "ring_tip", "pinky_pip", "pinky_dip", "pinky_tip",
+    ))
+    values = []
+    for points in _completed_window_point_sets(
+        arrays, center, start, end, radius, minimum_samples, indices
+    ):
+        wrist, middle = points[wrist_index], points[middle_index]
+        if not _plausible_palm_scale(wrist, middle, scale, gates):
+            continue
+        palm_scale = float(np.linalg.norm(wrist - middle))
+        if palm_scale <= 1e-9:
+            continue
+        palm_center = np.mean([points[index] for index in palm_indices], axis=0)
+        values.append(
+            float(np.mean([np.linalg.norm(points[index] - palm_center) for index in distal_indices]) / palm_scale)
+        )
+    return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_stance_span_ratio(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    scale: float | None,
+) -> float | None:
+    if scale is None or scale <= 0:
+        return None
+    indices = (COCO_BODY_JOINTS["left_ankle"], COCO_BODY_JOINTS["right_ankle"])
+    values = [
+        float(np.linalg.norm((left_ankle - right_ankle)[:2]) / scale)
+        for left_ankle, right_ankle in _completed_window_point_sets(
+            arrays, center, start, end, radius, minimum_samples, indices
+        )
+    ]
+    return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+def _window_pose_wrist_height_ratio(
+    arrays: dict[str, Any],
+    center: int,
+    start: int,
+    end: int,
+    radius: int,
+    minimum_samples: int,
+    side: str,
+) -> float | None:
+    indices = (
+        coco_hand_joint(side, "wrist"),
+        COCO_BODY_JOINTS["left_shoulder"],
+        COCO_BODY_JOINTS["right_shoulder"],
+        COCO_BODY_JOINTS["left_hip"],
+        COCO_BODY_JOINTS["right_hip"],
+    )
+    values = []
+    for wrist, left_shoulder, right_shoulder, left_hip, right_hip in _completed_window_point_sets(
+        arrays, center, start, end, radius, minimum_samples, indices
+    ):
+        shoulder_mid = (left_shoulder + right_shoulder) / 2.0
+        hip_mid = (left_hip + right_hip) / 2.0
+        torso_height = float(np.linalg.norm(shoulder_mid - hip_mid))
+        if torso_height > 1e-6:
+            values.append(float((wrist[2] - hip_mid[2]) / torso_height))
+    return float(np.median(values)) if len(values) >= minimum_samples else None
 
 
 def _window_median(
@@ -1313,6 +1608,7 @@ def _annotate_metrics(
     technique_id: str,
     executing_side: str,
     other_side: str,
+    arrays: dict[str, Any],
     group_coverage: dict[str, float],
     minimum_group_coverage: float,
     radius: int,
@@ -1423,13 +1719,29 @@ def _annotate_metrics(
         failed_groups = [
             group for group in required_groups if group_coverage[group] < minimum_group_coverage
         ]
+        required_joint_indices = _metric_required_joint_indices(
+            metric_id,
+            movement,
+            executing_side,
+            other_side,
+        )
+        required_joint_sample_counts = {
+            _joint_label(index): int(np.count_nonzero(arrays["quality_mask"][low : high + 1, index]))
+            for index in required_joint_indices
+        }
+        missing_required_joints = [
+            label
+            for label, count in required_joint_sample_counts.items()
+            if count < minimum_group_coverage * (high - low + 1)
+        ]
         not_measurable_reason = None
         if metric["screening_status"] == "not_measurable":
-            not_measurable_reason = (
-                "segment_group_coverage_below_minimum"
-                if failed_groups
-                else "insufficient_or_implausible_required_keypoint_evidence"
-            )
+            if failed_groups:
+                not_measurable_reason = "segment_group_coverage_below_minimum"
+            elif missing_required_joints:
+                not_measurable_reason = "required_joint_window_coverage_below_minimum"
+            else:
+                not_measurable_reason = "metric_geometry_implausible_or_trajectory_evidence_insufficient"
         metric["measurement_evidence"] = {
             "scope": scope,
             "anchor_frame": anchor,
@@ -1441,8 +1753,97 @@ def _annotate_metrics(
             "required_groups": required_groups,
             "required_group_coverage": {group: group_coverage[group] for group in required_groups},
             "failed_group_quality_gates": failed_groups,
+            "required_joint_sample_counts": required_joint_sample_counts,
+            "missing_required_joints": missing_required_joints,
             "not_measurable_reason": not_measurable_reason,
         }
+
+
+def _metric_required_joint_indices(
+    metric_id: str,
+    movement: dict[str, Any],
+    executing_side: str,
+    other_side: str,
+) -> tuple[int, ...]:
+    front_side = _stance_side(movement["stance"])
+    back_side = "right" if front_side == "left" else "left"
+    body = COCO_BODY_JOINTS
+    if metric_id in {"torso_lean_p95_deg", "shoulder_hip_twist_deg"}:
+        names = ("left_shoulder", "right_shoulder", "left_hip", "right_hip")
+        return tuple(body[name] for name in names)
+    if metric_id == "back_foot_yaw_to_stance_direction_deg":
+        return (
+            body[f"{front_side}_ankle"],
+            body[f"{back_side}_ankle"],
+            COCO_FOOT_JOINTS[f"{back_side}_heel"],
+            COCO_FOOT_JOINTS[f"{back_side}_big_toe"],
+            COCO_FOOT_JOINTS[f"{back_side}_small_toe"],
+        )
+    if metric_id == "head_torso_yaw_mismatch_deg":
+        return (*range(23 + 36, 23 + 48), body["left_shoulder"], body["right_shoulder"])
+    if metric_id == "expected_side_dominance_ratio":
+        return (body[f"{executing_side}_wrist"], body[f"{other_side}_wrist"])
+    if metric_id == "reaction_hand_hip_distance_ratio":
+        return (coco_hand_joint(other_side, "wrist"), body[f"{other_side}_hip"])
+    if metric_id == "wrist_forearm_alignment_deg":
+        return (
+            body[f"{executing_side}_elbow"],
+            body[f"{executing_side}_wrist"],
+            coco_hand_joint(executing_side, "middle_mcp"),
+        )
+    if metric_id == "fist_closure_ratio":
+        return tuple(coco_hand_joint(executing_side, name) for name in COCO_HAND_LOCAL_JOINTS)
+    if metric_id == "hand_foot_settle_difference_sec":
+        return (body[f"{executing_side}_wrist"], body[f"{front_side}_ankle"])
+    if metric_id in {
+        "fixation_wrist_jitter_ratio",
+        "executing_wrist_path_efficiency",
+        "executing_wrist_peak_speed_body_scale_per_sec",
+    }:
+        return (body[f"{executing_side}_wrist"],)
+    if metric_id == "pelvis_weight_transfer_ratio":
+        return (body["left_hip"], body["right_hip"], body[f"{front_side}_ankle"], body[f"{back_side}_ankle"])
+    if metric_id == "stance_span_ratio":
+        return (body["left_ankle"], body["right_ankle"])
+    if metric_id == "front_knee_deg":
+        return (body[f"{front_side}_hip"], body[f"{front_side}_knee"], body[f"{front_side}_ankle"])
+    if metric_id == "executing_wrist_height_torso_ratio":
+        return (
+            coco_hand_joint(executing_side, "wrist"),
+            body["left_shoulder"],
+            body["right_shoulder"],
+            body["left_hip"],
+            body["right_hip"],
+        )
+    if metric_id == "executing_elbow_deg":
+        return (
+            body[f"{executing_side}_shoulder"],
+            body[f"{executing_side}_elbow"],
+            body[f"{executing_side}_wrist"],
+        )
+    if metric_id == "arae_fist_to_thigh_fist_ratio":
+        return (
+            *(coco_hand_joint(executing_side, name) for name in ("index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp")),
+            body[f"{executing_side}_hip"],
+            body[f"{executing_side}_knee"],
+        )
+    return ()
+
+
+def _joint_label(index: int) -> str:
+    if index < len(COCO_BODY_JOINT_NAMES):
+        return COCO_BODY_JOINT_NAMES[index]
+    for name, value in COCO_FOOT_JOINTS.items():
+        if value == index:
+            return name
+    if index in COCO_FACE_INDICES:
+        return f"face_{index - COCO_FACE_INDICES[0]:02d}"
+    for side, offset in (("left", COCO_LEFT_HAND_INDICES[0]), ("right", COCO_RIGHT_HAND_INDICES[0])):
+        local = index - offset
+        for name, value in COCO_HAND_LOCAL_JOINTS.items():
+            if value == local:
+                return f"{side}_{name}"
+    return f"joint_{index}"
 
 
 def _metric_base(movement: dict[str, Any], family: str, metric_id: str, value: float | None, unit: str) -> dict[str, Any]:

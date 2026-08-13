@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--accuracy-decisions", required=True)
     parser.add_argument("--poomsae-spec", required=True)
     parser.add_argument("--timeline", required=True)
+    parser.add_argument("--wholebody-diagnostics")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -29,6 +30,8 @@ def main() -> None:
         "poomsae_spec": _resolve(args.poomsae_spec),
         "movement_timeline": _resolve(args.timeline),
     }
+    if args.wholebody_diagnostics:
+        paths["wholebody_diagnostics"] = _resolve(args.wholebody_diagnostics)
     for label, path in paths.items():
         if not path.is_file():
             raise SystemExit(f"Input file is missing ({label}): {path}")
@@ -39,7 +42,10 @@ def main() -> None:
     decisions = json.loads(paths["accuracy_decisions"].read_text(encoding="utf-8"))
     spec = load_poomsae_spec(paths["poomsae_spec"])
     timeline = load_movement_timeline(paths["movement_timeline"], spec)
-    report = build_decision_evidence_events(decisions, spec, timeline)
+    diagnostics = None
+    if "wholebody_diagnostics" in paths:
+        diagnostics = json.loads(paths["wholebody_diagnostics"].read_text(encoding="utf-8"))
+    report = build_decision_evidence_events(decisions, spec, timeline, diagnostics)
     report["bindings"] = {
         label: {"path": str(path), "sha256": _sha256(path)} for label, path in paths.items()
     }

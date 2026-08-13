@@ -144,6 +144,10 @@ def build_review_html(
     .missing-chip {{ color:#c6d3db; background:#17222b; border:1px dashed #4c5d68; border-radius:999px; padding:7px 10px; font-size:12px; }}
     ul {{ padding:0; list-style:none; margin:0; }} li {{ display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #213643; color:var(--muted); }} li:last-child {{ border-bottom:0; }} code {{ color:var(--amber); }}
     .candidate-row {{ display:grid; grid-template-columns:minmax(120px,.35fr) 1fr auto; align-items:center; }} .candidate-row button {{ padding:6px 9px; white-space:nowrap; }}
+    .metric-table-wrap {{ overflow:auto; margin-top:16px; }} .metric-table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+    .metric-table th,.metric-table td {{ padding:9px 10px; border-bottom:1px solid #213643; text-align:left; white-space:nowrap; }}
+    .metric-table th {{ color:var(--cyan); background:#0a1721; position:sticky; top:0; }} .metric-table td {{ color:var(--muted); }}
+    .metric-table .review {{ color:var(--amber); font-weight:700; }} .metric-table .ok {{ color:var(--green); }} .metric-table .missing {{ color:#9aa8b2; }}
     .decision-row {{ display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:12px; align-items:center; }}
     .decision-row.red {{ border-left:4px solid var(--red); padding-left:10px; }} .decision-row.amber {{ border-left:4px solid var(--amber); padding-left:10px; }}
     .decision-row.gray {{ border-left:4px solid #8998a3; padding-left:10px; }} .decision-row.green {{ border-left:4px solid var(--green); padding-left:10px; }}
@@ -329,11 +333,12 @@ def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str
     candidate_count = int(summary.get("review_candidate_count", 0))
     within_count = int(summary.get("within_screening_range_count", 0))
     metric_count = int(summary.get("metric_count", 0))
+    measurement_table = _wholebody_measurement_table(report)
     stat = (
         '<div class="stat"><span>WholeBody-133 ölçüm</span>'
         f'<b>{metric_count} · {candidate_count} aday · %{coverage_ratio * 100:.0f}</b></div>'
     )
-    section = f'''<section class="section"><h2>WholeBody-133 tüm ölçümler</h2>
+    section = f'''<section class="section"><h2>WholeBody-133 hata inceleme adayları ve tüm ölçümler</h2>
       <div class="notice"><div>🔎</div><div><strong>Skor yok; her aday videoda doğrulanmalı.</strong>
       <p>Dirsek, bilek, omuz-kalça rotasyonu, baş yönü, hikite, yumruk, eşzaman, fixation, ağırlık aktarımı, trajectory
       ve daha fazlası ölçülür. Yeşil = eşik içi, kırmızı = aday, gri = ölçülemedi, mavi = yalnız tanılı.</p></div></div>
@@ -343,7 +348,10 @@ def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str
       Hareket başlığına tıkla → metrikleri aç/kapa.</p>
       {movement_blocks}
       <h2 style="margin-top:18px">Eşik aşan inceleme adayları</h2>
-      <ul>{candidate_items}</ul></section>'''
+      <ul>{candidate_items}</ul>
+      <h2 style="margin-top:20px">El, yumruk ve baş/yüz ölçüm matrisi</h2>
+      <p>Yumruk kapalılığı 21 noktalı el geometrisinden hesaplanır. Baş/yüz yönü 68 yüz noktası ve omuz hattını kullanır; göz küresi takibi değildir.</p>
+      {measurement_table}</section>'''
     return stat, section
 
 
@@ -358,6 +366,9 @@ def _wholebody_movement_block(movement: dict[str, Any]) -> str:
     if candidate_count > 0:
         badge_class = "wb-badge-warn"
         badge_text = f"{candidate_count} aday"
+    elif not_measurable_count > 0:
+        badge_class = "wb-badge-warn"
+        badge_text = f"{not_measurable_count} ölçülemedi"
     else:
         badge_class = "wb-badge-ok"
         badge_text = f"{pass_count} geçti"
@@ -452,6 +463,51 @@ def _wholebody_metric_cell(metric: dict[str, Any]) -> str:
       <span class="wb-m-val">{value_text} {_escape(unit)}</span>
       <span class="wb-m-range">{_escape(range_text)}</span>
     </div>'''
+def _wholebody_measurement_table(report: dict[str, Any]) -> str:
+    selected = {
+        "fist_closure_ratio": "Yumruk kapalılığı",
+        "wrist_forearm_alignment_deg": "Bilek–ön kol hizası",
+        "head_torso_yaw_mismatch_deg": "Baş/yüz–gövde yön farkı",
+        "executing_wrist_height_torso_ratio": "Teknik el yüksekliği",
+        "executing_elbow_deg": "Uygulayan dirsek açısı",
+        "reaction_hand_hip_distance_ratio": "Hikite–kalça mesafesi",
+    }
+    status_labels = {
+        "within_screening_range": ("Tarama içinde", "ok"),
+        "review_candidate": ("İnceleme adayı — puan yok", "review"),
+        "not_measurable": ("Ölçülemedi", "missing"),
+        "measured_diagnostic_only": ("Ölçüldü — eşik yok", "ok"),
+    }
+    rows: list[str] = []
+    for movement in report.get("movements", []):
+        movement_id = _escape(movement.get("movement_id"))
+        for metric in movement.get("metrics", []):
+            metric_id = metric.get("metric_id")
+            if metric_id not in selected:
+                continue
+            status = str(metric.get("screening_status"))
+            status_text, status_class = status_labels.get(status, (status, "missing"))
+            if status == "not_measurable":
+                evidence = metric.get("measurement_evidence") or {}
+                sample_counts = evidence.get("required_joint_sample_counts") or {}
+                missing = evidence.get("missing_required_joints") or []
+                window_size = int(evidence.get("end_frame", 0)) - int(evidence.get("start_frame", 0)) + 1
+                if missing:
+                    details = ", ".join(
+                        f"{label} {int(sample_counts.get(label, 0))}/{window_size}" for label in missing
+                    )
+                    status_text = f"Ölçülemedi · {details}"
+            value = _number(metric.get("value"), f" {metric.get('unit', '')}".rstrip())
+            rows.append(
+                f"<tr><td><code>{movement_id}</code></td><td>{_escape(selected[metric_id])}</td>"
+                f"<td>{_escape(value)}</td><td class=\"{status_class}\">{_escape(status_text)}</td></tr>"
+            )
+    body = "".join(rows) or '<tr><td colspan="4">Seçili WholeBody ölçümü bulunmadı.</td></tr>'
+    return (
+        '<div class="metric-table-wrap"><table class="metric-table"><thead><tr>'
+        '<th>Hareket</th><th>Ölçüm</th><th>3B değer</th><th>Durum</th>'
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
+    )
 
 
 def _decision_evidence_html(

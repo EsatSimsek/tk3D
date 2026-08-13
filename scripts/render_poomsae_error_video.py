@@ -21,6 +21,12 @@ def main() -> None:
     parser.add_argument("--evidence-events", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--manifest", required=True)
+    parser.add_argument(
+        "--deduction-freeze-seconds",
+        type=float,
+        default=3.0,
+        help="Hold each unique confirmed-deduction anchor for this many seconds (default: 3).",
+    )
     args = parser.parse_args()
 
     cameras = dict(_parse_camera(value) for value in args.camera)
@@ -35,6 +41,7 @@ def main() -> None:
         keypoints_2d_csv=_resolve(args.keypoints_2d),
         evidence_events=events,
         output_path=_resolve(args.output),
+        deduction_freeze_seconds=args.deduction_freeze_seconds,
     )
     report["evidence_events"] = {"path": str(events_path), "sha256": _sha256(events_path)}
     manifest = write_render_manifest(_resolve(args.manifest), report)

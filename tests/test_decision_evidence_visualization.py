@@ -76,7 +76,72 @@ def test_decision_events_preserve_3d_measurement_and_camera_visual_trace_contrac
     }
 
 
-def test_annotated_video_preserves_timeline_and_draws_observed_joint_trace(tmp_path: Path) -> None:
+def test_wholebody_hand_and_head_candidates_become_no_score_video_events() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    decisions = {
+        "status": "source_bound_accuracy_decisions",
+        "timeline_id": timeline["timeline_id"],
+        "numeric_decisions": [],
+        "categorical_decisions": [],
+    }
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "candidate_events": [
+            {
+                "event_id": "WB-M02-fist_closure_ratio",
+                "movement_id": "M02",
+                "metric_id": "fist_closure_ratio",
+                "criterion_id": "technique.hand.fist",
+                "value": 1.05,
+                "unit": "ratio",
+                "uncertainty_95": None,
+                "sample_count": None,
+                "screening_rule": {"operator": "max", "value": 0.9},
+                "measurement_evidence": {
+                    "scope": "fixation_window",
+                    "start_frame": 296,
+                    "anchor_frame": 301,
+                    "end_frame": 306,
+                },
+            },
+            {
+                "event_id": "WB-M06-head_torso_yaw_mismatch_deg",
+                "movement_id": "M06",
+                "metric_id": "head_torso_yaw_mismatch_deg",
+                "criterion_id": "gaze.direction",
+                "value": 26.5,
+                "unit": "deg",
+                "uncertainty_95": None,
+                "sample_count": None,
+                "screening_rule": {"operator": "max", "value": 25.0},
+                "measurement_evidence": {
+                    "scope": "fixation_window",
+                    "start_frame": 723,
+                    "anchor_frame": 728,
+                    "end_frame": 733,
+                },
+            },
+        ],
+    }
+
+    report = build_decision_evidence_events(decisions, spec, timeline, diagnostics)
+
+    assert report["summary"]["diagnostic_review_candidate_count"] == 2
+    fist, head = report["events"]
+    assert fist["decision_status"] == "diagnostic_review_candidate"
+    assert fist["deduction_points"] is None
+    assert fist["visual_geometry"]["kind"] == "hand_shape"
+    assert len(fist["visual_geometry"]["joint_indices"]) == 10
+    assert "21 el" in fist["user_explanation"]["correction"]
+    assert head["decision_status"] == "diagnostic_review_candidate"
+    assert head["visual_geometry"]["kind"] == "head_torso_direction"
+    assert len(head["visual_geometry"]["joint_indices"]) == 14
+    assert "Accuracy puanı düşürülmedi" in head["user_explanation"]["result"]
+
+
+def test_annotated_video_preserves_source_timeline_and_inserts_reading_pause(tmp_path: Path) -> None:
     fps, frame_count = 2.0, 3
     cameras = {
         "camera_a": tmp_path / "camera_a.avi",
@@ -156,8 +221,17 @@ def test_annotated_video_preserves_timeline_and_draws_observed_joint_trace(tmp_p
     )
 
     assert output.is_file() and output.stat().st_size > 0
-    assert report["frame_count"] == frame_count
+    assert report["source_frame_count"] == frame_count
+    assert report["frame_count"] == 9
+    assert report["source_duration_sec"] == 1.5
+    assert report["duration_sec"] == 4.5
+    assert report["freeze_pause_count"] == 1
+    assert report["freeze_seconds_per_pause"] == 3.0
+    assert report["inserted_freeze_frame_count"] == 6
+    assert report["freeze_anchor_source_frames"] == [1]
+    assert report["source_timeline_preserved"] is True
+    assert report["output_timeline_extended_for_readability"] is True
     assert report["evidence_frame_count"] == 1
     capture = cv2.VideoCapture(str(output))
-    assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == frame_count
+    assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 9
     capture.release()

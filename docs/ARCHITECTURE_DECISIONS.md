@@ -424,13 +424,48 @@ iskelet, çok kameralı 3B kararın bağımsız doğrulaması değildir. 2B çiz
 yeniden açı veya kesinti hesaplamak iki farklı puan gerçeği ve dairesel kanıt
 oluştururdu.
 
-Koruma: İşaretli video kaynak videolarla aynı tam kare zaman çizelgesini korur;
-kare atmaz ve ham videoların üzerine yazmaz. Renkler yalnız karar durumunu
+Koruma: İşaretli video kaynak videoların bütün karelerini aynı sırayla korur;
+kare atmaz ve ham videoların üzerine yazmaz. Okunabilirlik için her benzersiz
+doğrulanmış kesinti anchor'ından sonra 3 saniyelik tekrar kareleri eklenebilir.
+Bu ek süre manifestte açıkça kayıtlıdır; uzatılmış video ham kameralarla aynı
+zaman eksenindeymiş gibi HTML senkronizasyonuna sokulmaz. Renkler yalnız karar durumunu
 anlatır: kırmızı doğrulanmış kesinti, amber sınır-belirsiz, gri ölçülemez,
 yeşil kaynak aralığında. Panel açıkça sayısal kararın 3B'den, çizimin ise
-kayıtlı ViTPose 2B izinden geldiğini yazar. Kullanıcının `Doğru / Yanlış /
+kayıtlı ViTPose 2B izinden geldiğini yazar. Perspektifli kamera düzleminde
+`30°` kabul geometrisi uydurulmaz; kural ve ölçüm ayrı üstten-görünüş 3B
+şemasında karşılaştırılır. Kullanıcının `Doğru / Yanlış /
 Belirsiz` inceleme girdisi ayrı JSON olarak dışa aktarılır; özgün karar JSON'u
 değiştirilmez ve otomatik olarak RulePack'e geri yazılmaz.
+
+## AD-025 — Mevcut geliştirme kapsamı M01-M06 ve WholeBody teşhisi puandan ayrıdır
+
+Karar: Mevcut kısa kayıtta aktif geliştirme kapsamı M01-M06'dır. Çalıştırıcı
+bu kapsamı `6/6` olarak raporlar; bütün Taegeuk 1 kapsamındaki `6/18` bilgisi
+yalnız provenance ve tam Poomsae skoru koruması için ayrı tutulur. M07-M18'in
+yokluğu M01-M06 ölçüm, karar ve kanıt üretimini engellemez; kısa kayıttan 4,0
+tam Accuracy puanı üretmeye de izin vermez.
+
+WholeBody-133 el/yüz/gövde eşik dışı ölçümleri `diagnostic_review_candidate`
+olarak görsel olay zincirine katılabilir. Bu olayların `deduction_points` ve
+`score_effect` alanları `null` kalır, mavi gösterilir ve puan-kesintisi
+dondurması oluşturmaz. Kaynak-bağlı kesintiler kırmızı ve ayrı kalır. Yumruk
+kapalılığı 21 el noktasından; baş/yüz–gövde yön farkı 68 yüz noktası ile omuz
+hattından ölçülür. İkincisi göz küresi bakış takibi olarak adlandırılmaz.
+
+Gerekçe: COCO-WholeBody noktaları zaten mevcutken el ve yüz ölçülerini yalnız
+ham JSON'da bırakmak kullanıcıya sistemin bunları kullanmadığı izlenimini
+veriyordu. Buna karşılık mühendislik tarama eşiklerini kaynak-bağlı WT
+kesintisine çevirmek de ikinci, kaynaksız bir puan motoru yaratırdı.
+
+Koruma: HTML bütün seçili el/yüz ölçülerini değer ve ölçülebilirlik durumuyla
+gösterir. Video yalnız eşik dışı teşhis adaylarını ekler ve kart üzerinde
+`puan yok` yazar. Manifest kesinti dondurma karelerini ayrı kaydeder; teşhis
+olayları bu listeye giremez. Tam kayıt uygunluğu sözleşmedeki
+`status=complete` ve `recording_scope=complete_performance` adlarıyla sınanır.
+İzole eklem boşluğu yalnız aynı hareket/fixation penceresindeki yeterli gerçek
+örneklerden tamamlanabilir. Bütün pencere boyunca kayıp omuz, bilek veya ayak
+bileği simetri, komşu eklem ya da 3B projeksiyonla uydurulmaz. Ölçülemez karar
+kritik eklem adlarını ve pencere örnek sayılarını kanıt alanında taşır.
 
 Uygulama ve doğrulama aşamaları:
 [`docs/PUANLAMA_PLANI.md`](PUANLAMA_PLANI.md).

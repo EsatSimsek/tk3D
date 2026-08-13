@@ -141,8 +141,8 @@ def build_source_bound_accuracy_decisions(
     provisional_total = float(sum(item["deduction_points"] for item in applied_numeric + applied_categorical))
     complete_score_eligible = (
         spec["status"] == "active"
-        and timeline["status"] == "confirmed"
-        and timeline["coverage"]["recording_scope"] == "full_sequence"
+        and timeline["status"] == "complete"
+        and timeline["coverage"]["recording_scope"] == "complete_performance"
     )
     return _json_safe(
         {

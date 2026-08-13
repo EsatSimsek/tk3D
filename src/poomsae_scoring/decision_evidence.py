@@ -17,6 +17,7 @@ _STATUS_PRESENTATION = {
     "not_measurable": ("not_measurable_no_deduction", "gray", "Ölçülemedi"),
     "within_source_range": ("within_source_range", "green", "Kaynak aralığında"),
     "not_applicable": ("not_applicable", "blue", "Uygulanamaz"),
+    "diagnostic_review_candidate": ("diagnostic_review_candidate", "blue", "Teşhis adayı — puan yok"),
 }
 
 
@@ -24,6 +25,7 @@ def build_decision_evidence_events(
     accuracy_decisions: dict[str, Any],
     poomsae_spec: dict[str, Any],
     movement_timeline: dict[str, Any],
+    wholebody_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert scoring decisions into immutable, camera-renderable evidence events."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -61,6 +63,32 @@ def build_decision_evidence_events(
     for index, decision in enumerate(categorical, start=1):
         events.append(_categorical_event(index, decision, movements, timeline["fps"]))
 
+    diagnostic_count = 0
+    if wholebody_diagnostics is not None:
+        if wholebody_diagnostics.get("status") != "wholebody_diagnostics_only":
+            raise ScoringContractError("diagnostic evidence requires a WholeBody diagnostics report")
+        if wholebody_diagnostics.get("movement_timeline_id") != timeline["timeline_id"]:
+            raise ScoringContractError("WholeBody diagnostics and MovementTimeline must match")
+        candidates = wholebody_diagnostics.get("candidate_events")
+        if not isinstance(candidates, list):
+            raise ScoringContractError("WholeBody candidate_events must be a list")
+        for index, candidate in enumerate(candidates, start=1):
+            movement_id = candidate.get("movement_id")
+            if movement_id not in movements or movement_id not in segments:
+                raise ScoringContractError(
+                    f"WholeBody candidate references an unobserved movement: {movement_id}"
+                )
+            events.append(
+                _diagnostic_event(
+                    index=index,
+                    candidate=candidate,
+                    movement=movements[movement_id],
+                    segment=segments[movement_id],
+                    fps=timeline["fps"],
+                )
+            )
+        diagnostic_count = len(candidates)
+
     counts = {key: sum(event["decision_status"] == key for event in events) for key in _STATUS_PRESENTATION}
     return {
         "schema_version": 1,
@@ -81,9 +109,144 @@ def build_decision_evidence_events(
             "not_measurable_count": counts["not_measurable"],
             "within_source_range_count": counts["within_source_range"],
             "categorical_event_count": len(categorical),
+            "diagnostic_review_candidate_count": diagnostic_count,
         },
         "events": events,
     }
+
+
+def _diagnostic_event(
+    *,
+    index: int,
+    candidate: dict[str, Any],
+    movement: dict[str, Any],
+    segment: dict[str, Any],
+    fps: float,
+) -> dict[str, Any]:
+    evidence = candidate.get("measurement_evidence")
+    if not isinstance(evidence, dict):
+        raise ScoringContractError("WholeBody candidate must contain measurement_evidence")
+    anchor = _frame(evidence.get("anchor_frame"), segment["end_frame"])
+    start = _frame(evidence.get("start_frame"), anchor)
+    end = _frame(evidence.get("end_frame"), anchor)
+    if not segment["start_frame"] <= start <= anchor <= end <= segment["end_frame"]:
+        raise ScoringContractError(f"diagnostic evidence window is outside {movement['movement_id']}")
+    metric_id = candidate.get("metric_id")
+    screening_rule = candidate.get("screening_rule") or {}
+    unit = str(candidate.get("unit") or "ratio")
+    visual = _visual_geometry(str(metric_id), movement)
+    visual["unit"] = unit
+    return {
+        "event_id": f"DIA-{index:03d}-{movement['movement_id']}-{metric_id}",
+        "event_kind": "wholebody_diagnostic_review_candidate",
+        "movement_id": movement["movement_id"],
+        "movement_name": movement["display_name"],
+        "technique_id": movement["techniques"][0]["technique_id"],
+        "metric_id": metric_id,
+        "rule_id": None,
+        "description": _diagnostic_description(str(metric_id)),
+        "decision_status": "diagnostic_review_candidate",
+        "display_status": "diagnostic_review_candidate",
+        "display_label": "Teşhis adayı — puan yok",
+        "display_color": "blue",
+        "application_status": "review_only",
+        "deduction_kind": None,
+        "deduction_points": None,
+        "measurement": {
+            "value": candidate.get("value"),
+            "unit": unit,
+            "uncertainty_95": candidate.get("uncertainty_95"),
+            "interval_95": None,
+            "rule_operator": screening_rule.get("operator"),
+            "rule_limits": _screening_limits(screening_rule),
+            "boundary_guard": None,
+            "sample_count": candidate.get("sample_count"),
+        },
+        "user_explanation": _diagnostic_explanation(candidate, movement),
+        "evidence_window": {
+            "start_frame": start,
+            "anchor_frame": anchor,
+            "end_frame": end,
+            "start_time_sec": start / fps,
+            "anchor_time_sec": anchor / fps,
+            "end_time_sec": end / fps,
+            "scope": evidence.get("scope"),
+        },
+        "visual_geometry": visual,
+        "source": None,
+        "reason": "engineering_screening_threshold_exceeded",
+        "review": {
+            "status": "pending",
+            "allowed_values": ["confirmed", "rejected", "uncertain"],
+        },
+    }
+
+
+def _screening_limits(screening_rule: dict[str, Any]) -> list[float]:
+    if "range" in screening_rule:
+        return [float(value) for value in screening_rule["range"]]
+    if "value" in screening_rule:
+        return [float(screening_rule["value"])]
+    return []
+
+
+def _diagnostic_explanation(candidate: dict[str, Any], movement: dict[str, Any]) -> dict[str, str]:
+    metric_id = str(candidate.get("metric_id"))
+    unit = str(candidate.get("unit") or "ratio")
+    rule = candidate.get("screening_rule") or {}
+    limits = _screening_limits(rule)
+    value = candidate.get("value")
+    title, correction = _diagnostic_title_and_correction(metric_id)
+    expected = _expected_text(rule.get("operator"), limits, unit)
+    measured = "Ölçüm yapılamadı." if value is None else f"{float(value):.2f} {_unit_label(unit)}"
+    comparison = _comparison_text(value, None, rule.get("operator"), limits, unit)
+    return {
+        "title": title,
+        "expected": expected.replace("Olmasi", "Olması"),
+        "measured": measured,
+        "interval": "Bu teşhis metriğinde kaynak-bağlı %95 kesinti aralığı yok.",
+        "comparison": comparison,
+        "result": "Sonuç: yalnız inceleme adayıdır; Accuracy puanı düşürülmedi.",
+        "correction": correction,
+        "source_note": (
+            "Mühendislik tarama eşiği; güncel WT kesinti toleransı değildir. "
+            f"WholeBody-133 ölçümü, {movement['movement_id']} sabitlenme/faz kanıtı."
+        ),
+    }
+
+
+def _diagnostic_description(metric_id: str) -> str:
+    return _diagnostic_title_and_correction(metric_id)[0]
+
+
+def _diagnostic_title_and_correction(metric_id: str) -> tuple[str, str]:
+    mapping = {
+        "fist_closure_ratio": (
+            "YUMRUK KAPALILIK GEOMETRİSİ",
+            "21 el noktasında parmak uçlarını avuç merkezine yaklaştırarak yumruğu sıkı kapat.",
+        ),
+        "wrist_forearm_alignment_deg": (
+            "EL BİLEĞİ–ÖN KOL HİZASI",
+            "Bileği ön kol doğrultusuyla hizala; içe veya dışa kırılmayı azalt.",
+        ),
+        "head_torso_yaw_mismatch_deg": (
+            "BAŞ/YÜZ–GÖVDE YÖN FARKI",
+            "Baş ve yüz yönünü hareketin hedef yönüyle tekrar kontrol et.",
+        ),
+        "hand_foot_settle_difference_sec": (
+            "EL–AYAK BİTİŞ EŞZAMANLILIĞI",
+            "Teknik elinin ve duruş ayağının sabitlenmesini aynı anda tamamla.",
+        ),
+        "fixation_wrist_jitter_ratio": (
+            "TEKNİK BİTİŞ KARARLILIĞI",
+            "Teknik bittikten sonra bileği sabitle; artçı salınımı azalt.",
+        ),
+        "pelvis_weight_transfer_ratio": (
+            "AĞIRLIK AKTARIMI",
+            "Adım ve teknik boyunca pelvis aktarımını duruş yönünde tamamla.",
+        ),
+    }
+    return mapping.get(metric_id, (metric_id.upper(), "Hareketi teknik kaynakla karşılaştır."))
 
 
 def _numeric_event(
@@ -160,7 +323,12 @@ def _user_explanation(decision: dict[str, Any], visual: dict[str, Any]) -> dict[
     metric_id = decision["metric_id"]
     title, correction = _metric_explanation(metric_id)
     expected = _expected_text(operator, limits, unit)
-    measured = "Olcum yapilamadi." if measurement is None else f"{float(measurement):.2f} {_unit_label(unit)}"
+    if measurement is None:
+        missing = (decision.get("measurement_evidence") or {}).get("missing_required_joints") or []
+        missing_text = "" if not missing else f" Eksik/kesintili kritik noktalar: {', '.join(missing)}."
+        measured = f"Olcum yapilamadi.{missing_text}"
+    else:
+        measured = f"{float(measurement):.2f} {_unit_label(unit)}"
     interval_text = (
         "Belirsizlik araligi hesaplanamadi."
         if not isinstance(interval, list) or len(interval) != 2
@@ -211,6 +379,8 @@ def _expected_text(operator: Any, limits: list[Any], unit: str) -> str:
     label = _unit_label(unit)
     if operator == "max" and limits:
         return f"Olmasi gereken: en fazla {float(limits[0]):.2f} {label}."
+    if operator == "min" and limits:
+        return f"Olmasi gereken: en az {float(limits[0]):.2f} {label}."
     if operator == "range" and len(limits) == 2:
         return f"Olmasi gereken: {float(limits[0]):.2f} - {float(limits[1]):.2f} {label}."
     return "Olmasi gereken kaynakta sayisal olarak tanimli degil."
@@ -236,6 +406,11 @@ def _comparison_text(
             suffix = "" if minimum_excess is None else f"; %95'e gore en az {minimum_excess:.2f} fazla"
             return f"Fark: ust sinirdan {difference:.2f} {label} fazla{suffix}."
         return f"Fark: ust sinirin {abs(difference):.2f} {label} altinda."
+    if operator == "min":
+        difference = float(limits[0]) - numeric
+        if difference > 0:
+            return f"Fark: alt sinirdan {difference:.2f} {label} eksik."
+        return f"Fark: alt sinirin {abs(difference):.2f} {label} ustunde."
     if operator == "range" and len(limits) == 2:
         low, high = float(limits[0]), float(limits[1])
         if numeric < low:
@@ -261,7 +436,14 @@ def _result_text(decision: dict[str, Any], expected: str) -> str:
 
 
 def _unit_label(unit: str) -> str:
-    return {"deg": "derece", "fist_width": "yumruk genisligi"}.get(unit, unit)
+    return {
+        "deg": "derece",
+        "fist_width": "yumruk genişliği",
+        "ratio": "oran",
+        "sec": "saniye",
+        "body_scale": "vücut ölçeği",
+        "torso_height": "gövde yüksekliği",
+    }.get(unit, unit)
 
 
 def _categorical_event(
@@ -352,6 +534,67 @@ def _visual_geometry(metric_id: str, movement: dict[str, Any]) -> dict[str, Any]
             ],
             "side": side,
             "unit": "fist_width",
+        }
+    if metric_id == "fist_closure_ratio":
+        return {
+            "kind": "hand_shape",
+            "joint_indices": [coco_hand_joint(side, name) for name in (
+                "wrist",
+                "thumb_tip",
+                "index_mcp",
+                "index_tip",
+                "middle_mcp",
+                "middle_tip",
+                "ring_mcp",
+                "ring_tip",
+                "pinky_mcp",
+                "pinky_tip",
+            )],
+            "side": side,
+            "unit": "ratio",
+        }
+    if metric_id == "wrist_forearm_alignment_deg":
+        return {
+            "kind": "joint_angle",
+            "joint_indices": [
+                COCO_BODY_JOINTS[f"{side}_elbow"],
+                COCO_BODY_JOINTS[f"{side}_wrist"],
+                coco_hand_joint(side, "middle_mcp"),
+            ],
+            "vertex_joint_index": COCO_BODY_JOINTS[f"{side}_wrist"],
+            "unit": "deg",
+        }
+    if metric_id == "head_torso_yaw_mismatch_deg":
+        return {
+            "kind": "head_torso_direction",
+            "joint_indices": [
+                *range(23 + 36, 23 + 48),
+                COCO_BODY_JOINTS["left_shoulder"],
+                COCO_BODY_JOINTS["right_shoulder"],
+            ],
+            "unit": "deg",
+        }
+    if metric_id == "hand_foot_settle_difference_sec":
+        stance_side = "left" if movement["stance"].startswith("left_") else "right"
+        return {
+            "kind": "highlight_joints",
+            "joint_indices": [
+                COCO_BODY_JOINTS[f"{side}_wrist"],
+                COCO_BODY_JOINTS[f"{stance_side}_ankle"],
+            ],
+            "unit": "sec",
+        }
+    if metric_id == "fixation_wrist_jitter_ratio":
+        return {
+            "kind": "highlight_joints",
+            "joint_indices": [COCO_BODY_JOINTS[f"{side}_wrist"]],
+            "unit": "body_scale",
+        }
+    if metric_id == "pelvis_weight_transfer_ratio":
+        return {
+            "kind": "highlight_joints",
+            "joint_indices": [COCO_BODY_JOINTS["left_hip"], COCO_BODY_JOINTS["right_hip"]],
+            "unit": "body_scale",
         }
     return {"kind": "highlight_joints", "joint_indices": [], "unit": "unknown"}
 

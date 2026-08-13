@@ -23,8 +23,9 @@ _STATUS_PRIORITY = {
     "confirmed_source_bound_minor": 0,
     "boundary_uncertain": 1,
     "not_measurable": 2,
-    "within_source_range": 3,
-    "not_applicable": 4,
+    "diagnostic_review_candidate": 3,
+    "within_source_range": 4,
+    "not_applicable": 5,
 }
 
 
@@ -34,6 +35,7 @@ def render_decision_evidence_video(
     keypoints_2d_csv: str | Path,
     evidence_events: dict[str, Any],
     output_path: str | Path,
+    deduction_freeze_seconds: float = 3.0,
 ) -> dict[str, Any]:
     """Render synchronized camera panes with source-bound decision evidence."""
     if len(camera_videos) < 2:
@@ -45,6 +47,8 @@ def render_decision_evidence_video(
         raise ValueError("decision evidence events must be a list")
     frame_count = int(evidence_events["frame_count"])
     expected_fps = float(evidence_events["fps"])
+    if not np.isfinite(deduction_freeze_seconds) or deduction_freeze_seconds < 0.0:
+        raise ValueError("deduction_freeze_seconds must be finite and nonnegative")
     target = Path(output_path).resolve()
     if target.exists():
         raise FileExistsError(f"refusing to overwrite decision evidence video: {target}")
@@ -76,6 +80,8 @@ def render_decision_evidence_video(
             }
 
         events_by_frame, active_frames, joint_indices = _index_events(events, frame_count)
+        freeze_anchor_frames = _deduction_freeze_anchor_frames(events)
+        freeze_frames_per_pause = int(round(expected_fps * deduction_freeze_seconds))
         observations = _load_observed_2d(
             Path(keypoints_2d_csv).resolve(),
             camera_ids=set(camera_videos),
@@ -94,6 +100,7 @@ def render_decision_evidence_video(
         if not writer.isOpened():
             raise RuntimeError(f"cannot create decision evidence video: {target}")
         rendered_frames = 0
+        source_frames_rendered = 0
         evidence_frames = 0
         try:
             for frame_index in range(frame_count):
@@ -122,14 +129,25 @@ def render_decision_evidence_video(
                 _draw_event_panel(canvas, active, frame_index, expected_fps, pane_height)
                 writer.write(canvas)
                 rendered_frames += 1
+                source_frames_rendered += 1
+                if frame_index in freeze_anchor_frames and freeze_frames_per_pause > 0:
+                    for freeze_index in range(freeze_frames_per_pause):
+                        frozen = canvas.copy()
+                        seconds_left = (freeze_frames_per_pause - freeze_index) / expected_fps
+                        _draw_freeze_banner(frozen, seconds_left)
+                        writer.write(frozen)
+                        rendered_frames += 1
         finally:
             writer.release()
     finally:
         for _, _, capture in captures:
             capture.release()
 
-    if rendered_frames != frame_count:
+    if source_frames_rendered != frame_count:
         raise RuntimeError("decision evidence render did not preserve the complete timeline")
+    inserted_freeze_frames = len(freeze_anchor_frames) * freeze_frames_per_pause
+    if rendered_frames != frame_count + inserted_freeze_frames:
+        raise RuntimeError("decision evidence freeze-frame accounting is inconsistent")
     return {
         "schema_version": 1,
         "status": "decision_evidence_video_rendered",
@@ -139,15 +157,35 @@ def render_decision_evidence_video(
             "sha256": _sha256(Path(keypoints_2d_csv).resolve()),
         },
         "output_video": {"path": str(target), "sha256": _sha256(target)},
+        "source_frame_count": source_frames_rendered,
         "frame_count": rendered_frames,
         "fps": expected_fps,
+        "source_duration_sec": source_frames_rendered / expected_fps,
         "duration_sec": rendered_frames / expected_fps,
+        "freeze_pause_count": len(freeze_anchor_frames),
+        "freeze_seconds_per_pause": deduction_freeze_seconds,
+        "inserted_freeze_frame_count": inserted_freeze_frames,
+        "freeze_anchor_source_frames": sorted(freeze_anchor_frames),
+        "source_timeline_preserved": True,
+        "output_timeline_extended_for_readability": bool(inserted_freeze_frames),
         "evidence_event_count": len(events),
         "evidence_frame_count": evidence_frames,
         "measurement_space": evidence_events["measurement_space"],
         "camera_overlay_space": evidence_events["camera_overlay_space"],
         "interpretation": evidence_events["camera_overlay_warning"],
     }
+
+
+def _deduction_freeze_anchor_frames(events: list[dict[str, Any]]) -> set[int]:
+    anchors: set[int] = set()
+    for event in events:
+        points = event.get("deduction_points")
+        if event.get("decision_status") != "confirmed_source_bound_minor" or points is None:
+            continue
+        if float(points) <= 0.0:
+            continue
+        anchors.add(int(event["evidence_window"]["anchor_frame"]))
+    return anchors
 
 
 def _index_events(
@@ -251,9 +289,6 @@ def _draw_geometry(
         toe_center = _mean_points(big_toe, small_toe)
         _draw_foot_direction_guide(
             pane,
-            event=event,
-            front_ankle=front_ankle,
-            back_ankle=back_ankle,
             heel=heel,
             toe_center=toe_center,
             color=color,
@@ -271,6 +306,23 @@ def _draw_geometry(
         _point(pane, closest, color)
         _label(pane, hand, f"[{event_number}] YUMRUK", color, offset=(12, -14))
         _label(pane, closest, "UYLUK", (235, 235, 235), offset=(12, 18))
+    elif kind == "hand_shape" and len(indices) == 10:
+        wrist = points[indices[0]]
+        for mcp_index, tip_index in ((2, 3), (4, 5), (6, 7), (8, 9)):
+            _line(pane, points[indices[mcp_index]], points[indices[tip_index]], color, 2)
+        for point in points.values():
+            _point(pane, point, color)
+        _label(pane, wrist, f"[{event_number}] EL/YUMRUK", color, offset=(12, -14))
+    elif kind == "head_torso_direction" and len(indices) == 14:
+        left_eye = _mean_points(*(points[index] for index in indices[:6]))
+        right_eye = _mean_points(*(points[index] for index in indices[6:12]))
+        left_shoulder, right_shoulder = points[indices[12]], points[indices[13]]
+        _line(pane, left_eye, right_eye, color, 4)
+        _line(pane, left_shoulder, right_shoulder, (235, 235, 235), 3)
+        _point(pane, left_eye, color)
+        _point(pane, right_eye, color)
+        label_anchor = None if left_eye is None else (left_eye[0], max(left_eye[1], 50))
+        _label(pane, label_anchor, f"[{event_number}] BAS/YUZ YONU", color, offset=(12, 20))
     else:
         for point in points.values():
             _point(pane, point, color)
@@ -298,7 +350,7 @@ def _draw_event_panel(
     if not active_events:
         cv2.putText(
             canvas,
-            "Bu karede aktif kaynak-bagli karar kaniti yok",
+            "Bu karede aktif Accuracy veya WholeBody inceleme kaniti yok",
             (18, panel_top + 65),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.73,
@@ -330,8 +382,9 @@ def _draw_event_panel(
         right = left + card_width
         _draw_explanation_card(canvas, event, index, left, card_top, right, card_bottom)
     note = (
-        "LEJANT: beyaz kesik = durus yonu | yesil = kabul siniri/duzeltme | "
-        "renkli = gozlenen eklem izi | karar 3B'den, cizim yalniz 2B gorsel izdir"
+        "LEJANT: kamera ustundeki renkli cizgi = yalniz gozlenen 2B iz | "
+        "MAVI = muhendislik teshis adayi, puan kesintisi degil | "
+        "alt kutudaki USTTEN 3B SEMA = kaynak aci kurali"
     )
     cv2.putText(
         canvas,
@@ -392,6 +445,8 @@ def _draw_explanation_card(
             max_lines=2,
         )
         y += 5
+    if event.get("visual_geometry", {}).get("kind") == "foot_direction_angle":
+        _draw_foot_rule_schematic(canvas, event, left, right, bottom)
 
 
 def _fallback_explanation(event: dict[str, Any]) -> dict[str, str]:
@@ -420,45 +475,129 @@ def _screen_point(
 def _draw_foot_direction_guide(
     pane: np.ndarray,
     *,
-    event: dict[str, Any],
-    front_ankle: tuple[int, int] | None,
-    back_ankle: tuple[int, int] | None,
     heel: tuple[int, int] | None,
     toe_center: tuple[int, int] | None,
     color: tuple[int, int, int],
     event_number: int,
 ) -> None:
-    _dashed_line(pane, back_ankle, front_ankle, (245, 245, 245), 2)
     _line(pane, heel, toe_center, color, 5)
-    if back_ankle is None or front_ankle is None or heel is None or toe_center is None:
+    if heel is None or toe_center is None:
         return
-    stance = np.asarray(front_ankle, dtype=float) - np.asarray(back_ankle, dtype=float)
-    foot = np.asarray(toe_center, dtype=float) - np.asarray(heel, dtype=float)
-    if np.linalg.norm(stance) <= 1e-6 or np.linalg.norm(foot) <= 1e-6:
-        return
-    stance /= np.linalg.norm(stance)
-    foot /= np.linalg.norm(foot)
-    guide_length = 95.0
-    reference_end = _vector_endpoint(heel, stance, guide_length)
-    _dashed_line(pane, heel, reference_end, (245, 245, 245), 2)
-    limits = (event.get("measurement") or {}).get("rule_limits") or []
-    allowed_angle = float(limits[0]) if limits else 30.0
-    boundary_vectors = [_rotate_vector(stance, -allowed_angle), _rotate_vector(stance, allowed_angle)]
-    boundary_ends = [_vector_endpoint(heel, vector, guide_length) for vector in boundary_vectors]
-    for endpoint in boundary_ends:
-        _line(pane, heel, endpoint, _COLORS["green"], 2)
-    actual_end = _vector_endpoint(heel, foot, guide_length)
-    _line(pane, heel, actual_end, color, 5)
-    nearest = min(
-        boundary_ends,
-        key=lambda point: float(np.linalg.norm(np.asarray(point) - np.asarray(actual_end))),
+    _label(pane, heel, f"[{event_number}] 2B AYAK IZI", color, offset=(-8, -20))
+
+
+def _draw_foot_rule_schematic(
+    canvas: np.ndarray,
+    event: dict[str, Any],
+    left: int,
+    right: int,
+    bottom: int,
+) -> None:
+    box_width = min(330, right - left - 24)
+    box_left = right - box_width - 12
+    box_right = right - 12
+    box_top = bottom - 145
+    box_bottom = bottom - 12
+    cv2.rectangle(canvas, (box_left, box_top), (box_right, box_bottom), (9, 15, 21), -1)
+    cv2.rectangle(canvas, (box_left, box_top), (box_right, box_bottom), (85, 105, 120), 1)
+    cv2.putText(
+        canvas,
+        "USTTEN 3B SEMA (KAMERA GORUNTUSU DEGIL)",
+        (box_left + 10, box_top + 20),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.38,
+        (205, 218, 228),
+        1,
+        cv2.LINE_AA,
     )
-    if event.get("decision_status") == "confirmed_source_bound_minor":
-        cv2.arrowedLine(pane, actual_end, nearest, _COLORS["green"], 3, cv2.LINE_AA, tipLength=0.22)
-        midpoint = ((actual_end[0] + nearest[0]) // 2, (actual_end[1] + nearest[1]) // 2)
-        _label(pane, midpoint, "DUZELT", _COLORS["green"], offset=(5, -7))
-    _label(pane, heel, f"[{event_number}]", color, offset=(-8, -20))
-    _label(pane, boundary_ends[0], f"KABUL <= {allowed_angle:g}", _COLORS["green"], offset=(5, -6))
+
+    measurement = event.get("measurement") or {}
+    limits = measurement.get("rule_limits") or []
+    allowed_angle = float(limits[0]) if limits else 30.0
+    measured_value = measurement.get("value")
+    origin = (box_left + 75, box_bottom - 18)
+    reference = np.asarray([0.0, -1.0])
+    radius = 78.0
+
+    overlay = canvas.copy()
+    sector_points = [origin]
+    for angle in np.linspace(-allowed_angle, allowed_angle, 25):
+        sector_points.append(_vector_endpoint(origin, _rotate_vector(reference, float(angle)), radius))
+    cv2.fillPoly(overlay, [np.asarray(sector_points, dtype=np.int32)], (42, 115, 48))
+    cv2.addWeighted(overlay, 0.42, canvas, 0.58, 0.0, canvas)
+
+    reference_end = _vector_endpoint(origin, reference, radius + 6)
+    _dashed_line(canvas, origin, reference_end, (245, 245, 245), 2, dash_length=7.0)
+    for angle in (-allowed_angle, allowed_angle):
+        boundary = _vector_endpoint(origin, _rotate_vector(reference, angle), radius)
+        _line(canvas, origin, boundary, _COLORS["green"], 2)
+    _point(canvas, origin, (235, 235, 235), radius=3)
+
+    if measured_value is not None:
+        displayed_angle = float(np.clip(float(measured_value), -85.0, 85.0))
+        actual_end = _vector_endpoint(origin, _rotate_vector(reference, displayed_angle), radius)
+        color = _COLORS.get(event.get("display_color"), _COLORS["red"])
+        _line(canvas, origin, actual_end, color, 4)
+        cv2.putText(
+            canvas,
+            f"OLCULEN 3B: {float(measured_value):.1f} derece",
+            (box_left + 155, box_top + 62),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.38,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+    else:
+        cv2.putText(
+            canvas,
+            "3B OLCUM: YETERSIZ KANIT",
+            (box_left + 155, box_top + 68),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.38,
+            _COLORS["gray"],
+            1,
+            cv2.LINE_AA,
+        )
+    cv2.putText(
+        canvas,
+        f"YESIL: hedef en fazla {allowed_angle:g} derece",
+        (box_left + 155, box_bottom - 22),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.38,
+        _COLORS["green"],
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        canvas,
+        "KESIK: 3B durus yonu",
+        (box_left + 155, box_bottom - 7),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.36,
+        (220, 225, 230),
+        1,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_freeze_banner(canvas: np.ndarray, seconds_left: float) -> None:
+    overlay = canvas.copy()
+    cv2.rectangle(overlay, (0, 40), (canvas.shape[1], 102), (15, 24, 145), -1)
+    cv2.addWeighted(overlay, 0.82, canvas, 0.18, 0.0, canvas)
+    message = f"PUAN KESINTISI | OKUMAK ICIN 3 SANIYE DONDURULDU | DEVAM: {seconds_left:.1f} s"
+    text_size = cv2.getTextSize(message, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
+    x = max(18, (canvas.shape[1] - text_size[0]) // 2)
+    cv2.putText(
+        canvas,
+        message,
+        (x, 81),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.82,
+        (245, 248, 252),
+        2,
+        cv2.LINE_AA,
+    )
 
 
 def _vector_endpoint(

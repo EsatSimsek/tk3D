@@ -127,14 +127,19 @@ En hızlı kontrol sırası:
 1. `json/poomsae_scoring_summary.json`: kapsam ve sonuç özeti.
 2. `videos/poomsae_scoring_annotated.mp4`: iki kamerayı yan yana gösteren;
    karar anında ilgili eklemi, ölçümü, kaynak aralığını ve kesintiyi videoya
-   çizen görsel kanıt çıktısı.
+   çizen görsel kanıt çıktısı. Her benzersiz doğrulanmış kesinti anı okumak
+   için 3 saniye dondurulur; bu nedenle video kaynak kayıttan daha uzundur.
+   Mavi kartlar WholeBody mühendislik teşhisidir, puan kesmez ve kesinti
+   dondurması oluşturmaz.
 3. `json/source_bound_accuracy_decisions.json`: kaynak ve belirsizlik bağlı
    tek tek kararlar.
-4. `review/poomsae_scoring_review.html`: ham iki kamerayı ve işaretli videoyu
-   senkron izleme, `Videoda aç` ile kanıt anına gitme ve her karar için
+4. `review/poomsae_scoring_review.html`: zaman çizelgesi değişmeyen ham
+   kameraları senkron izleme, `Videoda aç` ile kanıt anına gitme ve her karar için
    `Doğru / Yanlış / Belirsiz` inceleme kaydı oluşturma ekranı. İnceleme
    kararları tarayıcıdan JSON olarak indirilebilir; motorun ürettiği kaynak
-   karar dosyası değiştirilmez.
+   karar dosyası değiştirilmez. Aynı ekranda M01-M06 için yumruk kapalılığı,
+   bilek–ön kol hizası, baş/yüz–gövde yön farkı, teknik el yüksekliği, dirsek
+   açısı ve hikite mesafesi ölçüm matrisi bulunur.
 5. `json/decision_evidence_events.json`: video ve HTML'nin kullandığı değişmez
    olay sözleşmesi; kare/zaman, ölçüm, `%95` aralığı, kaynak sınırı ve çizilecek
    eklem geometrisini taşır.
@@ -148,18 +153,28 @@ puan motoruna dönüşmez.
 
 Bir kanıt anında her aktif kural ayrı numaralı kutuda gösterilir. Kutuda
 `KURAL`, `ÖLÇÜLEN (KALİBRE 3B)`, `%95 olası aralık`, `FARK`, `SONUÇ`,
-`NASIL DÜZELTİLİR` ve `KAYNAK DURUMU` satırları bulunur. Ayak yönü
-görselleştirmesinde beyaz kesik çizgi duruş doğrultusunu, yeşil çizgiler kabul
-sınırını, renkli çizgi gözlenen ayağı ve yeşil ok önerilen düzeltme yönünü
-gösterir. Aynı karede iki karar varsa `[1]` ve `[2]` işaretleri ilgili kutuyla
-eşleşir. Tarihsel resmî geometri kaynağı, güncel WT ekiymiş gibi gösterilmez.
+`NASIL DÜZELTİLİR` ve `KAYNAK DURUMU` satırları bulunur. Kamera üstünde yalnız
+kayıtlı 2B ayak izi gösterilir; 3B `30°` sınırı perspektifli kamera görüntüsüne
+çizilmez. Bunun yerine alt kutudaki açıkça “üstten 3B şema—kamera görüntüsü
+değildir” etiketli diyagramda beyaz kesik duruş yönü, yeşil kabul alanı ve
+kırmızı ölçülen 3B açı gösterilir. Aynı karede iki karar varsa `[1]` ve `[2]`
+işaretleri ilgili kutuyla eşleşir. Tarihsel resmî geometri kaynağı, güncel WT
+ekiymiş gibi gösterilmez.
 
-Mevcut trimmed kayıt yalnız M01-M06'yı içerir. Bu nedenle başarılı çalışmanın
-beklenen özeti `6/18`, dört kaynak-bağlı küçük hata, gözlenen kapsam için `0,4`
-provisional kesinti ve `accuracy_score=null` değeridir. `null` hata değildir:
-M07-M18 videoda olmadığı için sistem eksik kayıttan tam 4,0 Accuracy puanı
-uydurmayı reddeder. Tam Poomsae 1 kaydı ve tamamlanmış timeline olmadan
-`rule_scoring_ready=false` ile `official_scoring_ready=false` kalır.
+Dondurmalı açıklama videosu kaynak karelerin hiçbirini atmaz ve sıralarını
+değiştirmez; yalnız kesinti anchor'larından sonra 3 saniyelik tekrar kareleri
+ekler. Bu yüzden ham kameralarla aynı zaman eksenine sahip değildir ve HTML'nin
+senkron video grubuna eklenmez. Eklenen süre ve kaynak anchor kareleri video
+manifestinde `freeze_*` alanlarıyla kaydedilir.
+
+Mevcut geliştirme kapsamı yalnız kayıtta bulunan M01-M06'dır. Terminal bu
+kapsamı `Aktif M01-M06 çalışma kapsamı: 6/6` olarak, bütün Taegeuk 1 bağlamını
+ise ayrıca `6/18` olarak gösterir. M07-M18 bu aşamanın geliştirme hedefi veya
+M01-M06 analizinin engeli değildir. Beklenen kaynak-bağlı sonuç dört küçük
+hata, gözlenen kapsam için `0,4` provisional kesinti ve `accuracy_score=null`
+değeridir. `null`, M01-M06'nın işlenmediği anlamına gelmez; 4,0 puan bütün
+Poomsae Accuracy bütçesi olduğu için kısa bölümden tam Poomsae puanı
+uydurulmadığını belirtir. `official_scoring_ready=false` kalır.
 
 Yeni kural motoru üç sürümlü ve fail-closed sözleşme kullanır:
 
@@ -168,12 +183,10 @@ Yeni kural motoru üç sürümlü ve fail-closed sözleşme kullanır:
 - `MovementTimeline`: belirli pose dosyasına SHA-256 ile bağlı video etiketleri
   ve kaydın tam/kısmi kapsam bildirimi.
 
-Güncel WT RulePack aktiftir. Taegeuk 1'in 18 hareketlik kaynak
-transkripsiyonu taslaktır. Gerçek `741` karelik kısa ZED2i kaydında yalnız
-M01-M06 bulundu ve iki kameralı son sınır incelemesinden sonra çoklu faz
-anchor'larıyla zaman çizelgesi bakımından `confirmed` olarak etiketlendi;
-kayıt M07-M18'i içermiyor. Bu yüzden komut doğru biçimde `6/18`, `blocked`
-raporu üretir ve kısa kayıttan tam Poomsae puanı uydurmaz:
+Güncel WT RulePack aktiftir. Gerçek `741` karelik kısa ZED2i kaydındaki
+M01-M06, iki kameralı inceleme sonrası çoklu faz anchor'larıyla doğrulandı.
+M01-M06 geliştirme kapsamı tamamdır; bütün Poomsae readiness raporunun kapalı
+kalması mevcut altı hareketin ölçüm ve hata incelemesini durdurmaz:
 
 ```powershell
 .\.venv312\Scripts\python.exe scripts\assess_poomsae_scoring_readiness.py `
@@ -192,9 +205,9 @@ etiketleri ise
 içindedir.
 
 Mevcut kısa kayıt için iki kamerayı birlikte oynatan, hareket kartlarından aynı
-zamana atlayan, WholeBody-133 hata adaylarını ve ölçüm kapsamını gösteren güncel
-inceleme ekranı:
-[`poomsae1_scoring_review.html`](outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-scoring-expand-v2_3-20260803-123907/review/poomsae1_scoring_review.html).
+zamana atlayan, WholeBody-133 hata adaylarını ve el/yüz ölçüm matrisini gösteren
+güncel inceleme ekranı:
+[`poomsae_scoring_review.html`](outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-m01m06-wholebody-evidence-v8-20260813/review/poomsae_scoring_review.html).
 Rapor üreticisi en az iki kamera ister; gelecekteki üçüncü kamera tekrar
 edilebilir `--video-extra "Etiket=dosya"` argümanıyla eklenebilir.
 
@@ -203,6 +216,15 @@ penceresinden çıkarır. Yüz, el ve ayak geometrisi vücut ölçeğine göre f
 makullük kapısından geçmeden teknik aday olamaz. Her aday ölçüm ve kriter
 kimliğini, kare/zaman kanıtını, eşik farkını ve bekleyen inceleme durumunu taşır;
 inceleme ekranındaki `Videoda aç` düğmesi bütün kameraları kanıt anına götürür.
+Yumruk kapalılığı 21 el noktasının avuç merkezine göre geometrisinden ölçülür.
+Baş/yüz yönü 68 yüz noktası ve omuz hattını kullanır; göz küresi takibi gibi
+sunulmaz. Eşik dışı mühendislik adayları mavi ve `score_effect=null` olarak
+işaretli videoya eklenir; kaynak-bağlı kırmızı kesintilerle karıştırılmaz.
+Her ölçülemez satır gerekli kritik noktaların adını ve kanıt penceresindeki
+örnek sayısını (`right_wrist 0/11` gibi) gösterir. İzole eklem boşlukları yalnız
+aynı fixation penceresindeki en az üç gerçek örnekten sağlam medyanla
+tamamlanabilir; bütün pencere boyunca kayıp kritik nokta simetriden veya başka
+bir eklemden uydurulmaz.
 Bir olayın kesintiye girmesi ayrıca hareketin izin verdiği `criterion_id`, doğru
 WT `rule_id/source_ref` ve ayrı kural doğrulama kaydı gerektirir.
 
@@ -553,7 +575,7 @@ python -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-tmp
 Bu bölüm yazıldığında doğrulanan test sonucu:
 
 ```text
-140 passed
+204 passed in 18.25s
 ```
 
 `--dry-run`, sentetik dünya koordinatlarını üç kameraya projekte edip gerçek triangulation kodundan geçirir. Çıktısı:

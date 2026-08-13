@@ -1,7 +1,7 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **3 Ağustos 2026**
-Doğrulanan çalışma ağacı: **temel `ad3f113` + puanlama altyapısı yerel değişiklikleri**
+Son doğrulama tarihi: **13 Ağustos 2026**
+Doğrulanan çalışma ağacı: **temel `4cdd0e7` + M01-M06 WholeBody kanıt yerel değişiklikleri**
 Dal: **`main`**
 
 Bu dosya değişken proje durumunun tek kısa kaynağıdır. Yeni oturumlarda geçmiş
@@ -238,15 +238,17 @@ incelemesinden geçirir. `--process-video` modu önce ViTPose/RGBD `stride 1`
 sözleşmesi birebir doğrulanırsa yeni pose hash'ine bağlar. Eski kaynaksız
 provisional motor çağrılmaz.
 
-Sequence-alignment ve Presentation commitleriyle rebase sonrasında detaylı
-görsel açıklama katmanını da içeren son gerçek tek-komut doğrulama koşusu:
-`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-postrebase-prepush-20260812/`.
+13 Ağustos 2026 tarihinde 3B açı şeması ve okunabilir dondurma katmanını da
+içeren son gerçek tek-komut doğrulama koşusu:
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-correct-3d-guide-freeze-v2-20260813/`.
 Koşu 6/18 hareket için dört kaynak-bağlı küçük hata ve `0,4` gözlenen-kapsam
 kesintisi üretti; kayıt kısmi olduğu için doğru biçimde `accuracy_score=null`,
 `rule_scoring_ready=false` kaldı. Kaynak kararlar değişmez
 `decision_evidence_events.json` olaylarına dönüştürüldü. İki kamera yan yana,
-741/741 kare ve 60 FPS zaman çizelgesini koruyan
-`poomsae_scoring_annotated.mp4` üretildi. Hata anında ilgili eklem geometrisi,
+kaynak 741/741 kareyi ve 60 FPS'i koruyan
+`poomsae_scoring_annotated.mp4` üretildi. Üç benzersiz doğrulanmış kesinti
+anchor'ına 3'er saniyelik okuma duraklaması eklendi; çıktı 1281 kare ve
+21,35 saniye oldu. Hata anında ilgili eklem geometrisi,
 3B ölçüm, `%95` aralığı, kaynak sınırı ve kesinti ekranda gösterilir. HTML
 inceleme ekranı aynı olaya atlama, `Doğru / Yanlış / Belirsiz` kullanıcı kaydı
 ve bu kayıtları ayrı JSON olarak indirme işlevlerini içerir. 2B çizimler yalnız
@@ -255,9 +257,45 @@ görsel izdir; puan kararı yeniden hesaplanmaz.
 İşaretli videoda aynı karedeki her karar ayrı `[1]`, `[2]` kutusuna ayrılır;
 her kutu olması gerekeni, ölçülen kalibre 3B değeri, `%95` aralığı, sınırdan
 farkı, kesinti gerekçesini, düzeltme önerisini ve kaynağın güncellik durumunu
-açıkça yazar. Ayak açısı için duruş yönü, kabul sınırı ve düzeltme oku ayrı
-çizgi türleriyle gösterilir. M01 kanıt karesi görsel olarak incelendi; iki aktif
-kuralın metinleri ve geometrileri birbirinden ayrılmıştır.
+açıkça yazar. Perspektifli kamera görüntüsüne 3B `30°` kabul çizgisi çizilmez;
+kamera üzerinde yalnız gözlenen 2B ayak izi kalır. Kural, alt kutudaki üstten
+3B şemada beyaz duruş yönü, yeşil kabul alanı ve kırmızı ölçülen açıyla
+gösterilir. M04 dondurma karesi görsel olarak incelendi; şema etiketleri panel
+içinde okunur ve geri sayım bandı görünürdür. Dondurmalı video uzatıldığı için
+HTML senkron grubuna alınmaz; HTML yalnız aynı zaman eksenindeki iki ham
+kamera ile çalışır.
+
+13 Ağustos 2026 M01-M06 WholeBody kanıt genişletmesi:
+
+- çalışma hedefi terminal ve özet JSON'da `current_recording_m01_m06`, `6/6`
+  olarak ayrıldı; bütün Taegeuk 1 kapsamı provenance için ayrıca `6/18`
+  tutulur. M07-M18 bu geliştirme aşamasının kapısı değildir;
+- 21 noktalı el geometrisinden `fist_closure_ratio`, el bileği hizası ve 68
+  yüz noktası/omuz hattından baş-yüz yön ölçümleri HTML'de hareket bazlı
+  matriste görünür hale getirildi. Baş/yüz metriği göz küresi takibi diye
+  etiketlenmez;
+- eşik dışı WholeBody mühendislik ölçüleri aynı değişmez görsel olay zincirine
+  mavi `diagnostic_review_candidate`, `deduction_points=null` olarak eklenir.
+  Yalnız kaynak-bağlı doğrulanmış küçük hatalar kırmızı ve üç saniye dondurmalı
+  kalır;
+- gerçek başarı koşusu
+  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/poomsae1-m01m06-wholebody-evidence-v8-20260813/`
+  altında `67/87` ölçülebilir eşikli metrik, `10` puansız teşhis adayı, `19`
+  toplam görsel olay ve `4` kaynak-bağlı küçük hata üretmiştir. Teşhis
+  olaylarının hiçbirinde puan yoktur; video yalnız `218,529,637` kaynak
+  karelerinde üç kesinti dondurması içerir;
+- tam kayıt için kapıyı sonsuza kadar kapatacak iki durum adı hatası düzeltildi:
+  kod artık sözleşmedeki `complete_performance` ve `complete` değerlerini
+  kullanır. Bu düzeltme mevcut kısmi kaydın `accuracy_score=null` sonucunu
+  değiştirmez;
+- fixation ölçümleri izole kritik-eklem boşluklarını yalnız aynı ±5 kare
+  penceresinde yeterli gerçek örnek varsa sağlam biçimde tamamlar. Gerçek
+  kayıttaki 20 ölçülemez eşikli metriğin 19'u bütün ilgili pencerede yetersiz
+  kritik eklem kapsamına, biri fiziksel makullük/trajectory kapısına bağlıdır;
+  değer uydurulmadığı için `67/87` kapsam bilinçli olarak değişmemiştir. Her
+  metrik artık `required_joint_sample_counts`, `missing_required_joints` ve
+  ayrıntılı `not_measurable_reason` taşır. Örnekler: M02 sol omuz `0/11`, M03
+  sağ omuz/sağ bilek `0/11`, M05 sağ ayak bileği `0/11`.
 
 2 Ağustos 2026 tarihinde ilk kaynak bağlı puanlama katmanı kuruldu:
 
@@ -403,22 +441,22 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-12 Ağustos 2026 tarihinde kaynak-bağlı Accuracy, tek-komut çalıştırıcı,
-EvidenceEvent sözleşmesi, iki kameralı işaretli hata videosu ve etkileşimli
-inceleme ekranıyla mevcut çalışma ağacında:
+13 Ağustos 2026 tarihinde kaynak-bağlı Accuracy, M01-M06 kapsam ayrımı,
+WholeBody teşhis olayları, tek-komut çalıştırıcı, iki kameralı işaretli hata
+videosu ve etkileşimli inceleme ekranıyla mevcut çalışma ağacında:
 
 ```text
-199 passed in 16.39s
+204 passed in 18.25s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-postrebase-prepush-20260812b
+.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-m01m06-final-v2-20260813
 ```
 
 Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144`, `147`
-ve `151`, `173`, `176` sayıları kendi
+ve `151`, `173`, `176`, `201` sayıları kendi
 tarihlerindeki sonuçlardır; güncel test sayısı değildir.
 
 ### Son korunan tam AIST koşusu

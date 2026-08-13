@@ -965,8 +965,20 @@ Uzman/yetkili kurum olmadığı için `judge_calibrated_ready=false` ve
    hash/sayfa bağlı profile almak; `%95` belirsizlik kapısı, küçük-hata sınırı,
    kategorik major sözleşmesi, hata tekilleştirme ve kısmi-kayıt `score=null`
    korumasıyla gerçek M01-M06 regresyonunu üretmek.
-10. [sıradaki] M01-M18'in tamamını içeren yeni kaydı aynı sözleşmeyle
-   etiketlemek ve kısıtlı sıra hizalamasını sınamak.
+10. [güncel kapsam] M07-M18, Presentation, ses ve ML çalışmalarını ertelemek;
+    mevcut M01-M06 için WholeBody-133 el/yüz/gövde ölçümlerini görünür kılmak,
+    puansız teşhis adaylarını kaynak-bağlı kesintilerden ayırmak ve ölçülemeyen
+    alanları azaltmak.
+11. [tamamlandı] Terminal/özet sözleşmesinde M01-M06 çalışma kapsamını `6/6`,
+    bütün Taegeuk 1 provenance kapsamını ayrıca `6/18` göstermek. Kısa kayıttan
+    tam 4,0 Accuracy puanı üretmeme korumasını sürdürmek.
+12. [tamamlandı] 21 el noktalı yumruk kapalılığı ve 68 yüz noktalı baş/yüz yön
+    ölçülerini HTML matrisinde göstermek; eşik dışı mühendislik ölçülerini mavi,
+    `puan yok` görsel olayına dönüştürmek.
+13. [tamamlandı] M01-M06'daki ölçülemez metrikleri kritik-eklem bazında
+    denetlemek; izole boşluklara fixation-window temporal tamamlama eklemek,
+    bütün pencerede kayıp noktaları uydurmamak ve her `null` için eklem/örnek
+    sayısını raporlamak.
 
 Hazırlık kapısı kalıcı komutla denetlenir:
 
