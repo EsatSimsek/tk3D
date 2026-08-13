@@ -149,6 +149,23 @@ def build_review_html(
     .decision-row.gray {{ border-left:4px solid #8998a3; padding-left:10px; }} .decision-row.green {{ border-left:4px solid var(--green); padding-left:10px; }}
     .review-actions {{ display:flex; gap:5px; flex-wrap:wrap; }} .review-actions button.selected {{ outline:2px solid var(--cyan); background:#285575; }}
     .sources {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }} a {{ color:var(--cyan); }}
+    .wb-movement-block {{ margin-bottom:14px; border:1px solid var(--line); border-radius:12px; background:#0b1822; padding:14px; }}
+    .wb-movement-hdr {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; cursor:pointer; user-select:none; }}
+    .wb-movement-hdr:hover {{ opacity:.85; }}
+    .wb-mid {{ color:var(--cyan); font-weight:800; font-size:15px; }} .wb-mname {{ font-weight:700; font-size:13px; color:var(--text); margin-left:8px; }}
+    .wb-badge {{ font-size:11px; padding:3px 8px; border-radius:999px; font-weight:700; }}
+    .wb-badge-ok {{ background:#123526; color:var(--green); border:1px solid #2a6b48; }}
+    .wb-badge-warn {{ background:#2d2414; color:var(--amber); border:1px solid #9c762c; }}
+    .wb-metrics-grid {{ display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:6px; }}
+    .wb-m {{ display:grid; grid-template-columns:22px 1fr auto; gap:2px 8px; align-items:center; padding:7px 10px; border-radius:8px; font-size:12px; border:1px solid var(--line); }}
+    .wb-m-name {{ color:var(--muted); font-size:11px; letter-spacing:.02em; }}
+    .wb-m-val {{ font-weight:700; color:var(--text); font-size:13px; font-variant-numeric:tabular-nums; }}
+    .wb-m-range {{ color:var(--muted); font-size:10px; grid-column:2/4; margin-top:-1px; }}
+    .wb-ok {{ border-left:3px solid var(--green); }} .wb-ok .wb-dot {{ color:var(--green); }}
+    .wb-cand {{ border-left:3px solid var(--red); background:#1a1018; }} .wb-cand .wb-dot {{ color:var(--red); }}
+    .wb-nm {{ border-left:3px solid #5a6a75; opacity:.6; }} .wb-nm .wb-dot {{ color:#5a6a75; }}
+    .wb-diag {{ border-left:3px solid var(--cyan); opacity:.75; }} .wb-diag .wb-dot {{ color:var(--cyan); }}
+    .wb-collapse {{ display:none; }} .wb-movement-block.open .wb-collapse {{ display:grid; }}
     footer {{ color:#6f8795; font-size:12px; text-align:center; margin-top:20px; }}
     @media(max-width:950px) {{ .stats {{ grid-template-columns:1fr 1fr; }} .videos,.two-col {{ grid-template-columns:1fr; }} .movement-grid {{ grid-template-columns:1fr 1fr; }} }}
     @media(max-width:580px) {{ header {{ display:block; }} .pill {{ display:inline-block; margin-top:12px; }} .movement-grid,.stats {{ grid-template-columns:1fr; }} .candidate-row {{ grid-template-columns:1fr; }} }}
@@ -295,25 +312,146 @@ def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str
     summary = report.get("summary", {})
     coverage = report.get("coverage", {})
     candidates = report.get("candidate_events", [])
+    movements = report.get("movements", [])
+
+    # --- Existing candidate list (kept for quick-filter) ---
     candidate_items = "".join(
         f'''<li class="candidate-row"><code>{_escape(item.get("movement_id"))} · {_escape(item.get("family"))}</code>
           <span>{_escape(item.get("metric_id"))} → {_escape(item.get("criterion_id", "eşlenmemiş"))}: {_number(item.get("value"), "")} · eşik farkı {_number(item.get("threshold_margin"), "")} · yalnız inceleme adayı</span>
           <button type="button" data-seek="{float(item.get("measurement_evidence", {}).get("anchor_time_sec", 0.0)):.6f}">Videoda aç</button></li>'''
         for item in candidates
     ) or "<li><span>WholeBody inceleme adayı bulunmadı.</span></li>"
+
+    # --- NEW: per-movement all-metrics blocks ---
+    movement_blocks = "".join(_wholebody_movement_block(movement) for movement in movements)
+
     coverage_ratio = float(coverage.get("measurement_coverage_ratio", 0.0))
     candidate_count = int(summary.get("review_candidate_count", 0))
+    within_count = int(summary.get("within_screening_range_count", 0))
+    metric_count = int(summary.get("metric_count", 0))
     stat = (
-        '<div class="stat"><span>WholeBody-133 aday</span>'
-        f'<b>{candidate_count} · %{coverage_ratio * 100:.0f} kapsam</b></div>'
+        '<div class="stat"><span>WholeBody-133 ölçüm</span>'
+        f'<b>{metric_count} · {candidate_count} aday · %{coverage_ratio * 100:.0f}</b></div>'
     )
-    section = f'''<section class="section"><h2>WholeBody-133 hata inceleme adayları</h2>
+    section = f'''<section class="section"><h2>WholeBody-133 tüm ölçümler</h2>
       <div class="notice"><div>🔎</div><div><strong>Skor yok; her aday videoda doğrulanmalı.</strong>
-      <p>El, ayak, yüz, gövde, trajectory, hikite, rotasyon, eşzaman ve fixation ölçülür. Eşik içi olmak teknik doğruluk değildir.</p></div></div>
+      <p>Dirsek, bilek, omuz-kalça rotasyonu, baş yönü, hikite, yumruk, eşzaman, fixation, ağırlık aktarımı, trajectory
+      ve daha fazlası ölçülür. Yeşil = eşik içi, kırmızı = aday, gri = ölçülemedi, mavi = yalnız tanılı.</p></div></div>
       <p style="margin-bottom:12px">{int(coverage.get("measurable_metric_count", 0))}/{int(coverage.get("thresholded_metric_count", 0))} ölçülebilir ·
-      kapsama kapısı: {"geçti" if coverage.get("coverage_gate_passed") else "başarısız"} · Accuracy: hesaplanmadı. “Videoda aç” aynı kanıt zamanına bütün kameraları taşır.</p>
+      {within_count} eşik içi · {candidate_count} aday ·
+      kapsama kapısı: {"geçti" if coverage.get("coverage_gate_passed") else "başarısız"} · Accuracy: hesaplanmadı.
+      Hareket başlığına tıkla → metrikleri aç/kapa.</p>
+      {movement_blocks}
+      <h2 style="margin-top:18px">Eşik aşan inceleme adayları</h2>
       <ul>{candidate_items}</ul></section>'''
     return stat, section
+
+
+def _wholebody_movement_block(movement: dict[str, Any]) -> str:
+    """Render a collapsible block for one movement showing ALL its metrics."""
+    metrics = movement.get("metrics", [])
+    if not metrics:
+        return ""
+    candidate_count = sum(1 for m in metrics if m.get("screening_status") == "review_candidate")
+    not_measurable_count = sum(1 for m in metrics if m.get("screening_status") == "not_measurable")
+    pass_count = sum(1 for m in metrics if m.get("screening_status") == "within_screening_range")
+    if candidate_count > 0:
+        badge_class = "wb-badge-warn"
+        badge_text = f"{candidate_count} aday"
+    else:
+        badge_class = "wb-badge-ok"
+        badge_text = f"{pass_count} geçti"
+    metric_cells = "".join(_wholebody_metric_cell(m) for m in metrics)
+    anchor_time = 0.0
+    evidence = metrics[0].get("measurement_evidence") if metrics else None
+    if evidence:
+        anchor_time = float(evidence.get("anchor_time_sec", 0.0))
+    movement_id = _escape(movement.get("movement_id", ""))
+    display_name = _escape(movement.get("display_name", ""))
+    return f'''<article class="wb-movement-block" onclick="this.classList.toggle('open')">
+      <div class="wb-movement-hdr">
+        <div><span class="wb-mid">{movement_id}</span><span class="wb-mname">{display_name}</span></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span class="wb-badge {badge_class}">{badge_text}</span>
+          <button type="button" class="anchor" data-seek="{anchor_time:.6f}" onclick="event.stopPropagation()" style="font-size:11px;padding:4px 8px">Videoda aç</button>
+        </div>
+      </div>
+      <div class="wb-collapse wb-metrics-grid">{metric_cells}</div>
+    </article>'''
+
+
+_CRITERION_LABELS: dict[str, str] = {
+    "balance.torso_vertical": "Gövde dikliği",
+    "stance.foot_direction": "Arka ayak yönü",
+    "rotation.shoulder_hip": "Omuz-kalça rotasyonu",
+    "gaze.direction": "Baş/bakış yönü",
+    "technique.side": "Doğru taraf dominansı",
+    "technique.hikite.position": "Hikite (geri çekiş)",
+    "technique.hand.wrist_alignment": "Bilek-önkol hizası",
+    "technique.hand.fist": "Yumruk kapanışı",
+    "timing.hand_foot.simultaneity": "El-ayak eşzamanlılığı",
+    "technique.fixation.stability": "Fixation kararlılığı",
+    "stance.weight_transfer": "Ağırlık aktarımı",
+    "technique.trajectory": "Hareket yolu verimliliği",
+    "presentation.kinematics": "Tepe hızı",
+    "stance.ap_seogi.span": "Ap seogi açıklığı",
+    "stance.ap_seogi.front_knee": "Ap seogi ön diz",
+    "stance.ap_gubi.span": "Apkubi açıklığı",
+    "stance.ap_gubi.front_knee": "Apkubi ön diz",
+    "technique.momtong_jireugi.height": "Yumruk bilek yüksekliği",
+    "technique.momtong_jireugi.elbow": "Yumruk dirsek açısı",
+    "technique.arae_makki.height": "Arae makki bilek yüksekliği",
+    "technique.arae_makki.elbow": "Arae makki dirsek açısı",
+    "technique.ap_chagi.knee_extension": "Ap chagi diz açılımı",
+    "technique.ap_chagi.height": "Ap chagi yüksekliği",
+    "technique.ap_chagi.rechamber": "Ap chagi geri çekme",
+    "technique.ap_chagi.support_foot_pivot": "Destek ayak pivotu",
+    "timing.kick_landing_punch.sequence": "Tekme-yumruk sırası",
+}
+
+
+def _wholebody_metric_cell(metric: dict[str, Any]) -> str:
+    """Render a single metric cell inside the per-movement grid."""
+    status = metric.get("screening_status", "")
+    value = metric.get("value")
+    unit = metric.get("unit", "")
+    criterion_id = metric.get("criterion_id", "")
+    screening_rule = metric.get("screening_rule")
+
+    if status == "within_screening_range":
+        css_class = "wb-ok"
+        dot = "&#10003;"
+    elif status == "review_candidate":
+        css_class = "wb-cand"
+        dot = "&#9888;"
+    elif status == "not_measurable":
+        css_class = "wb-nm"
+        dot = "&mdash;"
+    else:
+        css_class = "wb-diag"
+        dot = "&#8505;"
+
+    value_text = "&mdash;" if value is None else f"{float(value):.2f}"
+    label = _CRITERION_LABELS.get(criterion_id, criterion_id)
+
+    if screening_rule is None:
+        range_text = "yalnız tanılı"
+    elif screening_rule.get("operator") == "max":
+        range_text = f"eşik ≤ {float(screening_rule['value']):.1f} {_escape(unit)}"
+    elif screening_rule.get("operator") == "min":
+        range_text = f"eşik ≥ {float(screening_rule['value']):.1f} {_escape(unit)}"
+    elif screening_rule.get("operator") == "range":
+        limits = screening_rule["value"]
+        range_text = f"aralık {float(limits[0]):.1f}–{float(limits[1]):.1f} {_escape(unit)}"
+    else:
+        range_text = ""
+
+    return f'''<div class="wb-m {css_class}">
+      <span class="wb-dot">{dot}</span>
+      <span class="wb-m-name">{_escape(label)}</span>
+      <span class="wb-m-val">{value_text} {_escape(unit)}</span>
+      <span class="wb-m-range">{_escape(range_text)}</span>
+    </div>'''
 
 
 def _decision_evidence_html(

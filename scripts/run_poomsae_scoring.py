@@ -524,7 +524,9 @@ def _verify_process_inputs(session_path: Path, session_id: str, output_root: Pat
         resolved = video if video.is_absolute() else session_path.parent / video
         _require_file(resolved.resolve(), f"camera video {camera.get('camera_id')}")
     for depth in raw.get("zed", {}).get("depth_sources", []):
-        _require_file(Path(depth.get("svo_path", "")).resolve(), f"ZED SVO2 {depth.get('camera_id')}")
+        svo = Path(depth.get("svo_path", ""))
+        resolved_svo = svo if svo.is_absolute() else session_path.parent / svo
+        _require_file(resolved_svo.resolve(), f"ZED SVO2 {depth.get('camera_id')}")
     _require_file(output_root / session_id / "calibration" / "cameras.json", "production camera calibration")
 
 
