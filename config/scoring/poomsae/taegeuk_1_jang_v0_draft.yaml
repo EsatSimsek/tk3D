@@ -435,6 +435,7 @@ movements:
       - stance.ap_seogi.front_knee
       - technique.eolgul_makki.elbow
       - technique.eolgul_makki.height
+      - technique.eolgul_makki.forehead_distance
       - stance.foot_direction
       - rotation.shoulder_hip
       - gaze.direction
@@ -505,6 +506,7 @@ movements:
       - stance.ap_seogi.front_knee
       - technique.eolgul_makki.elbow
       - technique.eolgul_makki.height
+      - technique.eolgul_makki.forehead_distance
       - stance.foot_direction
       - rotation.shoulder_hip
       - gaze.direction

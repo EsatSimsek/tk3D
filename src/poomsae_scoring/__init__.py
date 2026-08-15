@@ -24,6 +24,7 @@ from src.poomsae_scoring.source_intake import (
 )
 from src.poomsae_scoring.source_bound_accuracy import (
     build_source_bound_accuracy_decisions,
+    derive_categorical_observations,
     load_source_bound_accuracy_profile,
     validate_source_bound_accuracy_profile,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "build_review_html",
     "build_source_bound_accuracy_decisions",
     "build_wholebody_diagnostics",
+    "derive_categorical_observations",
     "evaluate_accuracy",
     "load_movement_timeline",
     "load_engineering_profile",

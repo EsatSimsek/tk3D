@@ -80,6 +80,23 @@ numeric_rules:
       pages: [18]
       authority_status: historical_official_not_current_attachment
     description: Momtong-an-makki dirsek açısı 90 ile 120 derece arasında olmalıdır.
+  - rule_id: HIST-2014-EOLGUL-FIST-FOREHEAD-ONE
+    error_unit: technique_target_position
+    stances: []
+    technique_ids: [eolgul_makki]
+    metric_id: eolgul_fist_to_forehead_fist_ratio
+    operator: range
+    limits: [0.5, 1.5]
+    uncertainty_floor: 0.20
+    boundary_guard: 0.15
+    unit: fist_width
+    deduction_kind: minor
+    source:
+      source_id: wtf_poomsae_scoring_guidelines_2014
+      content_sha256: 46686f9a58c7d3dbc50bd9a1d284d9f6d2a56dbab6f70c365c39f029f8e01c8f
+      pages: [17]
+      authority_status: historical_official_not_current_attachment
+    description: Eolgul-makki blok yumruğu alın merkezinden yaklaşık bir yumruk (0.5-1.5 yumruk) uzakta olmalıdır.
 categorical_rules:
   - rule_id: WT-2024-A16-WRONG-ACTION
     event_kind: wrong_action

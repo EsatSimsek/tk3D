@@ -558,6 +558,27 @@ def _movement_diagnostics(
             )
         )
 
+    if technique_id == "eolgul_makki":
+        fist_to_forehead = fixation_estimate(
+            _eolgul_fist_to_forehead_ratio,
+            executing_side,
+            scale,
+            profile["quality_gates"],
+        )
+        metrics.append(
+            _with_uncertainty(
+                _diagnostic_metric(
+                    movement,
+                    "technique",
+                    "eolgul_fist_to_forehead_fist_ratio",
+                    fist_to_forehead[0],
+                    "fist_width",
+                ),
+                uncertainty_95=fist_to_forehead[1],
+                sample_count=fist_to_forehead[2],
+            )
+        )
+
     if any(technique["technique_id"] == "ap_chagi" for technique in movement["techniques"]):
         metrics.extend(
             _ap_chagi_diagnostics(
@@ -1444,6 +1465,57 @@ def _arae_fist_to_thigh_ratio(
     return float(np.linalg.norm(fist_center - closest) / fist_width)
 
 
+def _eolgul_fist_to_forehead_ratio(
+    arrays: dict[str, Any],
+    frame: int,
+    side: str,
+    scale: float | None,
+    gates: dict[str, Any],
+) -> float | None:
+    """Distance from the block fist to the forehead centre, in fist widths.
+
+    Historical 2014 official geometry (page 17) places the eolgul-makki block
+    wrist roughly one fist away from the centre of the forehead. The forehead
+    anchor is the directly measured eyebrow-line centre (iBUG 17-26); it is not
+    extrapolated upward. Fails closed unless the eye-separation face gate and the
+    fist-width hand gate both pass, mirroring the arae-makki measurement.
+    """
+    if scale is None or scale <= 0:
+        return None
+    index_mcp = _p(arrays, frame, coco_hand_joint(side, "index_mcp"))
+    middle_mcp = _p(arrays, frame, coco_hand_joint(side, "middle_mcp"))
+    ring_mcp = _p(arrays, frame, coco_hand_joint(side, "ring_mcp"))
+    pinky_mcp = _p(arrays, frame, coco_hand_joint(side, "pinky_mcp"))
+    hand_points = [index_mcp, middle_mcp, ring_mcp, pinky_mcp]
+    if any(point is None for point in hand_points):
+        return None
+    fist_width = _distance(index_mcp, pinky_mcp)
+    if fist_width is None or fist_width <= 1e-9:
+        return None
+    fist_width_ratio = fist_width / scale
+    if not (
+        gates["hand_palm_length_body_scale_min"]
+        <= fist_width_ratio
+        <= gates["hand_palm_length_body_scale_max"]
+    ):
+        return None
+    left_eye = [_p(arrays, frame, 23 + index) for index in range(36, 42)]
+    right_eye = [_p(arrays, frame, 23 + index) for index in range(42, 48)]
+    if any(point is None for point in left_eye + right_eye):
+        return None
+    eye_line = np.mean(right_eye, axis=0) - np.mean(left_eye, axis=0)
+    eye_ratio = float(np.linalg.norm(eye_line) / scale)
+    if not gates["face_eye_separation_body_scale_min"] <= eye_ratio <= gates["face_eye_separation_body_scale_max"]:
+        return None
+    brow_points = [_p(arrays, frame, 23 + index) for index in range(17, 27)]
+    brow_points = [point for point in brow_points if point is not None]
+    if len(brow_points) < 4:
+        return None
+    forehead = np.mean(brow_points, axis=0)
+    fist_center = np.mean(hand_points, axis=0)
+    return float(np.linalg.norm(fist_center - forehead) / fist_width)
+
+
 def _ap_chagi_diagnostics(
     movement: dict[str, Any],
     segment: dict[str, Any],
@@ -1656,6 +1728,7 @@ def _annotate_metrics(
             "executing_wrist_height_torso_ratio": f"technique.{technique_id}.height",
             "executing_elbow_deg": f"technique.{technique_id}.elbow",
             "arae_fist_to_thigh_fist_ratio": "technique.arae_makki.height",
+            "eolgul_fist_to_forehead_fist_ratio": "technique.eolgul_makki.forehead_distance",
             "kick_knee_extension_deg": "technique.ap_chagi.knee_extension",
             "kick_ankle_height_body_scale_ratio": "technique.ap_chagi.height",
             "kick_rechamber_knee_deg": "technique.ap_chagi.rechamber",
@@ -1695,6 +1768,8 @@ def _annotate_metrics(
             required_groups = ["feet"]
         elif metric_id == "head_torso_yaw_mismatch_deg":
             required_groups = ["body17", "face"]
+        elif metric_id == "eolgul_fist_to_forehead_fist_ratio":
+            required_groups = ["body17", f"{executing_side}_hand", "face"]
         elif metric_id in {
             "wrist_forearm_alignment_deg",
             "fist_closure_ratio",
@@ -1826,6 +1901,12 @@ def _metric_required_joint_indices(
             *(coco_hand_joint(executing_side, name) for name in ("index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp")),
             body[f"{executing_side}_hip"],
             body[f"{executing_side}_knee"],
+        )
+    if metric_id == "eolgul_fist_to_forehead_fist_ratio":
+        return (
+            *(coco_hand_joint(executing_side, name) for name in ("index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp")),
+            *range(23 + 17, 23 + 27),
+            *range(23 + 36, 23 + 48),
         )
     return ()
 

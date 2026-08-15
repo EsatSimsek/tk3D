@@ -180,6 +180,76 @@ def build_source_bound_accuracy_decisions(
     )
 
 
+def derive_categorical_observations(
+    poomsae_spec: dict[str, Any],
+    movement_timeline: dict[str, Any],
+    *,
+    pause_threshold_sec: float = 3.0,
+    minimum_confidence: float = 0.80,
+) -> list[dict[str, Any]]:
+    """Emit automatic categorical observations that timeline data alone can prove.
+
+    Only supports ``pause_at_least_3_sec`` for now: WT Article 16-1.2.3 defines a
+    3-second pause during movements as a major deduction, and gap length between
+    two labelled segments is a deterministic timeline measurement. The function
+    reports each gap that meets or exceeds ``pause_threshold_sec`` as an
+    observation attached to the movement that immediately precedes the gap
+    (which is the movement WT considers 'held' for that long).
+
+    Wrong-action / wrong-stance detection is intentionally NOT auto-derived
+    here: the timeline validator already rejects timelines whose segment order
+    does not match the PoomsaeSpec, and segments do not yet carry an observed
+    stance field, so any 'sequence violation' inferred from timeline alone
+    would be tautologically empty. Those categorical rules still require a
+    human observation payload with ``manual_video_review``.
+    """
+    spec = validate_poomsae_spec(poomsae_spec)
+    timeline = validate_movement_timeline(movement_timeline, spec)
+    if pause_threshold_sec <= 0:
+        raise ScoringContractError("pause_threshold_sec must be positive")
+    fps = float(timeline["fps"])
+    if fps <= 0:
+        raise ScoringContractError("timeline fps must be positive")
+    threshold_frames = int(np.ceil(pause_threshold_sec * fps))
+    segments = timeline["segments"]
+    frame_count = int(timeline["frame_count"])
+    observations: list[dict[str, Any]] = []
+    for index, segment in enumerate(segments):
+        gap_start = int(segment["end_frame"]) + 1
+        if index + 1 < len(segments):
+            gap_end_exclusive = int(segments[index + 1]["start_frame"])
+        else:
+            gap_end_exclusive = frame_count
+        gap_end = gap_end_exclusive - 1
+        gap_length = gap_end_exclusive - gap_start
+        if gap_length < threshold_frames:
+            continue
+        # Pin the observation inside the preceding segment so the existing
+        # boundary check (start_frame within movement interval) accepts it, but
+        # keep the true duration measurement for the pause guard.
+        anchor_frame = int(segment["end_frame"])
+        duration_sec = float(gap_length) / fps
+        observations.append(
+            {
+                "observation_id": f"AUTO-PAUSE-{segment['movement_id']}-{gap_start:06d}",
+                "event_kind": "pause_at_least_3_sec",
+                "movement_id": segment["movement_id"],
+                "start_frame": anchor_frame,
+                "end_frame": anchor_frame,
+                "evidence_status": "observed",
+                "confidence": max(float(minimum_confidence), float(segment["confidence"])),
+                "description": (
+                    f"Automatic gap of {duration_sec:.2f}s after {segment['movement_id']} "
+                    f"(frames {gap_start}-{gap_end}); WT 2024 Article 16-1.2.3 pauses"
+                    " of at least 3 seconds count as a major deduction."
+                ),
+                "measurement": {"duration_sec": duration_sec},
+                "confirmation_method": "duration_measurement",
+            }
+        )
+    return observations
+
+
 def _numeric_decision(rule: dict[str, Any], movement: dict[str, Any], metric: dict[str, Any] | None) -> dict[str, Any]:
     base = {
         "movement_id": movement["movement_id"],

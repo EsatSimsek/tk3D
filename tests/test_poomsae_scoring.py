@@ -16,6 +16,7 @@ from src.poomsae_scoring import (
     build_review_html,
     build_source_bound_accuracy_decisions,
     build_wholebody_diagnostics,
+    derive_categorical_observations,
     evaluate_accuracy,
     inspect_source_intake,
     load_movement_timeline,
@@ -722,6 +723,100 @@ def test_wholebody_full_prefix_adds_compound_kick_diagnostics_without_thresholds
     assert landing_metric["criterion_id"] == "timing.kick_landing_punch.sequence"
 
 
+def test_wholebody_eolgul_makki_emits_measurable_forehead_distance() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    observed = spec["movements"][:13]  # prefix through M13 (left eolgul-makki)
+    frame_count = 12 * len(observed)
+    segments = []
+    for movement in observed:
+        start = 12 * (movement["sequence_index"] - 1)
+        anchors = {phase: start + offset + 1 for offset, phase in enumerate(movement["phases"])}
+        segments.append(
+            {
+                "sequence_index": movement["sequence_index"],
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": start + 11,
+                "anchors": anchors,
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            }
+        )
+    timeline = validate_movement_timeline(
+        {
+            "schema_version": 2,
+            "timeline_id": "eolgul-forehead-test",
+            "poomsae_id": spec["poomsae_id"],
+            "poomsae_version": spec["version"],
+            "status": "draft",
+            "label_source": "manual",
+            "frame_index_space": "sample_index",
+            "frame_count": frame_count,
+            "fps": 60.0,
+            "source_binding": {
+                "session_id": "eolgul-test",
+                "run_id": "eolgul-test-run",
+                "pose_file": "outputs/eolgul-test/pose.json",
+                "pose_file_sha256": None,
+            },
+            "coverage": {
+                "recording_scope": "partial_sequence",
+                "observed_movement_ids": [movement["movement_id"] for movement in observed],
+                "missing_movement_ids": [movement["movement_id"] for movement in spec["movements"][13:]],
+                "source_end_reason": "synthetic prefix",
+            },
+            "segments": segments,
+        },
+        spec,
+    )
+    points = np.zeros((frame_count, 133, 3), dtype=float)
+    # Body BODY-17 (legs give body_scale ~= 0.86 m).
+    body_points = {
+        5: [0.20, 0.0, 1.40],
+        6: [-0.20, 0.0, 1.40],
+        7: [0.35, 0.0, 1.10],
+        8: [-0.35, 0.0, 1.10],
+        9: [0.45, 0.0, 0.95],
+        10: [-0.45, 0.0, 0.95],
+        11: [0.15, 0.0, 0.90],
+        12: [-0.15, 0.0, 0.90],
+        13: [0.15, 0.2, 0.48],
+        14: [-0.15, 0.2, 0.48],
+        15: [0.15, 0.4, 0.04],
+        16: [-0.15, 0.4, 0.04],
+    }
+    for index, value in body_points.items():
+        points[:, index] = value
+    # Face: eyes (iBUG 36-47 -> 59-70) separated ~0.08 m; eyebrows (iBUG 17-26 -> 40-49)
+    # form the directly-measured forehead centre at the origin, z=1.58.
+    for index in range(23 + 36, 23 + 42):  # left eye cluster
+        points[:, index] = [0.04, 0.0, 1.52]
+    for index in range(23 + 42, 23 + 48):  # right eye cluster
+        points[:, index] = [-0.04, 0.0, 1.52]
+    for index in range(23 + 17, 23 + 27):  # eyebrow line -> forehead centre
+        points[:, index] = [0.0, 0.0, 1.58]
+    # Left block fist ~0.88 fist-widths from the forehead centre.
+    left_hand = {96: [0.09, 0.05, 1.58], 100: [0.063, 0.05, 1.58], 104: [0.037, 0.05, 1.58], 108: [0.01, 0.05, 1.58]}
+    for index, value in left_hand.items():
+        points[:, index] = value
+    payload = {
+        "keypoints_3d_world": points,
+        "reliability_valid_mask": np.ones((frame_count, 133), dtype=bool),
+        "used_cameras": np.full((frame_count, 133), 2),
+        "reprojection_error": np.ones((frame_count, 133), dtype=float),
+    }
+    report = build_wholebody_diagnostics(payload, spec, timeline, profile)
+    m13 = next(item for item in report["movements"] if item["movement_id"] == "M13")
+    forehead = next(
+        metric for metric in m13["metrics"] if metric["metric_id"] == "eolgul_fist_to_forehead_fist_ratio"
+    )
+    assert forehead["criterion_id"] == "technique.eolgul_makki.forehead_distance"
+    assert forehead["value"] is not None
+    assert 0.5 <= forehead["value"] <= 1.5
+    assert forehead["screening_status"] == "measured_diagnostic_only"
+
+
 def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
     timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
@@ -770,6 +865,140 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
     assert report["observed_scope_provisional_deduction_total"] == 0.1
     assert report["accuracy_score"] is None
     assert report["scoring_status"] == "observed_scope_only_no_accuracy_score"
+
+
+def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_seconds() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    fps = 60.0
+    segments = []
+    frame = 0
+    # M01: 30-frame segment then a 4.17s gap (250 frames @ 60fps) → should fire.
+    # M02: 30-frame segment then a 1s gap (60 frames) → should not fire.
+    # M03: 30-frame segment then 60 frames of trailing time → should not fire.
+    gap_frames = [250, 60, 60]
+    for index, movement in enumerate(spec["movements"][:3]):
+        start = frame
+        end = start + 30
+        segments.append(
+            {
+                "sequence_index": index + 1,
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": end,
+                "anchors": {
+                    phase: start + offset + 1 for offset, phase in enumerate(movement["phases"])
+                },
+                "confidence": 1.0,
+                "label_status": "confirmed",
+            }
+        )
+        frame = end + gap_frames[index]
+    timeline = validate_movement_timeline(
+        {
+            "schema_version": 2,
+            "timeline_id": "pause-auto-test",
+            "poomsae_id": spec["poomsae_id"],
+            "poomsae_version": spec["version"],
+            "status": "draft",
+            "label_source": "manual",
+            "frame_index_space": "sample_index",
+            "frame_count": frame,
+            "fps": fps,
+            "source_binding": {
+                "session_id": "pause-test",
+                "run_id": "pause-test-run",
+                "pose_file": "outputs/pause-test/pose.json",
+                "pose_file_sha256": None,
+            },
+            "coverage": {
+                "recording_scope": "partial_sequence",
+                "observed_movement_ids": [seg["movement_id"] for seg in segments],
+                "missing_movement_ids": [
+                    movement["movement_id"] for movement in spec["movements"][3:]
+                ],
+                "source_end_reason": "synthetic",
+            },
+            "segments": segments,
+        },
+        spec,
+    )
+
+    observations = derive_categorical_observations(spec, timeline)
+
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["event_kind"] == "pause_at_least_3_sec"
+    assert observation["movement_id"] == "M01"
+    assert observation["confirmation_method"] == "duration_measurement"
+    assert observation["evidence_status"] == "observed"
+    assert 4.15 <= observation["measurement"]["duration_sec"] <= 4.20
+    assert observation["start_frame"] == segments[0]["end_frame"]
+
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [{"movement_id": seg["movement_id"], "metrics": []} for seg in segments],
+    }
+    report = build_source_bound_accuracy_decisions(
+        diagnostics, spec, timeline, profile, observations=observations
+    )
+    assert report["summary"]["applied_categorical_count"] == 1
+    applied_pause = next(
+        item
+        for item in report["categorical_decisions"]
+        if item["event_kind"] == "pause_at_least_3_sec"
+    )
+    assert applied_pause["application_status"] == "applied"
+    assert applied_pause["deduction_points"] == 0.3
+    assert report["observed_scope_provisional_deduction_total"] == 0.3
+
+
+def test_source_bound_accuracy_eolgul_forehead_rule_fires_and_gates_boundary() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+
+    def diagnostics_with_eolgul(value: float, uncertainty: float) -> dict:
+        return {
+            "status": "wholebody_diagnostics_only",
+            "movements": [
+                {
+                    "movement_id": "M13",
+                    "metrics": [
+                        {
+                            "metric_id": "eolgul_fist_to_forehead_fist_ratio",
+                            "value": value,
+                            "uncertainty_95": uncertainty,
+                        }
+                    ],
+                }
+            ],
+        }
+
+    out_of_range = build_source_bound_accuracy_decisions(
+        diagnostics_with_eolgul(3.0, 0.1), spec, timeline, profile
+    )
+    eolgul = next(
+        item
+        for item in out_of_range["numeric_decisions"]
+        if item["rule_id"] == "HIST-2014-EOLGUL-FIST-FOREHEAD-ONE"
+    )
+    assert eolgul["movement_id"] == "M13"
+    assert eolgul["decision_status"] == "confirmed_source_bound_minor"
+    assert eolgul["deduction_points"] == 0.1
+
+    within_range = build_source_bound_accuracy_decisions(
+        diagnostics_with_eolgul(1.0, 0.05), spec, timeline, profile
+    )
+    eolgul_ok = next(
+        item
+        for item in within_range["numeric_decisions"]
+        if item["rule_id"] == "HIST-2014-EOLGUL-FIST-FOREHEAD-ONE"
+    )
+    assert eolgul_ok["decision_status"] == "within_source_range"
+    assert eolgul_ok["deduction_points"] is None
+    # Numeric geometry can never escalate to a major deduction.
+    assert eolgul["deduction_kind"] == "minor"
 
 
 def test_source_bound_accuracy_recognizes_complete_performance_scope_name() -> None:
