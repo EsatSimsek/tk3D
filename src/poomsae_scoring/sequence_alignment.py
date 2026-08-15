@@ -1,6 +1,12 @@
 """Segment list aligned to known Taegeuk movement order (Stage 4)."""
 from typing import Any
 
+from src.poomsae_scoring.contracts import (
+    ScoringContractError,
+    validate_movement_timeline,
+    validate_poomsae_spec,
+)
+
 
 def align_segments_to_movements(
     segments: list[dict[str, Any]],
@@ -244,3 +250,183 @@ def _flag_uncertain_movements(cost_matrix, pairs, skip_penalty, uncertainty_marg
                 "decision": "kept_in_favor_of_athlete_flagged_for_review",
             })
     return uncertain
+
+
+def build_automatic_movement_timeline(
+    segments: list[dict[str, Any]],
+    expected_poses: list[Any],
+    poomsae_spec: dict[str, Any],
+    *,
+    frame_count: int,
+    fps: float,
+    source_binding: dict[str, Any],
+    timeline_id: str,
+    uncertainty_margin: float = 0.03,
+) -> dict[str, Any]:
+    """Auto-align detected pose segments to a PoomsaeSpec and return a validated MovementTimeline.
+
+    This is the glue that lets the accuracy pipeline consume a recording without
+    a hand-labelled timeline: given the per-segment mean poses and the expected
+    reference pose of every spec movement, it runs the pose-based DTW with an
+    automatic skip penalty, marks borderline matches as ambiguous, and emits a
+    ``label_source=automatic`` MovementTimeline that passes the same contract
+    checks as a manual one.
+
+    Parameters
+    ----------
+    segments
+        Each item must carry ``segment_id``, ``start_frame``, ``end_frame`` and
+        ``mean_pose`` (a ``[133, 3]`` array-like usable by :func:`pose_distance`).
+        Segments must be sorted by ``start_frame`` and must not overlap.
+    expected_poses
+        Reference pose (one per spec movement, same length and order as
+        ``poomsae_spec['movements']``). Missing joints must be represented as
+        NaN so :func:`pose_distance` can ignore them.
+    frame_count, fps, source_binding, timeline_id
+        Straight passthroughs to the MovementTimeline schema.
+    uncertainty_margin
+        Cost distance below the auto skip penalty that still counts as ambiguous
+        (matched movements land as ``label_status='ambiguous'`` instead of
+        ``'confirmed'``).
+
+    Returns
+    -------
+    dict
+        A MovementTimeline dict that has already been through
+        :func:`validate_movement_timeline`, ready to feed
+        ``build_source_bound_accuracy_decisions`` and the rest of the pipeline.
+    """
+    spec = validate_poomsae_spec(poomsae_spec)
+    movements = spec["movements"]
+    if len(expected_poses) != len(movements):
+        raise ScoringContractError(
+            "expected_poses length must equal the number of PoomsaeSpec movements"
+        )
+    if not isinstance(segments, list) or not segments:
+        raise ScoringContractError("segments must be a non-empty list")
+    previous_end = -1
+    for index, segment in enumerate(segments):
+        for key in ("segment_id", "start_frame", "end_frame", "mean_pose"):
+            if key not in segment:
+                raise ScoringContractError(f"segment {index} missing required key {key!r}")
+        if segment["start_frame"] <= previous_end:
+            raise ScoringContractError("segments must not overlap or move backward")
+        if segment["end_frame"] < segment["start_frame"]:
+            raise ScoringContractError("segment end_frame cannot precede start_frame")
+        if segment["end_frame"] >= frame_count:
+            raise ScoringContractError("segment end_frame exceeds frame_count")
+        previous_end = segment["end_frame"]
+
+    segment_poses = [segment["mean_pose"] for segment in segments]
+    cost = _pose_cost_matrix(segment_poses, expected_poses)
+    skip_penalty = _auto_skip_penalty(expected_poses)
+    aligned = _dtw_align_with_skip(cost, skip_penalty=skip_penalty)
+    uncertain = _flag_uncertain_movements(cost, aligned["pairs"], skip_penalty, uncertainty_margin)
+    uncertain_movement_indices = {item["movement_index"] for item in uncertain}
+
+    # Enforce 1-to-1: MovementTimeline forbids overlapping segments, so a source
+    # segment can back at most one movement. When DTW pairs several movements to
+    # the same segment (a common "spans multiple movements" case in partial
+    # recordings), keep the movement with the lowest pose cost and treat the
+    # rest as missing.
+    best_by_segment: dict[int, tuple[int, float]] = {}
+    for seg_idx, mov_idx in aligned["pairs"]:
+        pair_cost = float(cost[seg_idx][mov_idx])
+        current = best_by_segment.get(seg_idx)
+        if current is None or pair_cost < current[1]:
+            best_by_segment[seg_idx] = (mov_idx, pair_cost)
+    kept_pairs = [(seg_idx, mov_idx) for seg_idx, (mov_idx, _) in best_by_segment.items()]
+    matched_movement_indices = {mov_idx for _, mov_idx in kept_pairs}
+    missing_indices = {
+        idx for idx in range(len(movements)) if idx not in matched_movement_indices
+    }
+    # Segments that a match landed on: build one timeline segment per pair.
+    # Sort by movement index so sequence_index is contiguous and monotonic.
+    ordered_pairs = sorted(kept_pairs, key=lambda pair: pair[1])
+    timeline_segments: list[dict[str, Any]] = []
+    for order_index, (seg_idx, mov_idx) in enumerate(ordered_pairs, start=1):
+        movement = movements[mov_idx]
+        segment = segments[seg_idx]
+        start = int(segment["start_frame"])
+        end = int(segment["end_frame"])
+        anchors = _distribute_anchors(movement["phases"], start, end)
+        pair_cost = float(cost[seg_idx][mov_idx])
+        is_uncertain = mov_idx in uncertain_movement_indices
+        if skip_penalty > 0:
+            base = max(0.0, 1.0 - pair_cost / (2.0 * skip_penalty))
+        else:
+            base = 1.0
+        confidence = round(min(max(base, 0.5 if not is_uncertain else 0.6), 0.99), 4)
+        timeline_segments.append(
+            {
+                "sequence_index": order_index,
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": end,
+                "anchors": anchors,
+                "confidence": confidence,
+                "label_status": "ambiguous" if is_uncertain else "confirmed",
+            }
+        )
+
+    observed_ids = [movements[mov_idx]["movement_id"] for _, mov_idx in ordered_pairs]
+    # Missing ids must be strictly ordered by sequence_index for the timeline
+    # contract; they cover both skipped and out-of-recording movements.
+    missing_ids = [
+        movements[idx]["movement_id"] for idx in sorted(missing_indices)
+    ]
+    recording_scope = "complete_performance" if not missing_ids else "partial_sequence"
+    source_end_reason = (
+        "auto_alignment_complete_all_movements_matched"
+        if not missing_ids
+        else "auto_alignment_missing_movements_detected"
+    )
+
+    timeline_draft = {
+        "schema_version": 2,
+        "timeline_id": timeline_id,
+        "poomsae_id": spec["poomsae_id"],
+        "poomsae_version": spec["version"],
+        "status": "draft",
+        "label_source": "automatic",
+        "frame_index_space": "sample_index",
+        "frame_count": int(frame_count),
+        "fps": float(fps),
+        "source_binding": {
+            "session_id": source_binding["session_id"],
+            "run_id": source_binding["run_id"],
+            "pose_file": source_binding["pose_file"],
+            "pose_file_sha256": source_binding.get("pose_file_sha256"),
+        },
+        "coverage": {
+            "recording_scope": recording_scope,
+            "observed_movement_ids": observed_ids,
+            "missing_movement_ids": missing_ids,
+            "source_end_reason": source_end_reason,
+        },
+        "segments": timeline_segments,
+    }
+    return validate_movement_timeline(timeline_draft, spec)
+
+
+def _distribute_anchors(phases: list[str], start_frame: int, end_frame: int) -> dict[str, int]:
+    """Spread phase anchors evenly across a segment while preserving phase order."""
+    if end_frame < start_frame:
+        raise ScoringContractError("cannot distribute anchors on inverted segment")
+    if not phases:
+        return {}
+    if len(phases) == 1:
+        return {phases[0]: int(start_frame)}
+    span = end_frame - start_frame
+    anchors: dict[str, int] = {}
+    previous = start_frame - 1
+    for index, phase in enumerate(phases):
+        raw = start_frame + round(span * index / (len(phases) - 1))
+        raw = int(max(start_frame, min(end_frame, raw)))
+        if raw <= previous:
+            raw = previous + 1
+        if raw > end_frame:
+            raw = end_frame
+        anchors[phase] = raw
+        previous = raw
+    return anchors

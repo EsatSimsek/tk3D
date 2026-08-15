@@ -16,6 +16,10 @@ from src.poomsae_scoring.evidence import build_movement_evidence
 from src.poomsae_scoring.decision_evidence import build_decision_evidence_events
 from src.poomsae_scoring.engineering_trial import build_partial_engineering_trial
 from src.poomsae_scoring.readiness import assess_accuracy_readiness
+from src.poomsae_scoring.sequence_alignment import (
+    align_segments_to_movements,
+    build_automatic_movement_timeline,
+)
 from src.poomsae_scoring.review_report import build_review_html
 from src.poomsae_scoring.source_intake import (
     inspect_source_intake,
@@ -37,7 +41,9 @@ from src.poomsae_scoring.overlay import overlay_state_for_frame, render_movement
 
 __all__ = [
     "ScoringContractError",
+    "align_segments_to_movements",
     "assess_accuracy_readiness",
+    "build_automatic_movement_timeline",
     "build_movement_evidence",
     "build_decision_evidence_events",
     "build_partial_engineering_trial",

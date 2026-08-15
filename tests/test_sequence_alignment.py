@@ -125,3 +125,125 @@ def test_clear_movement_not_flagged_uncertain():
     result = _dtw_align_with_skip(cost, skip_penalty=penalty)
     flagged = _flag_uncertain_movements(cost, result["pairs"], penalty, margin)
     assert not any(f["movement_index"] == 1 for f in flagged)  # temiz, isaret yok
+
+
+def _synthetic_spec(movement_count):
+    """Minimal PoomsaeSpec-like dict with `movement_count` movements."""
+    return {
+        "schema_version": 1,
+        "poomsae_id": "synthetic_poomsae",
+        "version": "0.0.1-test",
+        "status": "draft",
+        "display_name": "Synthetic",
+        "rule_pack_id": "wt_recognized_2024-09-30",
+        "sequence_status": "source_transcribed",
+        "source_documents": [
+            {
+                "source_id": "synthetic_source",
+                "authority": "Test",
+                "title": "Synthetic",
+                "url": "https://example.invalid/synthetic",
+                "effective_date": "2026-01-01",
+                "accessed_at": "2026-01-01",
+                "language": "test",
+                "access": "public",
+                "content_sha256": None,
+                "sections": ["synthetic"],
+            }
+        ],
+        "movements": [
+            {
+                "movement_id": f"M{index+1:02d}",
+                "sequence_index": index + 1,
+                "display_name": f"Synthetic movement {index+1}",
+                "direction": "initial_forward",
+                "stance": "left_ap_seogi",
+                "techniques": [
+                    {"technique_id": "arae_makki", "side": "left", "order": 1}
+                ],
+                "phases": ["preparation", "execution", "fixation"],
+                "measurable_criteria": ["balance.torso_vertical"],
+                "source_refs": ["synthetic_source#sec1"],
+            }
+            for index in range(movement_count)
+        ],
+        "blocked_reasons": ["synthetic spec used for tests only"],
+    }
+
+
+def test_build_automatic_movement_timeline_maps_segments_and_reports_missing():
+    from src.synthetic_poses import build_frame
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+
+    spec = _synthetic_spec(5)
+    expected = [
+        build_frame(160, 160),
+        build_frame(120, 120),
+        build_frame(150, 150),
+        build_frame(90, 90),
+        build_frame(85, 85),
+    ]
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": build_frame(158, 158)},
+        {"segment_id": 1, "start_frame": 80, "end_frame": 140, "mean_pose": build_frame(122, 122)},
+        {"segment_id": 2, "start_frame": 160, "end_frame": 220, "mean_pose": build_frame(148, 148)},
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        segments=segments,
+        expected_poses=expected,
+        poomsae_spec=spec,
+        frame_count=300,
+        fps=60.0,
+        source_binding={
+            "session_id": "auto-session",
+            "run_id": "auto-run",
+            "pose_file": "outputs/auto/pose.json",
+            "pose_file_sha256": None,
+        },
+        timeline_id="auto-align-test",
+    )
+
+    assert timeline["label_source"] == "automatic"
+    assert timeline["coverage"]["recording_scope"] == "partial_sequence"
+    assert timeline["coverage"]["observed_movement_ids"] == ["M01", "M02", "M03"]
+    assert timeline["coverage"]["missing_movement_ids"] == ["M04", "M05"]
+    assert len(timeline["segments"]) == 3
+    first = timeline["segments"][0]
+    assert first["movement_id"] == "M01"
+    assert first["start_frame"] == 10
+    assert first["end_frame"] == 60
+    anchors = first["anchors"]
+    assert list(anchors) == ["preparation", "execution", "fixation"]
+    assert 10 <= anchors["preparation"] <= anchors["execution"] <= anchors["fixation"] <= 60
+    assert first["label_status"] in {"confirmed", "ambiguous"}
+    assert 0.5 <= first["confidence"] <= 0.99
+
+
+def test_build_automatic_movement_timeline_rejects_overlapping_segments():
+    from src.poomsae_scoring.contracts import ScoringContractError
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+    import pytest
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(120, 120)]
+    bad_segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": build_frame(158, 158)},
+        {"segment_id": 1, "start_frame": 60, "end_frame": 100, "mean_pose": build_frame(122, 122)},
+    ]
+    with pytest.raises(ScoringContractError, match="segments must not overlap"):
+        build_automatic_movement_timeline(
+            segments=bad_segments,
+            expected_poses=expected,
+            poomsae_spec=spec,
+            frame_count=200,
+            fps=60.0,
+            source_binding={
+                "session_id": "auto-session",
+                "run_id": "auto-run",
+                "pose_file": "outputs/auto/pose.json",
+                "pose_file_sha256": None,
+            },
+            timeline_id="auto-align-bad",
+        )
