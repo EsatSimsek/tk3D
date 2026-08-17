@@ -14,6 +14,7 @@ from src.poomsae_scoring import (
     build_movement_evidence,
     build_partial_engineering_trial,
     build_review_html,
+    build_presentation_diagnostics,
     build_source_bound_accuracy_decisions,
     build_wholebody_diagnostics,
     derive_categorical_observations,
@@ -865,6 +866,80 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
     assert report["observed_scope_provisional_deduction_total"] == 0.1
     assert report["accuracy_score"] is None
     assert report["scoring_status"] == "observed_scope_only_no_accuracy_score"
+
+
+def test_presentation_diagnostics_aggregates_components_without_producing_a_score() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [
+            {
+                "movement_id": seg["movement_id"],
+                "metrics": [
+                    {
+                        "metric_id": "executing_wrist_peak_speed_body_scale_per_sec",
+                        "value": 4.5 + index * 0.3,
+                        "unit": "body_scale/sec",
+                    },
+                    {
+                        "metric_id": "torso_lean_p95_deg",
+                        "value": 8.0 + index,
+                        "unit": "deg",
+                    },
+                    {
+                        "metric_id": "fixation_wrist_jitter_ratio",
+                        "value": 0.02 + index * 0.005,
+                        "unit": "body_scale",
+                    },
+                    {
+                        "metric_id": "head_torso_yaw_mismatch_deg",
+                        "value": 12.0 + index * 2,
+                        "unit": "deg",
+                    },
+                    {
+                        "metric_id": "shoulder_hip_twist_deg",
+                        "value": 15.0 + index,
+                        "unit": "deg",
+                    },
+                ],
+            }
+            for index, seg in enumerate(timeline["segments"])
+        ],
+    }
+
+    report = build_presentation_diagnostics(diagnostics, spec, timeline)
+
+    assert report["status"] == "presentation_diagnostic_only"
+    assert report["total_score"] is None
+    assert report["judge_calibrated"] is False
+    assert report["not_judge_validated"] is True
+    assert report["safety_contract"]["score_claim_allowed"] is False
+    assert report["safety_contract"]["kinematic_proxy_is_not_force_measurement"] is True
+
+    speed = report["components"]["speed_and_power"]
+    assert speed["measurable_metric_count"] == 1
+    peak = speed["metrics"]["executing_wrist_peak_speed_body_scale_per_sec"]
+    assert peak["sample_count"] == len(timeline["segments"])
+    assert peak["median"] is not None
+    assert peak["unit"] == "body_scale/sec"
+
+    rhythm = report["components"]["rhythm_and_tempo"]
+    assert "movement_duration_sec" in rhythm["metrics"]
+    assert "transition_gap_sec" in rhythm["metrics"]
+    assert rhythm["metrics"]["movement_duration_sec"]["sample_count"] == len(timeline["segments"])
+
+    energy = report["components"]["expression_of_energy"]
+    assert energy["measurable_metric_count"] == 4
+    for metric_id in ("fixation_wrist_jitter_ratio", "torso_lean_p95_deg", "head_torso_yaw_mismatch_deg", "shoulder_hip_twist_deg"):
+        assert energy["metrics"][metric_id]["sample_count"] == len(timeline["segments"])
+
+
+def test_presentation_diagnostics_reject_non_wholebody_input() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    with pytest.raises(ScoringContractError, match="WholeBody diagnostics report"):
+        build_presentation_diagnostics({"status": "something_else"}, spec, timeline)
 
 
 def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_seconds() -> None:

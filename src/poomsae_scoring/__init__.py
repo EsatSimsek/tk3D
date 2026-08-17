@@ -15,6 +15,7 @@ from src.poomsae_scoring.contracts import (
 from src.poomsae_scoring.evidence import build_movement_evidence
 from src.poomsae_scoring.decision_evidence import build_decision_evidence_events
 from src.poomsae_scoring.engineering_trial import build_partial_engineering_trial
+from src.poomsae_scoring.presentation import build_presentation_diagnostics
 from src.poomsae_scoring.readiness import assess_accuracy_readiness
 from src.poomsae_scoring.sequence_alignment import (
     align_segments_to_movements,
@@ -45,6 +46,7 @@ __all__ = [
     "assess_accuracy_readiness",
     "build_automatic_movement_timeline",
     "build_movement_evidence",
+    "build_presentation_diagnostics",
     "build_decision_evidence_events",
     "build_partial_engineering_trial",
     "build_review_html",
