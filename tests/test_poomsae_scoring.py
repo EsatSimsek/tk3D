@@ -1548,3 +1548,338 @@ def test_rule_pack_rejects_missing_final_score_deduction(tmp_path: Path) -> None
 
     with pytest.raises(ScoringContractError, match="must contain exactly"):
         validate_rule_pack(payload)
+
+
+def _prefix_timeline_with_gaps(
+    spec: dict,
+    segment_lengths: list[int],
+    gap_frames: list[int],
+    *,
+    fps: float = 60.0,
+    trailing_frames: int = 0,
+    confidences: list[float] | None = None,
+    timeline_id: str = "gap-edge-test",
+) -> dict:
+    """Validated prefix timeline whose inter-segment gaps are exact frame counts.
+
+    ``gap_frames[i]`` is the empty-frame count between segment ``i`` and segment
+    ``i + 1``; ``trailing_frames`` extends ``frame_count`` past the last segment
+    so trailing-pause behaviour can be exercised deterministically.
+    """
+    segments = []
+    frame = 0
+    for index, length in enumerate(segment_lengths):
+        movement = spec["movements"][index]
+        start = frame
+        end = start + length - 1
+        segments.append(
+            {
+                "sequence_index": index + 1,
+                "movement_id": movement["movement_id"],
+                "start_frame": start,
+                "end_frame": end,
+                "anchors": {
+                    phase: start + offset + 1
+                    for offset, phase in enumerate(movement["phases"])
+                },
+                "confidence": 1.0 if confidences is None else confidences[index],
+                "label_status": "confirmed",
+            }
+        )
+        frame = end + 1
+        if index < len(gap_frames):
+            frame += gap_frames[index]
+    frame_count = frame + trailing_frames
+    observed = [segment["movement_id"] for segment in segments]
+    return validate_movement_timeline(
+        {
+            "schema_version": 2,
+            "timeline_id": timeline_id,
+            "poomsae_id": spec["poomsae_id"],
+            "poomsae_version": spec["version"],
+            "status": "draft",
+            "label_source": "manual",
+            "frame_index_space": "sample_index",
+            "frame_count": frame_count,
+            "fps": fps,
+            "source_binding": {
+                "session_id": "gap-edge-session",
+                "run_id": "gap-edge-run",
+                "pose_file": "outputs/gap-edge/pose.json",
+                "pose_file_sha256": None,
+            },
+            "coverage": {
+                "recording_scope": "partial_sequence",
+                "observed_movement_ids": observed,
+                "missing_movement_ids": [
+                    movement["movement_id"]
+                    for movement in spec["movements"][len(segments):]
+                ],
+                "source_end_reason": "synthetic gap-edge prefix",
+            },
+            "segments": segments,
+        },
+        spec,
+    )
+
+
+def test_derive_categorical_observations_boundary_is_inclusive_at_threshold() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    # 180 frames @ 60fps is exactly 3.00s (fires, >= semantics); 179 frames is not.
+    timeline = _prefix_timeline_with_gaps(spec, [30, 30, 30], [180, 179])
+
+    observations = derive_categorical_observations(spec, timeline)
+
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["movement_id"] == "M01"
+    assert observation["event_kind"] == "pause_at_least_3_sec"
+    assert observation["measurement"]["duration_sec"] == pytest.approx(3.0)
+    assert observation["observation_id"].startswith("AUTO-PAUSE-M01-")
+
+
+def test_derive_categorical_observations_detects_trailing_gap_after_last_segment() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    # Adjacent segments (zero gap) then 240 empty trailing frames (4.0s @ 60fps).
+    timeline = _prefix_timeline_with_gaps(spec, [30, 30], [0], trailing_frames=240)
+
+    observations = derive_categorical_observations(spec, timeline)
+
+    assert len(observations) == 1
+    observation = observations[0]
+    assert observation["movement_id"] == "M02"
+    assert observation["measurement"]["duration_sec"] == pytest.approx(4.0)
+    assert observation["start_frame"] == timeline["segments"][-1]["end_frame"]
+    assert observation["end_frame"] == observation["start_frame"]
+
+
+def test_derive_categorical_observations_threshold_parameter_and_validation() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = _prefix_timeline_with_gaps(spec, [30, 30], [90])  # 1.5s gap
+
+    assert derive_categorical_observations(spec, timeline) == []
+
+    lowered = derive_categorical_observations(spec, timeline, pause_threshold_sec=1.0)
+    assert len(lowered) == 1
+    assert lowered[0]["measurement"]["duration_sec"] == pytest.approx(1.5)
+
+    for bad_threshold in (0.0, -2.0):
+        with pytest.raises(ScoringContractError, match="pause_threshold_sec"):
+            derive_categorical_observations(
+                spec, timeline, pause_threshold_sec=bad_threshold
+            )
+
+
+def test_derive_categorical_observations_floors_confidence_at_minimum() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = _prefix_timeline_with_gaps(
+        spec, [30, 30], [200], trailing_frames=200, confidences=[0.55, 0.95]
+    )
+
+    observations = derive_categorical_observations(spec, timeline)
+
+    assert [obs["movement_id"] for obs in observations] == ["M01", "M02"]
+    assert observations[0]["confidence"] == pytest.approx(0.80)  # floored up to minimum
+    assert observations[1]["confidence"] == pytest.approx(0.95)  # segment value kept
+
+
+def test_presentation_diagnostics_rejects_non_list_movements() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+
+    with pytest.raises(ScoringContractError, match="movements must be a list"):
+        build_presentation_diagnostics(
+            {"status": "wholebody_diagnostics_only", "movements": "not-a-list"},
+            spec,
+            timeline,
+        )
+
+
+def test_presentation_diagnostics_skips_unusable_values_and_summarizes_sparse_samples() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = _prefix_timeline_with_gaps(spec, [60], [])  # single 1.0s segment
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [
+            {
+                "movement_id": "M01",
+                "metrics": [
+                    {
+                        "metric_id": "executing_wrist_peak_speed_body_scale_per_sec",
+                        "value": None,
+                        "unit": "body_scale/sec",
+                    },
+                    {
+                        "metric_id": "torso_lean_p95_deg",
+                        "value": "not-a-number",
+                        "unit": "deg",
+                    },
+                    {
+                        "metric_id": "fixation_wrist_jitter_ratio",
+                        "value": 0.02,
+                        "unit": "body_scale",
+                    },
+                ],
+            }
+        ],
+    }
+
+    report = build_presentation_diagnostics(diagnostics, spec, timeline)
+
+    speed = report["components"]["speed_and_power"]
+    assert speed["measurable_metric_count"] == 0
+    peak = speed["metrics"]["executing_wrist_peak_speed_body_scale_per_sec"]
+    assert peak["sample_count"] == 0
+    assert peak["median"] is None
+    assert peak["interquartile_range"] is None
+
+    energy = report["components"]["expression_of_energy"]
+    assert energy["measurable_metric_count"] == 1
+    jitter = energy["metrics"]["fixation_wrist_jitter_ratio"]
+    assert jitter["sample_count"] == 1
+    assert jitter["median"] == pytest.approx(0.02)
+    assert jitter["interquartile_range"] is None  # fewer than 4 samples
+    assert energy["metrics"]["torso_lean_p95_deg"]["sample_count"] == 0  # garbage skipped
+
+    rhythm = report["components"]["rhythm_and_tempo"]
+    duration = rhythm["metrics"]["movement_duration_sec"]
+    assert duration["sample_count"] == 1
+    assert duration["median"] == pytest.approx(1.0)
+    assert rhythm["metrics"]["transition_gap_sec"]["sample_count"] == 0  # no transitions
+    assert rhythm["measurable_metric_count"] == 1
+
+
+def test_eolgul_forehead_ratio_fails_closed_on_quality_gates() -> None:
+    from src.poomsae_scoring.wholebody_diagnostics import _eolgul_fist_to_forehead_ratio
+
+    profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    gates = profile["quality_gates"]
+    scale = 0.86
+
+    def scene() -> dict:
+        points = np.full((1, 133, 3), np.nan)
+        left_hand = {
+            96: [0.09, 0.05, 1.58],
+            100: [0.063, 0.05, 1.58],
+            104: [0.037, 0.05, 1.58],
+            108: [0.01, 0.05, 1.58],
+        }
+        for index, value in left_hand.items():
+            points[0, index] = value
+        for index in range(23 + 36, 23 + 42):  # left eye cluster
+            points[0, index] = [0.04, 0.0, 1.52]
+        for index in range(23 + 42, 23 + 48):  # right eye cluster
+            points[0, index] = [-0.04, 0.0, 1.52]
+        for index in range(23 + 17, 23 + 27):  # eyebrow line -> forehead centre
+            points[0, index] = [0.0, 0.0, 1.58]
+        return {"points": points}
+
+    baseline = _eolgul_fist_to_forehead_ratio(scene(), 0, "left", scale, gates)
+    assert baseline is not None
+    assert 0.5 <= baseline <= 1.5
+
+    # Missing or degenerate body scale.
+    assert _eolgul_fist_to_forehead_ratio(scene(), 0, "left", None, gates) is None
+    assert _eolgul_fist_to_forehead_ratio(scene(), 0, "left", 0.0, gates) is None
+
+    # Any missing fist landmark fails closed.
+    missing_hand = scene()
+    missing_hand["points"][0, 100] = np.nan
+    assert _eolgul_fist_to_forehead_ratio(missing_hand, 0, "left", scale, gates) is None
+
+    # Zero-width fist (all knuckles collapsed) fails closed.
+    degenerate_fist = scene()
+    for index in (96, 100, 104, 108):
+        degenerate_fist["points"][0, index] = [0.05, 0.05, 1.58]
+    assert _eolgul_fist_to_forehead_ratio(degenerate_fist, 0, "left", scale, gates) is None
+
+    # Fist width outside the hand quality gate fails closed.
+    giant_fist = scene()
+    giant_fist["points"][0, 96] = [0.5, 0.05, 1.58]
+    giant_fist["points"][0, 108] = [-0.5, 0.05, 1.58]
+    assert _eolgul_fist_to_forehead_ratio(giant_fist, 0, "left", scale, gates) is None
+
+    # Any missing eye landmark fails closed.
+    missing_eye = scene()
+    missing_eye["points"][0, 23 + 40] = np.nan
+    assert _eolgul_fist_to_forehead_ratio(missing_eye, 0, "left", scale, gates) is None
+
+    # Eye separation outside the face quality gate fails closed.
+    wide_eyes = scene()
+    for index in range(23 + 36, 23 + 42):
+        wide_eyes["points"][0, index] = [0.4, 0.0, 1.52]
+    for index in range(23 + 42, 23 + 48):
+        wide_eyes["points"][0, index] = [-0.4, 0.0, 1.52]
+    assert _eolgul_fist_to_forehead_ratio(wide_eyes, 0, "left", scale, gates) is None
+
+    # Fewer than 4 valid eyebrow points fails closed.
+    sparse_brows = scene()
+    for index in range(23 + 17, 23 + 24):  # leave only 3 of 10 brow points valid
+        sparse_brows["points"][0, index] = np.nan
+    assert _eolgul_fist_to_forehead_ratio(sparse_brows, 0, "left", scale, gates) is None
+
+
+def test_automatic_timeline_feeds_accuracy_and_presentation_end_to_end() -> None:
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    expected_poses = [
+        build_frame(60 + 6 * index, 60 + 6 * index)
+        for index in range(len(spec["movements"]))
+    ]
+    # Segment mean poses exactly match the first three expected poses; the gap
+    # between segment 0 and 1 is 240 frames (4.0s @ 60fps) so the automatic
+    # pause detector must fire on M01 and nowhere else.
+    segments = [
+        {"segment_id": 0, "start_frame": 0, "end_frame": 59, "mean_pose": build_frame(60, 60)},
+        {"segment_id": 1, "start_frame": 300, "end_frame": 359, "mean_pose": build_frame(66, 66)},
+        {"segment_id": 2, "start_frame": 370, "end_frame": 429, "mean_pose": build_frame(72, 72)},
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        segments=segments,
+        expected_poses=expected_poses,
+        poomsae_spec=spec,
+        frame_count=500,
+        fps=60.0,
+        source_binding={
+            "session_id": "chain-session",
+            "run_id": "chain-run",
+            "pose_file": "outputs/chain/pose.json",
+            "pose_file_sha256": None,
+        },
+        timeline_id="auto-chain-test",
+    )
+    assert timeline["label_source"] == "automatic"
+    assert timeline["coverage"]["observed_movement_ids"] == ["M01", "M02", "M03"]
+    assert timeline["coverage"]["recording_scope"] == "partial_sequence"
+
+    observations = derive_categorical_observations(spec, timeline)
+    assert len(observations) == 1
+    assert observations[0]["movement_id"] == "M01"
+    assert observations[0]["measurement"]["duration_sec"] == pytest.approx(4.0)
+
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "movements": [
+            {"movement_id": segment["movement_id"], "metrics": []}
+            for segment in timeline["segments"]
+        ],
+    }
+    accuracy = build_source_bound_accuracy_decisions(
+        diagnostics, spec, timeline, profile, observations=observations
+    )
+    assert accuracy["accuracy_score"] is None
+    assert accuracy["scoring_status"] == "observed_scope_only_no_accuracy_score"
+    assert accuracy["summary"]["applied_categorical_count"] == 1
+    assert accuracy["observed_scope_provisional_deduction_total"] == pytest.approx(0.3)
+
+    presentation = build_presentation_diagnostics(diagnostics, spec, timeline)
+    assert presentation["total_score"] is None
+    assert presentation["safety_contract"]["score_claim_allowed"] is False
+    rhythm = presentation["components"]["rhythm_and_tempo"]
+    assert rhythm["metrics"]["movement_duration_sec"]["sample_count"] == 3
+    assert rhythm["metrics"]["transition_gap_sec"]["sample_count"] == 2
+    assert rhythm["metrics"]["transition_gap_sec"]["max"] == pytest.approx(4.0)

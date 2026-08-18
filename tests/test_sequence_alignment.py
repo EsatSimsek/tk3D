@@ -247,3 +247,128 @@ def test_build_automatic_movement_timeline_rejects_overlapping_segments():
             },
             timeline_id="auto-align-bad",
         )
+
+
+def _auto_timeline_kwargs(spec, segments, expected, frame_count=200):
+    """Shared valid kwargs for build_automatic_movement_timeline edge-case tests."""
+    return {
+        "segments": segments,
+        "expected_poses": expected,
+        "poomsae_spec": spec,
+        "frame_count": frame_count,
+        "fps": 60.0,
+        "source_binding": {
+            "session_id": "auto-session",
+            "run_id": "auto-run",
+            "pose_file": "outputs/auto/pose.json",
+            "pose_file_sha256": None,
+        },
+        "timeline_id": "auto-align-edge",
+    }
+
+
+def test_build_automatic_movement_timeline_validates_inputs_fail_closed():
+    import pytest
+
+    from src.poomsae_scoring.contracts import ScoringContractError
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(120, 120)]
+    good_segment = {
+        "segment_id": 0,
+        "start_frame": 10,
+        "end_frame": 60,
+        "mean_pose": build_frame(158, 158),
+    }
+
+    with pytest.raises(ScoringContractError, match="expected_poses length"):
+        build_automatic_movement_timeline(
+            **_auto_timeline_kwargs(spec, [good_segment], expected[:1])
+        )
+    with pytest.raises(ScoringContractError, match="non-empty list"):
+        build_automatic_movement_timeline(**_auto_timeline_kwargs(spec, [], expected))
+    incomplete = {"segment_id": 0, "start_frame": 10, "end_frame": 60}
+    with pytest.raises(ScoringContractError, match="missing required key"):
+        build_automatic_movement_timeline(**_auto_timeline_kwargs(spec, [incomplete], expected))
+    inverted = dict(good_segment, start_frame=60, end_frame=10)
+    with pytest.raises(ScoringContractError, match="cannot precede"):
+        build_automatic_movement_timeline(**_auto_timeline_kwargs(spec, [inverted], expected))
+    beyond = dict(good_segment, end_frame=205)
+    with pytest.raises(ScoringContractError, match="exceeds frame_count"):
+        build_automatic_movement_timeline(**_auto_timeline_kwargs(spec, [beyond], expected))
+
+
+def test_build_automatic_movement_timeline_keeps_best_movement_per_shared_segment():
+    from src.poomsae_scoring.sequence_alignment import (
+        build_automatic_movement_timeline,
+        pose_distance,
+    )
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(90, 90)]
+    # Mean pose sits between both expected poses (biased toward M01) so DTW may
+    # pair both movements onto the single segment; the timeline contract forces
+    # exactly one winner. The winner must be the prefix movement M01 — the
+    # coverage contract only accepts observed ids that form a spec prefix.
+    shared_pose = build_frame(135, 135)
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": shared_pose}
+    ]
+
+    costs = [pose_distance(shared_pose, pose) for pose in expected]
+    assert costs[0] < costs[1]  # geometry sanity: M01 really is the closer match
+
+    timeline = build_automatic_movement_timeline(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    assert len(timeline["segments"]) == 1
+    assert timeline["segments"][0]["movement_id"] == "M01"
+    assert timeline["coverage"]["observed_movement_ids"] == ["M01"]
+    assert timeline["coverage"]["missing_movement_ids"] == ["M02"]
+    assert timeline["coverage"]["recording_scope"] == "partial_sequence"
+    assert (
+        timeline["coverage"]["source_end_reason"]
+        == "auto_alignment_missing_movements_detected"
+    )
+
+
+def test_build_automatic_movement_timeline_survives_segment_shorter_than_phase_count():
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(1)  # synthetic movements carry 3 phases each
+    expected = [build_frame(150, 150)]
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 11, "mean_pose": build_frame(150, 150)}
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    anchors = timeline["segments"][0]["anchors"]
+    values = list(anchors.values())
+    assert list(anchors) == ["preparation", "execution", "fixation"]
+    assert all(10 <= value <= 11 for value in values)
+    assert values == sorted(values)  # non-decreasing keeps the timeline contract happy
+    assert timeline["coverage"]["recording_scope"] == "complete_performance"
+    # Contract: a complete performance must carry no end reason.
+    assert timeline["coverage"]["source_end_reason"] is None
+
+
+def test_distribute_anchors_edge_cases():
+    import pytest
+
+    from src.poomsae_scoring.contracts import ScoringContractError
+    from src.poomsae_scoring.sequence_alignment import _distribute_anchors
+
+    assert _distribute_anchors([], 5, 9) == {}
+    assert _distribute_anchors(["only"], 5, 9) == {"only": 5}
+    spread = _distribute_anchors(["a", "b", "c"], 0, 100)
+    assert spread == {"a": 0, "b": 50, "c": 100}
+    with pytest.raises(ScoringContractError, match="inverted segment"):
+        _distribute_anchors(["a"], 9, 5)

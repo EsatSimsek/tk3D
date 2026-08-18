@@ -376,10 +376,11 @@ def build_automatic_movement_timeline(
         movements[idx]["movement_id"] for idx in sorted(missing_indices)
     ]
     recording_scope = "complete_performance" if not missing_ids else "partial_sequence"
+    # The timeline contract requires source_end_reason to be None for a complete
+    # performance and a non-empty string for a partial one; violating that would
+    # make this function raise on its own output.
     source_end_reason = (
-        "auto_alignment_complete_all_movements_matched"
-        if not missing_ids
-        else "auto_alignment_missing_movements_detected"
+        None if not missing_ids else "auto_alignment_missing_movements_detected"
     )
 
     timeline_draft = {
