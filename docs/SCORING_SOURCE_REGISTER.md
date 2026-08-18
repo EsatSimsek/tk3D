@@ -1,6 +1,8 @@
 # Puanlama Kaynak Sicili
 
 Son doğrulama: **10 Ağustos 2026**
+Son güncelleme: **18 Ağustos 2026** (15 Ağustos'ta kullanıma alınan 2014 sayfa
+17 eolgul geometrisi belgelendi; sayfa bazlı kural tablosu eklendi)
 
 Bu sicil, kural motoruna giren bilginin nereden geldiğini ve hangi iddia için
 kullanılabileceğini kaydeder. Bir kaynağın burada bulunması, içeriğinin otomatik
@@ -82,6 +84,36 @@ tam skor eşiği yapılmaz. Açık geometriler yalnız kaynağı tarihsel olarak
 işaretleyen ayrı source-bound profilde, `%95` belirsizlik kapısıyla provisional
 `-0,1` gözlenen-kapsam kararı için kullanılabilir. WholeBody adaylarının
 semantiği ve hata taksonomisi için de kullanılır.
+
+#### 2.0.1 Sayısal kurallara bağlanan sayfalar
+
+`config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml` içindeki her sayısal
+kural, yukarıdaki SHA-256 özetine ve tek tek sayfa numarasına bağlıdır.
+
+Bu SHA-256 şu an **kayıtlı provenance**'tır: profil doğrulaması alanın dolu
+olmasını şart koşar, fakat kaynak PDF çalışma anında yeniden hash'lenmez.
+Gerçek dosya hash'lemesi ayrı `SourceIntake` akışındadır ve henüz kural
+profiline bağlanmamıştır; bu bağlama yapılana kadar “dosya değişirse kural
+kapanır” garantisi **yoktur**.
+
+| Sayfa | Geometri | `rule_id` | Aralık/sınır | Statü |
+|---:|---|---|---|---|
+| 5 | Ap-seogi arka ayak yönü | `HIST-2014-AP-SEOGI-BACK-FOOT-30` | `<= 30°` | tarihsel provisional |
+| 7 | Ap-gubi arka ayak yönü | `HIST-2014-APKUBI-BACK-FOOT-30` | `<= 30°` | tarihsel provisional |
+| 16 | Arae-makki yumruk-uyluk mesafesi | `HIST-2014-ARAE-FIST-THIGH-ONE-TO-TWO` | `1–2` yumruk | tarihsel provisional |
+| 18 | Momtong-an-makki dirsek açısı | `HIST-2014-MOMTONG-AN-ELBOW-90-120` | `90–120°` | tarihsel provisional |
+| 17 | **Eolgul-makki yumruk-alın mesafesi** | `HIST-2014-EOLGUL-FIST-FOREHEAD-ONE` | `0,5–1,5` yumruk | **15 Ağustos 2026'da eklendi** |
+
+PoomsaeSpec ayrıca aynı belgenin `23` ve `33`. sayfalarını teknik semantik
+referansı olarak anar; bu sayfalar sayısal kural üretmez. Tabloya yalnız sayısal
+kurala bağlanan sayfalar girer.
+
+Eolgul kuralının kaynak metni bloğun bitişini “alın merkezinden yaklaşık bir
+yumruk” olarak tanımlar. Profil bunu tek bir noktaya değil `0,5–1,5` yumruk
+aralığına açar; `0,20` yumruk belirsizlik tabanı ve `0,15` yumruk sınır
+koruması eklenir. Böylece “yaklaşık bir yumruk” ifadesi, kaynakta bulunmayan
+bir kesinlik derecesine yükseltilmemiş olur. Ölçüm birimi yumruk genişliğidir;
+alın merkezi doğrudan ölçülen kaş çizgisidir, ekstrapole edilmez.
 
 ### 2.1 Kukkiwon 2025 ayrıntılı eğitim videosu
 
@@ -211,6 +243,8 @@ denge kaybı otomatik `-0,3` yapılmamıştır.
 | Taegeuk 1 sıra transkripsiyonu | taslak, kaynak bağlı | PoomsaeSpec ve video etiketi |
 | Teknik bitiş biçimleri | aday, kaynak bağlı | metrik tasarımı |
 | 2014 WT/WTF teknik geometrisi | tarihsel resmî | hash/sayfa bağlı provisional küçük-hata geometrisi; güncel WT eki değil |
+| WT 3 saniye duraklama olayı | aktif | tek otomatik türetilebilen kategorik gözlem; zaman çizelgesi boşluğundan `duration_measurement` ile |
+| Presentation `0-6` puanı | hakem kalibrasyonu yok | yalnız kinematik proxy teşhisi; `total_score=null`, puan iddiası kapalı |
 | Güncel sayısal toleranslar | resmî kaynak eksik | güncel WT toleransı iddia edilemez |
 | Tarihsel küçük hata eşlemesi | belirsizlik kapılı provisional | yalnız `%95` aralığı bütünüyle sınır dışındaysa `-0,1` |
 | Büyük hata eşlemesi | eksik | otomatik major kapalı |

@@ -229,6 +229,68 @@ hâlâ gerekir.
 
 ### Taegeuk 1 Accuracy kural motoru
 
+18 Ağustos 2026 tarihli puanlama zinciri (v5). Her aşama fail-closed'dur ve
+hiçbir aşama başka aşamanın çıktısını sahtelemez:
+
+```text
+video -> doğrulanmış 3B poz
+  -> MovementTimeline
+       (manuel etiket | build_automatic_movement_timeline())
+  -> wholebody_diagnostics_report.json                (ölçüm, puansız)
+  -> derive_categorical_observations()                (otomatik 3 sn duraklama)
+  -> build_source_bound_accuracy_decisions()          (tarihsel provisional -0,1)
+  -> build_presentation_diagnostics()                 (puan iddiası yok)
+```
+
+Zaman çizelgesi zincirin **girdisidir**, ara çıktısı değil: WholeBody teşhisi
+segment ve anchor'ları okumak için doğrulanmış bir timeline ister.
+
+**Bağlanma durumu.** Bu zincirin timeline türetme, otomatik duraklama gözlemi ve
+presentation aşamaları şu an yalnız kütüphane API'sidir ve testlerle
+çalıştırılır; `scripts/run_poomsae_scoring.py` tek-komut akışına henüz
+bağlanmamıştır. Tek-komut çalıştırıcı hâlâ manuel timeline'ı taşır ve
+kategorik gözlemleri dışarıdan `--observations` JSON'u ile bekler.
+
+Zincire 15-18 Ağustos 2026 arasında eklenen dört yetenek:
+
+- **Eolgul-makki sayısal kuralı.** `_eolgul_fist_to_forehead_ratio()` blok
+  yumruğundan alın merkezine mesafeyi yumruk genişliği biriminde ölçer. Alın
+  merkezi doğrudan ölçülen kaş çizgisidir (iBUG `17-26`), ekstrapolasyon
+  yoktur. Kural `HIST-2014-EOLGUL-FIST-FOREHEAD-ONE`, aralık `0,5-1,5` yumruk,
+  kaynak 2014 guideline sayfa `17`, statü tarihsel-provisional. M13 ve M15
+  `technique.eolgul_makki.forehead_distance` kriterini taşır. Göz ayrımı ve
+  yumruk genişliği kalite kapıları geçilmezse ölçüm yapılmaz;
+- **Otomatik 3 saniye duraklama tespiti.** `derive_categorical_observations()`
+  zaman çizelgesindeki segment boşluklarını tarar, `>= 3` saniye olanları
+  `pause_at_least_3_sec` kategorik gözlemine dönüştürür
+  (`confirmation_method: duration_measurement`). Kuyruk boşluğu da taranır.
+  `wrong_action`/`wrong_stance` için otomasyon bilinçli olarak eklenmedi:
+  timeline doğrulayıcı zaten sıra ihlalini reddettiği için çıkarım tautolojik
+  olurdu; bu iki kural hâlâ `manual_video_review` ister;
+- **Otomatik MovementTimeline türetme.** `build_automatic_movement_timeline()`
+  pose-DTW, otomatik atlama cezası ve belirsizlik bandını birleştirip
+  `label_source=automatic` doğrulanmış bir timeline üretir. DTW aynı segmenti
+  birden çok harekete eşleyebildiği için segment başına en düşük maliyetli
+  eşleşme seçilir; timeline sözleşmesi çakışan segmente izin vermez. Fonksiyon
+  segment **tespiti** yapmaz, dışarıdan pre-detected segment alır;
+- **Presentation teşhis motoru.** `src/poomsae_scoring/presentation.py` üç
+  bileşenli teşhis raporu üretir: `speed_and_power`, `rhythm_and_tempo`,
+  `expression_of_energy`. Sözleşme gereği `total_score=null`,
+  `judge_calibrated=false`, `score_claim_allowed=false`. Yeni tolerans değeri
+  veya yeni dış kaynak eklemez; mevcut WholeBody metriklerini toplar ve zaman
+  çizelgesinden süre/boşluk türetir. Ayrıntısı
+  `docs/PRESENTATION_DIAGNOSTICS.md` içindedir.
+
+18 Ağustos 2026 test kapsamı genişletmesinde bu özelliklerin edge case'leri ve
+uçtan uca zinciri test edildi. Bu sırada gerçek bir sözleşme ihlali bulundu ve
+düzeltildi: `build_automatic_movement_timeline()` bütün hareketler eşleştiğinde
+`recording_scope=complete_performance` ile birlikte dolu bir
+`source_end_reason` yazıyordu; sözleşme complete kayıtta bu alanın `null`
+olmasını şart koştuğu için fonksiyon kendi çıktısında hata fırlatıyordu. Mevcut
+testlerin tamamı kısmi kayıt senaryosu olduğu için bu yol hiç çalışmamıştı.
+Alan artık complete kayıtta `null`, kısmi kayıtta
+`auto_alignment_missing_movements_detected` değerini alır.
+
 12 Ağustos 2026 tarihinde trimmed ZED kaydı için tek komutlu, profil tabanlı
 çalıştırıcı eklendi. `scripts/run_poomsae_scoring.py --profile
 poomsae1_trimmed` doğrulanmış 3B pozu WholeBody-133 teşhis, hareket/faz kanıtı,
@@ -441,22 +503,40 @@ Bu çıktı sol kamera optik merkezine göre metre cinsinden
 
 ### Otomatik testler
 
-13 Ağustos 2026 tarihinde kaynak-bağlı Accuracy, M01-M06 kapsam ayrımı,
-WholeBody teşhis olayları, tek-komut çalıştırıcı, iki kameralı işaretli hata
-videosu ve etkileşimli inceleme ekranıyla mevcut çalışma ağacında:
+18 Ağustos 2026 tarihinde v5 özelliklerinin (eolgul kuralı, otomatik duraklama
+tespiti, otomatik timeline türetme, presentation motoru) edge case ve uçtan uca
+testleri eklendikten sonra:
 
 ```text
-204 passed in 18.25s
+221 passed, 2 failed in 45.23s
 ```
 
 Komut:
 
 ```powershell
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-m01m06-final-v2-20260813
+.\.venv312\Scripts\python.exe -m pytest tests\ -q
 ```
 
+Başarısız iki test yeni işlerden bağımsızdır; ikisi de v5 çalışmalarından çok
+önce yazılmıştır. Sebepleri farklıdır:
+
+- `test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps` —
+  taslak timeline gitignore'lanmış `outputs/` altındaki bir pose artefaktına
+  bağlıdır. O dosya depoda taşınmadığı için her temiz checkout'ta
+  `pose_binding.status` `verified` yerine `pose_file_missing` döner. Test
+  yalnız orijinal kayıt makinesinde, run çıktıları yerinde dururken geçer;
+  kalıcı çözüm bağın depoda bulunan bir dosyaya taşınmasıdır;
+- `test_timeline_transfer_requires_identical_video_time_axis` —
+  `scripts/run_poomsae_scoring.py` içindeki `_transfer_timeline_binding()`
+  yeni pose yolunu koşulsuz `relative_to(ROOT)` ile çevirmeye çalışır; depo
+  kökü dışındaki bir yol (pytest `tmp_path`) `ValueError` üretir.
+
+Kapsam ölçümü (`pytest --cov=src/poomsae_scoring`): `presentation.py` `%97`,
+`sequence_alignment.py` `%97`, `wholebody_diagnostics.py` `%84`,
+`source_bound_accuracy.py` `%80`.
+
 Önceki sohbetlerdeki `28`, `31`, `47`, `73`, `91`, `128`, `140`, `144`, `147`
-ve `151`, `173`, `176`, `201` sayıları kendi
+ve `151`, `173`, `176`, `201`, `204` sayıları kendi
 tarihlerindeki sonuçlardır; güncel test sayısı değildir.
 
 ### Son korunan tam AIST koşusu
@@ -593,6 +673,21 @@ outputs/<session_id>/runs/<run_id>/
 8. İmkân oluşursa ZED RGBD mimarisini bağımsız mocap/ölçüm ground truth üzerinde
    ayrıca benchmark etmek; bu opsiyonel dış doğrulamayı provisional akışın
    çalışma önkoşulu yapmamak.
+9. Motion tabanlı otomatik segment tespiti eklemek.
+   `build_automatic_movement_timeline()` şu an dışarıdan pre-detected segment
+   alır; fixation/hareket enerjisinden segment sınırı çıkaran katman ayrı bir
+   problemdir ve henüz yoktur.
+10. M07-M18 için 2014 kılavuzdan ek sayısal geometri çıkarmak (örneğin
+    momtong-jireugi solar-plexus hedef yüksekliği). Her yeni kural yine
+    hash/sayfa bağlı ve `%95` belirsizlik kapılı olmalıdır.
+11. Yukarıdaki iki başarısız testi düzeltmek: taslak timeline'ın pose bağını
+    depoda bulunan bir dosyaya taşımak ve `_transfer_timeline_binding()`
+    içindeki `relative_to(ROOT)` çağrısını depo dışı yollar için güvenli hale
+    getirmek.
+12. v5 kütüphane API'lerini tek-komut çalıştırıcıya bağlamak:
+    `build_automatic_movement_timeline()`, `derive_categorical_observations()`
+    ve `build_presentation_diagnostics()` şu an `scripts/` altındaki hiçbir
+    akıştan çağrılmıyor.
 
 ## Tarihsel belgeler
 

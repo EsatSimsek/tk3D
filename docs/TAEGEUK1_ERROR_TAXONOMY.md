@@ -1,6 +1,8 @@
 # Taegeuk 1 Hata Taksonomisi ve Ölçülebilirlik Matrisi
 
 Son araştırma ve doğrulama: **3 Ağustos 2026**
+Son güncelleme: **18 Ağustos 2026** (15 Ağustos'ta eklenen eolgul-makki sayısal
+kuralı ve otomatik duraklama tespiti belgelendi)
 
 Bu belge, Taegeuk 1 için “hangi hataları aramalıyız?” sorusunu kaynak
 otoritesi, puan semantiği ve sensörle ölçülebilirlik bakımından ayırır. Buradaki
@@ -46,6 +48,24 @@ WT 2024 metni “genel denge kaybı = her durumda -0,3” şeklinde açık bir
 Swiss 2025 belgeleri genel büyük denge kaybı/stumble örneğini ekler. Bu geniş
 yorum, WT RulePack'e ayrı otorite doğrulaması olmadan aktarılmayacaktır.
 
+**Otomatik türetilen tek kategorik gözlem: 3 saniye duraklama.** Yukarıdaki
+kategorik olayların yalnız biri zaman çizelgesinden deterministik olarak
+kanıtlanabilir. `derive_categorical_observations()`
+(`src/poomsae_scoring/source_bound_accuracy.py`) etiketli segmentler arasındaki
+boşlukları tarar ve eşiği (varsayılan `3,0` saniye, `>=` semantiği) karşılayan
+her boşluğu, boşluktan **önce gelen** harekete bağlı bir
+`pause_at_least_3_sec` gözlemine dönüştürür. Son segmentten sonraki kuyruk
+boşluğu da taranır. `confirmation_method` alanı `duration_measurement`,
+`evidence_status` alanı `observed` olur; gözlem güveni segment güveni ile
+`minimum_confidence` tabanının büyüğüdür.
+
+Yanlış hareket (`wrong_action`) ve yanlış duruş (`wrong_stance`) için otomasyon
+**bilinçli olarak eklenmemiştir**: timeline doğrulayıcı zaten PoomsaeSpec
+sırasına uymayan bir zaman çizelgesini reddeder ve segmentler gözlenmiş duruş
+alanı taşımaz. Bu yüzden yalnız timeline'dan çıkarılacak bir “sıra ihlali”
+tautolojik olarak boş çıkardı. Bu iki kural hâlâ `manual_video_review` ile
+girilen insan gözlemi ister.
+
 ### 2.2 Tam yarışma performansı cezaları
 
 WT Article 16, Accuracy dışındaki nihai puan cezaları olarak belirlenen yarışma
@@ -67,7 +87,10 @@ sapmasına `-0,1` yazmak yanlış mimaridir. Sistem şu göstergeleri ayrı çı
 - kinematik hız/ivme vekilleri; bunlar gerçek kuvvet ölçümü değildir.
 
 Hakem kalibrasyonu olmadığı için bu özelliklerin doğrudan resmî `0-6` puana
-dönüşümü etkin değildir.
+dönüşümü etkin değildir. Bu göstergeleri toplayan katman
+`src/poomsae_scoring/presentation.py` içindedir ve sözleşme gereği
+`total_score=None`, `score_claim_allowed=false` üretir; ayrıntısı
+[`PRESENTATION_DIAGNOSTICS.md`](PRESENTATION_DIAGNOSTICS.md) belgesindedir.
 
 ## 3. Taegeuk 1 teknik hata aileleri
 
@@ -75,11 +98,12 @@ Aşağıdaki geometri, 2014 tarihsel resmî scoring guideline ile 2025 Kukkiwon
 teknik eğitiminin aday üretmede kullanılabilecek kesişimidir. Sayısal sınırlar
 güncel WT toleransı değildir.
 
-Source-bound v1 yalnız kılavuzda açık sayı bulunan dört geometriyi tarihsel
+Source-bound v1 yalnız kılavuzda açık sayı bulunan geometrileri tarihsel
 provisional küçük-hata kararına açar: ap-seogi/apkubi arka ayak `30°`,
-arae-makki yumruk-uyluk `1–2 yumruk` ve momtong-an-makki dirsek `90–120°`.
-Ölçümün `%95` aralığı sınırla çakışırsa karar `boundary_uncertain` olur;
-kesinti yoktur. Hiçbir sayısal geometri `-0,3` üretemez.
+arae-makki yumruk-uyluk `1–2 yumruk`, momtong-an-makki dirsek `90–120°` ve
+eolgul-makki yumruk-alın `0,5–1,5 yumruk`. Ölçümün `%95` aralığı sınırla
+çakışırsa karar `boundary_uncertain` olur; kesinti yoktur. Hiçbir sayısal
+geometri `-0,3` üretemez.
 
 ### 3.1 Ap-seogi
 
@@ -157,6 +181,53 @@ Tarihsel bitiş tanımı:
 
 Alın mesafesi yüz ölçeği ve bilek güveni geçerse ölçülebilir. Kameraya göre
 2B piksel mesafesi tek başına kullanılmaz.
+
+**Aktif sayısal kural (15 Ağustos 2026).** Bu geometri, profildeki beşinci
+sayısal kural — dördüncü ayrı `metric_id` — olarak source-bound profile
+alınmıştır:
+
+| Alan | Değer |
+|---|---|
+| `rule_id` | `HIST-2014-EOLGUL-FIST-FOREHEAD-ONE` |
+| Metrik | `eolgul_fist_to_forehead_fist_ratio` |
+| Aralık | `0,5–1,5` yumruk genişliği (`operator: range`) |
+| Belirsizlik tabanı | `0,20` yumruk |
+| Sınır koruması | `0,15` yumruk |
+| Kaynak | 2014 WTF guideline, sayfa `17`, `historical_official_not_current_attachment` |
+| Kesinti türü | yalnız `minor` (`-0,1`) |
+| İlgili hareketler | M13, M15 |
+
+Kural, PoomsaeSpec kriter adına göre değil profildeki
+`technique_ids: [eolgul_makki]` alanı üzerinden bağlanır; bu teknik yalnız M13
+ve M15'te bulunur ve iki hareket de
+`technique.eolgul_makki.forehead_distance` kriterini taşır.
+
+Ölçüm `src/poomsae_scoring/wholebody_diagnostics.py` içindeki
+`_eolgul_fist_to_forehead_ratio()` fonksiyonuyla yapılır. Ölçünün paydası
+yumruk genişliğidir; alın merkezi **doğrudan ölçülen kaş çizgisidir** (iBUG
+`17-26`), yukarı doğru ekstrapolasyon yapılmaz. Fonksiyon şu durumların
+herhangi birinde **o kare için** `None` döner:
+
+- vücut ölçeği yok veya sıfır/negatif;
+- dört yumruk boğumundan (`index/middle/ring/pinky MCP`) biri bile eksik;
+- yumruk genişliği sıfıra yakın (boğumlar çakışmış);
+- yumruk genişliği/vücut ölçeği oranı el kalite kapısının
+  (`hand_palm_length_body_scale`) dışında;
+- on iki göz noktasından biri bile eksik;
+- göz ayrımı/vücut ölçeği oranı yüz kalite kapısının
+  (`face_eye_separation_body_scale`) dışında;
+- geçerli kaş noktası sayısı dörtten az.
+
+Fonksiyon tek kare üzerinde çalışır; metrik değeri fixation anchor'ı etrafındaki
+pencereden (`anchor_window_radius_frames = 5`, yani en fazla 11 kare) sağlam
+biçimde toplanır. Metriğin `None` olması ve kararın `not_measurable` üretilmesi
+için pencerede geçerli örnek sayısının `min_anchor_window_valid_samples = 3`
+altına düşmesi gerekir. Yani 11 karenin 8'i yukarıdaki kapılara takılsa bile
+kural normal şekilde karar verebilir.
+
+Bu kapılar arae-makki ölçümüne benzer fail-closed mantığındadır — eolgul
+ölçümü ek olarak yüz/göz ayrımı kapısı ve sıfıra yakın yumruk genişliği
+koruması taşır. Ortak ilke aynıdır: ölçüm yapılamıyorsa değer uydurulmaz.
 
 ### 3.7 Ap-chagi ve ardından yumruk
 
