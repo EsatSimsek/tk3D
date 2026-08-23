@@ -142,6 +142,16 @@ def main() -> None:
         f"{results['wholebody_measurable_metric_count']}/{results['wholebody_thresholded_metric_count']}"
     )
     print(f"WholeBody teşhis adayı (puan yok): {results['diagnostic_review_candidate_count']}")
+    print(
+        "Otomatik kategorik gözlem (3 sn duraklama): "
+        f"{results['automatic_pause_observation_count']}"
+    )
+    presentation = summary["presentation"]
+    print(
+        "Presentation teşhisi: "
+        f"{presentation['status']}, puan={_display(presentation['total_score'])} "
+        f"(hakem kalibrasyonu yok, puan iddiası kapalı)"
+    )
     print(f"Rule scoring ready: {str(results['rule_scoring_ready']).lower()}")
     print(f"Çıktı klasörü: {summary['run']['root']}")
     print(f"Ana özet: {summary_path}")
@@ -277,6 +287,17 @@ def run_workflow(
         outputs["rule_scoring_readiness"],
     )
     _run_stage(
+        "Zaman çizelgesinden otomatik kategorik gözlemler",
+        "scripts/derive_poomsae_categorical_observations.py",
+        "--poomsae-spec",
+        config_paths["poomsae_spec"],
+        "--timeline",
+        config_paths["movement_timeline"],
+        "--output-json",
+        outputs["categorical_observations"],
+    )
+    _require_file(outputs["categorical_observations"], "automatic categorical observations")
+    _run_stage(
         "Kaynak-bağlı Accuracy kararları",
         "scripts/build_source_bound_accuracy_decisions.py",
         "--wholebody-diagnostics",
@@ -287,8 +308,22 @@ def run_workflow(
         config_paths["movement_timeline"],
         "--accuracy-profile",
         config_paths["accuracy_profile"],
+        "--observations",
+        outputs["categorical_observations"],
         "--output-json",
         outputs["accuracy_decisions"],
+    )
+    _run_stage(
+        "Presentation teşhis paneli (puan iddiası yok)",
+        "scripts/build_poomsae_presentation_diagnostics.py",
+        "--wholebody-diagnostics",
+        outputs["wholebody_diagnostics"],
+        "--poomsae-spec",
+        config_paths["poomsae_spec"],
+        "--timeline",
+        config_paths["movement_timeline"],
+        "--output-json",
+        outputs["presentation_diagnostics"],
     )
     _run_stage(
         "Kararları görsel kanıt olaylarına dönüştürme",
@@ -523,10 +558,24 @@ def _transfer_timeline_binding(
     transferred["source_binding"] = {
         "session_id": session_id,
         "run_id": run_id,
-        "pose_file": new_pose_path.resolve().relative_to(ROOT).as_posix(),
+        "pose_file": _repo_relative_posix(new_pose_path),
         "pose_file_sha256": _sha256(new_pose_path),
     }
     return transferred
+
+
+def _repo_relative_posix(path: Path) -> str:
+    """Repo-relative POSIX path, falling back to the absolute path when outside the repo.
+
+    Outputs normally live under the repository, but the caller may point at a pose file
+    anywhere on disk; recording an absolute path is correct there, whereas the previous
+    unconditional ``relative_to(ROOT)`` raised ValueError and aborted the transfer.
+    """
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        return resolved.as_posix()
 
 
 def _verify_process_inputs(session_path: Path, session_id: str, output_root: Path) -> None:
@@ -558,6 +607,8 @@ def _build_summary(
     decisions = _read_json(outputs["accuracy_decisions"])
     readiness = _read_json(outputs["rule_scoring_readiness"])
     diagnostics = _read_json(outputs["wholebody_diagnostics"])
+    observations = _read_json(outputs["categorical_observations"])
+    presentation = _read_json(outputs["presentation_diagnostics"])
     timeline = yaml.safe_load(config_paths["movement_timeline"].read_text(encoding="utf-8"))
     summary = decisions.get("summary", {})
     coverage = timeline["coverage"]
@@ -615,6 +666,10 @@ def _build_summary(
             "not_measurable_count": int(summary.get("not_measurable_count", 0)),
             "boundary_uncertain_count": int(summary.get("boundary_uncertain_count", 0)),
             "applied_categorical_count": int(summary.get("applied_categorical_count", 0)),
+            "automatic_categorical_observation_count": len(observations),
+            "automatic_pause_observation_count": sum(
+                1 for item in observations if item.get("event_kind") == "pause_at_least_3_sec"
+            ),
             "wholebody_thresholded_metric_count": int(
                 diagnostic_coverage.get("thresholded_metric_count", 0)
             ),
@@ -627,6 +682,16 @@ def _build_summary(
             "rule_scoring_ready": bool(readiness.get("rule_scoring_ready", False)),
             "judge_calibrated_ready": bool(readiness.get("judge_calibrated_ready", False)),
             "official_scoring_ready": bool(readiness.get("official_scoring_ready", False)),
+        },
+        "presentation": {
+            "status": presentation["status"],
+            "total_score": presentation["total_score"],
+            "judge_calibrated": presentation["judge_calibrated"],
+            "score_claim_allowed": presentation["safety_contract"]["score_claim_allowed"],
+            "measurable_metric_counts": {
+                component: value["measurable_metric_count"]
+                for component, value in presentation["components"].items()
+            },
         },
         "interpretation": (
             "A null accuracy_score is intentional for a partial recording or insufficient evidence. "
@@ -644,7 +709,12 @@ def _output_paths(run_root: Path) -> dict[str, Path]:
         "movement_evidence": run_root / "json" / "movement_evidence_report.json",
         "movement_evidence_csv": run_root / "csv" / "movement_evidence.csv",
         "rule_scoring_readiness": run_root / "json" / "rule_scoring_readiness.json",
+        "categorical_observations": run_root / "json" / "automatic_categorical_observations.json",
+        "categorical_observations_manifest": (
+            run_root / "json" / "automatic_categorical_observations_manifest.json"
+        ),
         "accuracy_decisions": run_root / "json" / "source_bound_accuracy_decisions.json",
+        "presentation_diagnostics": run_root / "json" / "presentation_diagnostics_report.json",
         "decision_evidence_events": run_root / "json" / "decision_evidence_events.json",
         "annotated_error_video": run_root / "videos" / "poomsae_scoring_annotated.mp4",
         "annotated_error_video_manifest": run_root / "videos" / "poomsae_scoring_annotated_manifest.json",
