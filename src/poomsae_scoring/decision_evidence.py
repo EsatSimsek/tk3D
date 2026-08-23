@@ -26,8 +26,16 @@ def build_decision_evidence_events(
     poomsae_spec: dict[str, Any],
     movement_timeline: dict[str, Any],
     wholebody_diagnostics: dict[str, Any] | None = None,
+    alignment_anomalies: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Convert scoring decisions into immutable, camera-renderable evidence events."""
+    """Convert scoring decisions into immutable, camera-renderable evidence events.
+
+    ``alignment_anomalies`` comes from :func:`build_automatic_timeline_report` and is
+    optional because a hand-labelled timeline has no alignment step and therefore no
+    anomalies. Anomalies become blue review candidates carrying no deduction: they
+    report that the segment-to-movement match was uncertain, not that the athlete
+    made an error.
+    """
     spec = validate_poomsae_spec(poomsae_spec)
     timeline = validate_movement_timeline(movement_timeline, spec)
     if accuracy_decisions.get("status") != "source_bound_accuracy_decisions":
@@ -89,6 +97,22 @@ def build_decision_evidence_events(
             )
         diagnostic_count = len(candidates)
 
+    anomaly_count = 0
+    if alignment_anomalies is not None:
+        if not isinstance(alignment_anomalies, list):
+            raise ScoringContractError("alignment_anomalies must be a list")
+        for index, anomaly in enumerate(alignment_anomalies, start=1):
+            events.append(
+                _alignment_anomaly_event(
+                    index=index,
+                    anomaly=anomaly,
+                    movements=movements,
+                    frame_count=timeline["frame_count"],
+                    fps=timeline["fps"],
+                )
+            )
+        anomaly_count = len(alignment_anomalies)
+
     counts = {key: sum(event["decision_status"] == key for event in events) for key in _STATUS_PRESENTATION}
     return {
         "schema_version": 1,
@@ -110,8 +134,117 @@ def build_decision_evidence_events(
             "within_source_range_count": counts["within_source_range"],
             "categorical_event_count": len(categorical),
             "diagnostic_review_candidate_count": diagnostic_count,
+            "alignment_anomaly_count": anomaly_count,
         },
         "events": events,
+    }
+
+
+_ALIGNMENT_ANOMALY_TEXT = {
+    "unmatched_movement": (
+        "Bu hareket için eşleşen segment bulunamadı",
+        "Videoyu bu aralıkta izleyip hareketin yapılıp yapılmadığını doğrulayın; "
+        "yapıldıysa segment tespiti kaçırmış demektir.",
+    ),
+    "unmatched_segment": (
+        "Bu kare aralığı hiçbir harekete oturmadı",
+        "Fazladan bir hareket, tekrar ya da hazırlık/bitiş duruşu olabilir; "
+        "videodan doğrulayın.",
+    ),
+    "segment_spans_multiple_movements": (
+        "Tek segment birden fazla hareketi kapsıyor",
+        "Sporcu iki hareketi arada durmadan birleştirmiş olabilir; "
+        "segment sınırını videodan kontrol edin.",
+    ),
+    "ambiguous_match": (
+        "Eşleşme belirsizlik bandında",
+        "Eşleşme sporcu lehine korundu; doğru hareket olup olmadığını videodan teyit edin.",
+    ),
+}
+
+
+def _alignment_anomaly_event(
+    *,
+    index: int,
+    anomaly: dict[str, Any],
+    movements: dict[str, Any],
+    frame_count: int,
+    fps: float,
+) -> dict[str, Any]:
+    """Turn one alignment anomaly into a blue, point-free review event.
+
+    An anomaly about a movement that never got a segment has no frame window of its
+    own, so the window is left null rather than invented; the renderer must skip such
+    an event instead of drawing it at a guessed position.
+    """
+    issue = anomaly.get("issue")
+    if issue not in _ALIGNMENT_ANOMALY_TEXT:
+        raise ScoringContractError(f"unsupported alignment anomaly issue: {issue}")
+    movement_id = anomaly.get("movement_id")
+    if movement_id is not None and movement_id not in movements:
+        raise ScoringContractError(f"alignment anomaly references an unknown movement: {movement_id}")
+    movement = movements.get(movement_id) if movement_id else None
+    start = anomaly.get("start_frame")
+    end = anomaly.get("end_frame")
+    window = None
+    if start is not None and end is not None:
+        start = _frame(start, 0)
+        end = _frame(end, start)
+        if not 0 <= start <= end < frame_count:
+            raise ScoringContractError(f"alignment anomaly window is outside the timeline: {issue}")
+        window = {
+            "start_frame": start,
+            "anchor_frame": start,
+            "end_frame": end,
+            "start_time_sec": start / fps,
+            "anchor_time_sec": start / fps,
+            "end_time_sec": end / fps,
+            "scope": "alignment_segment",
+        }
+    title, correction = _ALIGNMENT_ANOMALY_TEXT[issue]
+    label = movement_id or f"SEG{anomaly.get('segment_id')}"
+    return {
+        "event_id": f"ALN-{index:03d}-{label}-{issue}",
+        "event_kind": "alignment_anomaly_review_candidate",
+        "movement_id": movement_id,
+        "movement_name": movement["display_name"] if movement else None,
+        "technique_id": movement["techniques"][0]["technique_id"] if movement else None,
+        "metric_id": None,
+        "rule_id": None,
+        "description": title,
+        "decision_status": "diagnostic_review_candidate",
+        "display_status": "diagnostic_review_candidate",
+        "display_label": "Hizalama şüphesi — puan yok",
+        "display_color": "blue",
+        "application_status": "review_only",
+        "deduction_kind": None,
+        "deduction_points": None,
+        "measurement": {
+            "value": anomaly.get("cost"),
+            "unit": "pose_distance" if anomaly.get("cost") is not None else None,
+            "uncertainty_95": None,
+            "interval_95": None,
+            "rule_operator": None,
+            "rule_limits": [],
+            "boundary_guard": None,
+            "sample_count": None,
+        },
+        "user_explanation": {
+            "title": title,
+            "observed": str(anomaly.get("detail") or title),
+            "correction": correction,
+            "authority": (
+                "Bu bir kesinti değildir. Otomatik hizalamanın kendi belirsizliğini "
+                "bildirir; sebebi sporcu hatası da olabilir, segment tespitinin hatası da."
+            ),
+        },
+        "evidence_window": window,
+        "visual_geometry": None,
+        "alignment": {
+            "issue": issue,
+            "segment_id": anomaly.get("segment_id"),
+            "competing_movement_id": anomaly.get("competing_movement_id"),
+        },
     }
 
 

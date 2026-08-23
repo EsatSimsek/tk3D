@@ -263,6 +263,36 @@ def build_automatic_movement_timeline(
     timeline_id: str,
     uncertainty_margin: float = 0.03,
 ) -> dict[str, Any]:
+    """Return only the validated MovementTimeline; see :func:`build_automatic_timeline_report`.
+
+    Kept as the narrow entry point for callers that want the timeline alone. Anything
+    that should surface *how well* the alignment went must use
+    :func:`build_automatic_timeline_report` instead, because the anomalies are
+    discarded here.
+    """
+    return build_automatic_timeline_report(
+        segments,
+        expected_poses,
+        poomsae_spec,
+        frame_count=frame_count,
+        fps=fps,
+        source_binding=source_binding,
+        timeline_id=timeline_id,
+        uncertainty_margin=uncertainty_margin,
+    )["timeline"]
+
+
+def build_automatic_timeline_report(
+    segments: list[dict[str, Any]],
+    expected_poses: list[Any],
+    poomsae_spec: dict[str, Any],
+    *,
+    frame_count: int,
+    fps: float,
+    source_binding: dict[str, Any],
+    timeline_id: str,
+    uncertainty_margin: float = 0.03,
+) -> dict[str, Any]:
     """Auto-align detected pose segments to a PoomsaeSpec and return a validated MovementTimeline.
 
     This is the glue that lets the accuracy pipeline consume a recording without
@@ -292,9 +322,17 @@ def build_automatic_movement_timeline(
     Returns
     -------
     dict
-        A MovementTimeline dict that has already been through
-        :func:`validate_movement_timeline`, ready to feed
+        ``{"timeline": ..., "alignment_anomalies": [...]}``. The timeline has already
+        been through :func:`validate_movement_timeline` and is ready to feed
         ``build_source_bound_accuracy_decisions`` and the rest of the pipeline.
+
+        ``alignment_anomalies`` records every way the match was *not* clean. These are
+        review candidates, never deductions: a movement without a segment may mean the
+        athlete skipped it, but it may equally mean the segment detector merged two
+        movements, the recording is partial, or the pose was too poor to match. The
+        timeline itself cannot carry them — its schema is closed by
+        ``_require_exact_keys`` — so they are returned alongside it and it is the
+        caller's job to surface them.
     """
     spec = validate_poomsae_spec(poomsae_spec)
     movements = spec["movements"]
@@ -330,8 +368,10 @@ def build_automatic_movement_timeline(
     # recordings), keep the movement with the lowest pose cost and treat the
     # rest as missing.
     best_by_segment: dict[int, tuple[int, float]] = {}
+    pairs_by_segment: dict[int, list[int]] = {}
     for seg_idx, mov_idx in aligned["pairs"]:
         pair_cost = float(cost[seg_idx][mov_idx])
+        pairs_by_segment.setdefault(seg_idx, []).append(mov_idx)
         current = best_by_segment.get(seg_idx)
         if current is None or pair_cost < current[1]:
             best_by_segment[seg_idx] = (mov_idx, pair_cost)
@@ -407,7 +447,131 @@ def build_automatic_movement_timeline(
         },
         "segments": timeline_segments,
     }
-    return validate_movement_timeline(timeline_draft, spec)
+    timeline = validate_movement_timeline(timeline_draft, spec)
+    anomalies = _collect_alignment_anomalies(
+        movements=movements,
+        segments=segments,
+        timeline_segments=timeline_segments,
+        best_by_segment=best_by_segment,
+        pairs_by_segment=pairs_by_segment,
+        missing_indices=missing_indices,
+        uncertain_movement_indices=uncertain_movement_indices,
+        cost=cost,
+    )
+    return {"timeline": timeline, "alignment_anomalies": anomalies}
+
+
+def _collect_alignment_anomalies(
+    *,
+    movements: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+    timeline_segments: list[dict[str, Any]],
+    best_by_segment: dict[int, tuple[int, float]],
+    pairs_by_segment: dict[int, list[int]],
+    missing_indices: set[int],
+    uncertain_movement_indices: set[int],
+    cost: Any,
+) -> list[dict[str, Any]]:
+    """Record every way the segment-to-movement match was not clean.
+
+    None of these is a deduction. Each says only "the alignment is not certain here",
+    and the honest reading is that the cause is unknown: athlete error, a segment
+    detector that merged or split a movement, a partial recording, or poor pose
+    quality all produce the same symptom.
+    """
+    anomalies: list[dict[str, Any]] = []
+    frames_by_movement = {item["movement_id"]: item for item in timeline_segments}
+
+    # A movement that ended up with no segment. Separate the two causes we can tell
+    # apart: DTW never paired it at all, or it lost the one-segment-one-movement
+    # contest to a closer movement.
+    dedup_losers: dict[int, int] = {}
+    for seg_idx, movement_indices in pairs_by_segment.items():
+        winner = best_by_segment.get(seg_idx, (None, None))[0]
+        for mov_idx in movement_indices:
+            if mov_idx != winner:
+                dedup_losers[mov_idx] = seg_idx
+    for mov_idx in sorted(missing_indices):
+        movement = movements[mov_idx]
+        if mov_idx in dedup_losers:
+            seg_idx = dedup_losers[mov_idx]
+            winner_idx = best_by_segment[seg_idx][0]
+            anomalies.append(
+                {
+                    "issue": "segment_spans_multiple_movements",
+                    "movement_id": movement["movement_id"],
+                    "segment_id": segments[seg_idx].get("segment_id", seg_idx),
+                    "start_frame": int(segments[seg_idx]["start_frame"]),
+                    "end_frame": int(segments[seg_idx]["end_frame"]),
+                    "competing_movement_id": movements[winner_idx]["movement_id"],
+                    "cost": round(float(cost[seg_idx][mov_idx]), 4),
+                    "detail": (
+                        f"{movement['movement_id']} ile "
+                        f"{movements[winner_idx]['movement_id']} aynı segmente eşleşti; "
+                        "segment başına tek hareket kuralı gereği daha yakın olan tutuldu."
+                    ),
+                }
+            )
+        else:
+            anomalies.append(
+                {
+                    "issue": "unmatched_movement",
+                    "movement_id": movement["movement_id"],
+                    "segment_id": None,
+                    "start_frame": None,
+                    "end_frame": None,
+                    "competing_movement_id": None,
+                    "cost": None,
+                    "detail": (
+                        f"{movement['movement_id']} için eşleşen segment bulunamadı. "
+                        "Sebep hareketin yapılmamış olması olabileceği gibi segmentin "
+                        "hiç tespit edilememesi de olabilir."
+                    ),
+                }
+            )
+
+    # A detected segment that no movement claimed.
+    for seg_idx, segment in enumerate(segments):
+        if seg_idx in best_by_segment:
+            continue
+        anomalies.append(
+            {
+                "issue": "unmatched_segment",
+                "movement_id": None,
+                "segment_id": segment.get("segment_id", seg_idx),
+                "start_frame": int(segment["start_frame"]),
+                "end_frame": int(segment["end_frame"]),
+                "competing_movement_id": None,
+                "cost": None,
+                "detail": (
+                    "Bu kare aralığında hareket tespit edildi ama beklenen hiçbir "
+                    "harekete oturmadı."
+                ),
+            }
+        )
+
+    # A match that was kept but sits inside the uncertainty band.
+    for mov_idx in sorted(uncertain_movement_indices):
+        movement_id = movements[mov_idx]["movement_id"]
+        placed = frames_by_movement.get(movement_id)
+        if placed is None:
+            continue
+        anomalies.append(
+            {
+                "issue": "ambiguous_match",
+                "movement_id": movement_id,
+                "segment_id": None,
+                "start_frame": int(placed["start_frame"]),
+                "end_frame": int(placed["end_frame"]),
+                "competing_movement_id": None,
+                "cost": None,
+                "detail": (
+                    f"{movement_id} eşleşmesi belirsizlik bandında kaldı; sporcu lehine "
+                    "korundu ama insan incelemesi gerekiyor."
+                ),
+            }
+        )
+    return anomalies
 
 
 def _distribute_anchors(phases: list[str], start_frame: int, end_frame: int) -> dict[str, int]:

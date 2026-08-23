@@ -195,11 +195,18 @@ def _index_events(
     indexed: dict[int, list[dict[str, Any]]] = defaultdict(list)
     joints: set[int] = set()
     for event in events:
-        window = event.get("evidence_window", {})
+        window = event.get("evidence_window")
+        if not window:
+            # An alignment anomaly about a movement that never got a segment has no
+            # frame window. Drawing it at a guessed frame would assert a location the
+            # data does not support, so it is left out of the video and reported in
+            # the HTML review instead.
+            continue
         start, end = int(window["start_frame"]), int(window["end_frame"])
         if not 0 <= start <= end < frame_count:
             raise ValueError(f"evidence event is outside the video timeline: {event.get('event_id')}")
-        joints.update(int(value) for value in event.get("visual_geometry", {}).get("joint_indices", []))
+        geometry = event.get("visual_geometry") or {}
+        joints.update(int(value) for value in geometry.get("joint_indices", []))
         for frame_index in range(start, end + 1):
             indexed[frame_index].append(event)
     for frame_events in indexed.values():
@@ -271,7 +278,7 @@ def _draw_geometry(
     color: tuple[int, int, int],
     event_number: int,
 ) -> None:
-    visual = event["visual_geometry"]
+    visual = event.get("visual_geometry") or {}
     indices = [int(value) for value in visual.get("joint_indices", [])]
     points = {
         index: _screen_point(observations.get((camera_id, frame_index, index)), scale)
@@ -445,7 +452,7 @@ def _draw_explanation_card(
             max_lines=2,
         )
         y += 5
-    if event.get("visual_geometry", {}).get("kind") == "foot_direction_angle":
+    if (event.get("visual_geometry") or {}).get("kind") == "foot_direction_angle":
         _draw_foot_rule_schematic(canvas, event, left, right, bottom)
 
 

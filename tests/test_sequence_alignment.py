@@ -372,3 +372,74 @@ def test_distribute_anchors_edge_cases():
     assert spread == {"a": 0, "b": 50, "c": 100}
     with pytest.raises(ScoringContractError, match="inverted segment"):
         _distribute_anchors(["a"], 9, 5)
+
+
+def test_automatic_timeline_report_flags_movement_without_segment():
+    from src.poomsae_scoring.sequence_alignment import build_automatic_timeline_report
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(4)
+    expected = [build_frame(160, 160), build_frame(140, 140), build_frame(120, 120), build_frame(100, 100)]
+    # Only two segments for four movements: M03 and M04 cannot be placed.
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": build_frame(159, 159)},
+        {"segment_id": 1, "start_frame": 80, "end_frame": 140, "mean_pose": build_frame(141, 141)},
+    ]
+
+    report = build_automatic_timeline_report(
+        **_auto_timeline_kwargs(spec, segments, expected, frame_count=300)
+    )
+
+    assert set(report) == {"timeline", "alignment_anomalies"}
+    assert report["timeline"]["coverage"]["observed_movement_ids"] == ["M01", "M02"]
+    issues = {item["issue"] for item in report["alignment_anomalies"]}
+    assert "unmatched_movement" in issues
+    unmatched = [a for a in report["alignment_anomalies"] if a["issue"] == "unmatched_movement"]
+    # An unplaced movement has no frames of its own; nothing may be invented for it.
+    for anomaly in unmatched:
+        assert anomaly["start_frame"] is None
+        assert anomaly["end_frame"] is None
+        assert anomaly["detail"]
+
+
+def test_automatic_timeline_report_flags_segment_shared_by_two_movements():
+    from src.poomsae_scoring.sequence_alignment import build_automatic_timeline_report
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(90, 90)]
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": build_frame(135, 135)}
+    ]
+
+    report = build_automatic_timeline_report(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    shared = [a for a in report["alignment_anomalies"] if a["issue"] == "segment_spans_multiple_movements"]
+    assert len(shared) == 1
+    assert shared[0]["movement_id"] == "M02"           # the movement that lost
+    assert shared[0]["competing_movement_id"] == "M01"  # the one that was kept
+    assert shared[0]["start_frame"] == 10
+    assert shared[0]["end_frame"] == 60
+
+
+def test_build_automatic_movement_timeline_still_returns_only_the_timeline():
+    """The narrow wrapper must keep its old contract for existing callers."""
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(120, 120)]
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 60, "mean_pose": build_frame(159, 159)},
+        {"segment_id": 1, "start_frame": 80, "end_frame": 140, "mean_pose": build_frame(121, 121)},
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    assert "alignment_anomalies" not in timeline
+    assert timeline["label_source"] == "automatic"
+    assert len(timeline["segments"]) == 2

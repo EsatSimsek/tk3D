@@ -235,3 +235,97 @@ def test_annotated_video_preserves_source_timeline_and_inserts_reading_pause(tmp
     capture = cv2.VideoCapture(str(output))
     assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 9
     capture.release()
+
+
+def _empty_decisions(timeline: dict) -> dict:
+    return {
+        "status": "source_bound_accuracy_decisions",
+        "timeline_id": timeline["timeline_id"],
+        "numeric_decisions": [],
+        "categorical_decisions": [],
+    }
+
+
+def test_alignment_anomalies_become_blue_review_events_without_points() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    segment = timeline["segments"][0]
+    anomalies = [
+        {
+            "issue": "segment_spans_multiple_movements",
+            "movement_id": "M02",
+            "segment_id": 0,
+            "start_frame": segment["start_frame"],
+            "end_frame": segment["end_frame"],
+            "competing_movement_id": "M01",
+            "cost": 0.42,
+            "detail": "M02 ile M01 aynı segmente eşleşti.",
+        },
+        {
+            "issue": "unmatched_movement",
+            "movement_id": "M03",
+            "segment_id": None,
+            "start_frame": None,
+            "end_frame": None,
+            "competing_movement_id": None,
+            "cost": None,
+            "detail": "M03 için eşleşen segment bulunamadı.",
+        },
+    ]
+
+    report = build_decision_evidence_events(
+        _empty_decisions(timeline), spec, timeline, None, anomalies
+    )
+
+    assert report["summary"]["alignment_anomaly_count"] == 2
+    events = [e for e in report["events"] if e["event_kind"] == "alignment_anomaly_review_candidate"]
+    assert len(events) == 2
+
+    for event in events:
+        # The whole point: an alignment doubt is never a deduction.
+        assert event["deduction_points"] is None
+        assert event["deduction_kind"] is None
+        assert event["display_color"] == "blue"
+        assert event["decision_status"] == "diagnostic_review_candidate"
+        assert event["application_status"] == "review_only"
+        assert "kesinti değildir" in event["user_explanation"]["authority"]
+
+    spanning = next(e for e in events if e["alignment"]["issue"] == "segment_spans_multiple_movements")
+    assert spanning["movement_id"] == "M02"
+    assert spanning["alignment"]["competing_movement_id"] == "M01"
+    assert spanning["evidence_window"]["start_frame"] == segment["start_frame"]
+
+    unmatched = next(e for e in events if e["alignment"]["issue"] == "unmatched_movement")
+    # A movement that never got a segment has no frames; none may be invented.
+    assert unmatched["evidence_window"] is None
+
+
+def test_alignment_anomalies_are_absent_when_none_are_passed() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+
+    report = build_decision_evidence_events(_empty_decisions(timeline), spec, timeline)
+
+    assert report["summary"]["alignment_anomaly_count"] == 0
+    assert not [e for e in report["events"] if e["event_kind"] == "alignment_anomaly_review_candidate"]
+
+
+def test_alignment_anomaly_rejects_unknown_issue_and_unknown_movement() -> None:
+    import pytest
+
+    from src.poomsae_scoring import ScoringContractError
+
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+
+    with pytest.raises(ScoringContractError, match="unsupported alignment anomaly"):
+        build_decision_evidence_events(
+            _empty_decisions(timeline), spec, timeline, None,
+            [{"issue": "made_up_issue", "movement_id": "M01"}],
+        )
+
+    with pytest.raises(ScoringContractError, match="unknown movement"):
+        build_decision_evidence_events(
+            _empty_decisions(timeline), spec, timeline, None,
+            [{"issue": "unmatched_movement", "movement_id": "M99"}],
+        )

@@ -20,6 +20,7 @@ from src.poomsae_scoring.readiness import assess_accuracy_readiness
 from src.poomsae_scoring.sequence_alignment import (
     align_segments_to_movements,
     build_automatic_movement_timeline,
+    build_automatic_timeline_report,
 )
 from src.poomsae_scoring.review_report import build_review_html
 from src.poomsae_scoring.source_intake import (
@@ -45,6 +46,7 @@ __all__ = [
     "align_segments_to_movements",
     "assess_accuracy_readiness",
     "build_automatic_movement_timeline",
+    "build_automatic_timeline_report",
     "build_movement_evidence",
     "build_presentation_diagnostics",
     "build_decision_evidence_events",
