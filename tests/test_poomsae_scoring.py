@@ -275,12 +275,42 @@ def test_project_engineering_profile_is_explicitly_non_official_and_minor_only()
     assert {criterion["deduction_kind"] for criterion in profile["criteria"]} == {"minor"}
 
 
-def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps() -> None:
+BOUND_POSE_PATH = (
+    ROOT
+    / "outputs"
+    / "poomsae_1_zed2i_20260731_trimmed"
+    / "runs"
+    / "poomsae1-zed2i-rgbd-gated-ultra-rerun-20260802"
+    / "json"
+    / "vitpose_session_3d.json"
+)
+
+
+def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps(tmp_path: Path) -> None:
+    """The blockers must come from the spec and timeline, not from a missing pose file.
+
+    The real bound pose artifact lives under ``outputs/``, which is gitignored, so it is
+    absent from every clean checkout. Binding this test to it made the test report a
+    data-availability problem as if it were a readiness failure. The pose file is
+    therefore reproduced here as a workspace-local stand-in: only its SHA-256 matters
+    to ``_verify_pose_binding``, never its contents.
+    """
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+
+    stand_in = tmp_path / "json" / "vitpose_session_3d.json"
+    stand_in.parent.mkdir(parents=True)
+    stand_in.write_bytes(b'{"session_id": "readiness-fixture"}')
+    timeline["source_binding"]["pose_file"] = str(stand_in.relative_to(tmp_path).as_posix())
+    timeline["source_binding"]["pose_file_sha256"] = hashlib.sha256(
+        stand_in.read_bytes()
+    ).hexdigest()
+
     report = assess_accuracy_readiness(
         load_rule_pack(RULE_PACK_PATH),
-        load_poomsae_spec(DRAFT_SPEC_PATH),
-        load_movement_timeline(DRAFT_TIMELINE_PATH, load_poomsae_spec(DRAFT_SPEC_PATH)),
-        workspace_root=ROOT,
+        spec,
+        timeline,
+        workspace_root=tmp_path,
     )
 
     assert report["status"] == "blocked"
@@ -294,6 +324,29 @@ def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps() -> 
         "poomsae_spec_has_source_gaps",
         "poomsae_spec_not_active",
     }
+
+
+@pytest.mark.skipif(
+    not BOUND_POSE_PATH.is_file(),
+    reason="the bound ZED pose artifact lives under gitignored outputs/ and is absent here",
+)
+def test_project_accuracy_readiness_verifies_the_real_bound_pose_when_present() -> None:
+    """Runs only on a machine that actually holds the recording this timeline binds to.
+
+    This is the check the previous version of the test above was really making: that the
+    committed MovementTimeline still points at the real artifact and that its SHA-256
+    still matches. It cannot run on a clean checkout, so it skips instead of failing.
+    """
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        spec,
+        load_movement_timeline(DRAFT_TIMELINE_PATH, spec),
+        workspace_root=ROOT,
+    )
+
+    assert report["pose_binding"]["status"] == "verified"
+    assert report["pose_binding"]["actual_sha256"] == report["pose_binding"]["expected_sha256"]
 
 
 def test_project_overlay_labels_partial_recording_without_inventing_missing_movements() -> None:

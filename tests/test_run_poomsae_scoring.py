@@ -341,3 +341,97 @@ def test_repo_relative_posix_keeps_outside_paths_absolute(tmp_path: Path) -> Non
 
     assert _repo_relative_posix(inside) == "config/model_config.yaml"
     assert _repo_relative_posix(outside) == outside.resolve().as_posix()
+
+
+def _write_synthetic_pose(path: Path, frame_count: int) -> None:
+    """A pose file shaped like the real one, with a couple of joints deliberately unseen."""
+    import numpy as np
+
+    rng = np.random.default_rng(20260824)
+    keypoints = rng.normal(size=(frame_count, 133, 3)).tolist()
+    valid = np.ones((frame_count, 133), dtype=bool)
+    valid[:, 7] = False          # never observed -> must stay null in the template
+    valid[:, 8] = False
+    valid[:120, 9] = False       # seen too rarely near the first anchor
+    path.write_text(
+        json.dumps({"keypoints_3d_world": keypoints, "reliability_valid_mask": valid.tolist()}),
+        encoding="utf-8",
+    )
+
+
+def test_reference_template_script_covers_only_the_labelled_movements(tmp_path: Path) -> None:
+    timeline = tmp_path / "timeline.yaml"
+    pose = tmp_path / "pose.json"
+    output = tmp_path / "templates.json"
+    _prefix_timeline_yaml(timeline, segment_lengths=[60, 60], gap_frames=[30])
+    frame_count = yaml.safe_load(timeline.read_text(encoding="utf-8"))["frame_count"]
+    _write_synthetic_pose(pose, frame_count)
+
+    result = _run_script(
+        "build_poomsae_reference_templates.py",
+        "--pose", pose,
+        "--poomsae-spec", SPEC_PATH,
+        "--timeline", timeline,
+        "--output-json", output,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["status"] == "reference_pose_templates"
+    assert payload["coverage"]["covered_movement_ids"] == ["M01", "M02"]
+    assert payload["coverage"]["template_count"] == 2
+    assert payload["coverage"]["expected_movement_count"] == 18
+    assert "M18" in payload["coverage"]["missing_movement_ids"]
+    # The limits must travel with the file, not live only in someone's memory.
+    assert any("Single athlete" in line for line in payload["limitations"])
+
+    first = payload["templates"][0]
+    assert len(first["mean_pose"]) == 133
+    assert first["mean_pose"][7] == [None, None, None]   # never observed
+    assert first["mean_pose"][8] == [None, None, None]
+    assert all(value is not None for value in first["mean_pose"][0])
+    assert first["valid_joint_count"] < first["total_joint_count"]
+
+
+def test_reference_template_script_refuses_an_automatic_timeline(tmp_path: Path) -> None:
+    """Templates built from automatic labels would let the alignment grade its own work."""
+    timeline = tmp_path / "timeline.yaml"
+    pose = tmp_path / "pose.json"
+    output = tmp_path / "templates.json"
+    _prefix_timeline_yaml(timeline, segment_lengths=[60, 60], gap_frames=[30])
+    payload = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    payload["label_source"] = "automatic"
+    timeline.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    _write_synthetic_pose(pose, payload["frame_count"])
+
+    result = _run_script(
+        "build_poomsae_reference_templates.py",
+        "--pose", pose,
+        "--poomsae-spec", SPEC_PATH,
+        "--timeline", timeline,
+        "--output-json", output,
+    )
+
+    assert result.returncode != 0
+    assert "hand-labelled" in result.stderr
+    assert not output.exists()
+
+
+def test_reference_template_script_rejects_a_pose_of_the_wrong_length(tmp_path: Path) -> None:
+    timeline = tmp_path / "timeline.yaml"
+    pose = tmp_path / "pose.json"
+    output = tmp_path / "templates.json"
+    _prefix_timeline_yaml(timeline, segment_lengths=[60, 60], gap_frames=[30])
+    frame_count = yaml.safe_load(timeline.read_text(encoding="utf-8"))["frame_count"]
+    _write_synthetic_pose(pose, frame_count - 10)
+
+    result = _run_script(
+        "build_poomsae_reference_templates.py",
+        "--pose", pose,
+        "--poomsae-spec", SPEC_PATH,
+        "--timeline", timeline,
+        "--output-json", output,
+    )
+
+    assert result.returncode != 0
+    assert "do not describe the same recording" in result.stderr

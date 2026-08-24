@@ -160,6 +160,11 @@ _ALIGNMENT_ANOMALY_TEXT = {
         "Eşleşme belirsizlik bandında",
         "Eşleşme sporcu lehine korundu; doğru hareket olup olmadığını videodan teyit edin.",
     ),
+    "movement_split_across_segments": (
+        "Hareket birden fazla segmente bölünmüş tespit edildi",
+        "Parçalar tek aralığa birleştirildi; birleşik aralığın hareketi doğru kapsayıp "
+        "kapsamadığını videodan kontrol edin.",
+    ),
 }
 
 

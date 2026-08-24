@@ -443,3 +443,41 @@ def test_build_automatic_movement_timeline_still_returns_only_the_timeline():
     assert "alignment_anomalies" not in timeline
     assert timeline["label_source"] == "automatic"
     assert len(timeline["segments"]) == 2
+
+
+def test_automatic_timeline_merges_a_movement_split_across_several_segments():
+    """A motion detector splits one movement into bursts; the timeline may not repeat it."""
+    from src.poomsae_scoring.sequence_alignment import build_automatic_timeline_report
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(90, 90)]
+    # Three detected bursts: two belong to M01, one to M02. The quiet frames between
+    # the first two were dropped by the detector and must come back on merge.
+    segments = [
+        {"segment_id": 0, "start_frame": 10, "end_frame": 30, "mean_pose": build_frame(159, 159)},
+        {"segment_id": 1, "start_frame": 55, "end_frame": 70, "mean_pose": build_frame(161, 161)},
+        {"segment_id": 2, "start_frame": 100, "end_frame": 140, "mean_pose": build_frame(91, 91)},
+    ]
+
+    report = build_automatic_timeline_report(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    timeline_segments = report["timeline"]["segments"]
+    movement_ids = [item["movement_id"] for item in timeline_segments]
+    assert movement_ids == ["M01", "M02"], "a movement may never appear twice in a timeline"
+
+    merged = timeline_segments[0]
+    assert merged["start_frame"] == 10   # first burst start
+    assert merged["end_frame"] == 70     # last burst end, quiet frames 31-54 included
+    anchors = list(merged["anchors"].values())
+    assert all(10 <= value <= 70 for value in anchors)
+
+    split = [a for a in report["alignment_anomalies"] if a["issue"] == "movement_split_across_segments"]
+    assert len(split) == 1
+    assert split[0]["movement_id"] == "M01"
+    assert split[0]["segment_id"] == [0, 1]
+    assert split[0]["start_frame"] == 10
+    assert split[0]["end_frame"] == 70
+    assert "birleştirildi" in split[0]["detail"]

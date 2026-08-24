@@ -375,22 +375,36 @@ def build_automatic_timeline_report(
         current = best_by_segment.get(seg_idx)
         if current is None or pair_cost < current[1]:
             best_by_segment[seg_idx] = (mov_idx, pair_cost)
-    kept_pairs = [(seg_idx, mov_idx) for seg_idx, (mov_idx, _) in best_by_segment.items()]
-    matched_movement_indices = {mov_idx for _, mov_idx in kept_pairs}
+    # The reverse direction matters just as much: a motion-energy detector routinely
+    # splits one movement into several bursts, because the quiet fixation frames in the
+    # middle fall below its threshold. Several segments then match the same movement,
+    # and a timeline may not repeat a movement_id. Those fragments are merged back into
+    # the span they jointly cover, which also restores the low-motion frames the
+    # detector dropped -- exactly the frames the fixation measurements need.
+    segments_by_movement: dict[int, list[int]] = {}
+    for seg_idx, (mov_idx, _) in best_by_segment.items():
+        segments_by_movement.setdefault(mov_idx, []).append(seg_idx)
+    fragmented: dict[int, list[int]] = {
+        mov_idx: sorted(seg_indices)
+        for mov_idx, seg_indices in segments_by_movement.items()
+        if len(seg_indices) > 1
+    }
+    matched_movement_indices = set(segments_by_movement)
     missing_indices = {
         idx for idx in range(len(movements)) if idx not in matched_movement_indices
     }
-    # Segments that a match landed on: build one timeline segment per pair.
-    # Sort by movement index so sequence_index is contiguous and monotonic.
-    ordered_pairs = sorted(kept_pairs, key=lambda pair: pair[1])
+    # One timeline segment per matched movement, in spec order so sequence_index is
+    # contiguous and monotonic.
+    ordered_movements = sorted(segments_by_movement)
     timeline_segments: list[dict[str, Any]] = []
-    for order_index, (seg_idx, mov_idx) in enumerate(ordered_pairs, start=1):
+    for order_index, mov_idx in enumerate(ordered_movements, start=1):
         movement = movements[mov_idx]
-        segment = segments[seg_idx]
-        start = int(segment["start_frame"])
-        end = int(segment["end_frame"])
+        seg_indices = sorted(segments_by_movement[mov_idx])
+        start = min(int(segments[idx]["start_frame"]) for idx in seg_indices)
+        end = max(int(segments[idx]["end_frame"]) for idx in seg_indices)
         anchors = _distribute_anchors(movement["phases"], start, end)
-        pair_cost = float(cost[seg_idx][mov_idx])
+        # Confidence follows the best fragment; a merge cannot make a match stronger.
+        pair_cost = min(float(cost[idx][mov_idx]) for idx in seg_indices)
         is_uncertain = mov_idx in uncertain_movement_indices
         if skip_penalty > 0:
             base = max(0.0, 1.0 - pair_cost / (2.0 * skip_penalty))
@@ -409,7 +423,7 @@ def build_automatic_timeline_report(
             }
         )
 
-    observed_ids = [movements[mov_idx]["movement_id"] for _, mov_idx in ordered_pairs]
+    observed_ids = [movements[mov_idx]["movement_id"] for mov_idx in ordered_movements]
     # Missing ids must be strictly ordered by sequence_index for the timeline
     # contract; they cover both skipped and out-of-recording movements.
     missing_ids = [
@@ -454,6 +468,7 @@ def build_automatic_timeline_report(
         timeline_segments=timeline_segments,
         best_by_segment=best_by_segment,
         pairs_by_segment=pairs_by_segment,
+        fragmented=fragmented,
         missing_indices=missing_indices,
         uncertain_movement_indices=uncertain_movement_indices,
         cost=cost,
@@ -468,6 +483,7 @@ def _collect_alignment_anomalies(
     timeline_segments: list[dict[str, Any]],
     best_by_segment: dict[int, tuple[int, float]],
     pairs_by_segment: dict[int, list[int]],
+    fragmented: dict[int, list[int]],
     missing_indices: set[int],
     uncertain_movement_indices: set[int],
     cost: Any,
@@ -529,6 +545,30 @@ def _collect_alignment_anomalies(
                     ),
                 }
             )
+
+    # One movement that several detected segments matched: the detector fragmented it.
+    for mov_idx, seg_indices in sorted(fragmented.items()):
+        movement_id = movements[mov_idx]["movement_id"]
+        placed = frames_by_movement.get(movement_id)
+        spans = ", ".join(
+            f"{segments[idx]['start_frame']}-{segments[idx]['end_frame']}" for idx in seg_indices
+        )
+        anomalies.append(
+            {
+                "issue": "movement_split_across_segments",
+                "movement_id": movement_id,
+                "segment_id": [segments[idx].get("segment_id", idx) for idx in seg_indices],
+                "start_frame": None if placed is None else int(placed["start_frame"]),
+                "end_frame": None if placed is None else int(placed["end_frame"]),
+                "competing_movement_id": None,
+                "cost": None,
+                "detail": (
+                    f"{movement_id} {len(seg_indices)} ayrı segmente bölünmüş olarak tespit "
+                    f"edildi ({spans}); parçalar tek aralığa birleştirildi. Segment tespiti "
+                    "hareketin düşük hareketli bölümlerini kaçırmış olabilir."
+                ),
+            }
+        )
 
     # A detected segment that no movement claimed.
     for seg_idx, segment in enumerate(segments):
