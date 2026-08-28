@@ -5,7 +5,7 @@ TK3D'nin varsayılan 2D pose yolu ViTPose-Huge WholeBody'dir. Yerel canlı test 
 Aktif yerel ortam:
 
 ```powershell
-cd C:\Users\WWWW\Desktop\tk3d
+Set-Location "<repo-root>"
 .\.venv312\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements-pose.txt

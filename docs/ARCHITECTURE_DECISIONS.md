@@ -470,6 +470,34 @@ kritik eklem adlarını ve pencere örnek sayılarını kanıt alanında taşır
 Uygulama ve doğrulama aşamaları:
 [`docs/PUANLAMA_PLANI.md`](PUANLAMA_PLANI.md).
 
+## AD-026 — Performans telemetrisi opsiyonel ve bilimsel artifact'lerden ayrıdır
+
+Karar: Multiview ve Poomsae uygulamalarındaki performans telemetrisi varsayılan
+olarak kapalıdır. Açıldığında hiyerarşik CPU duvar-zamanı, desteklenen PyTorch
+CUDA aşamalarında CUDA Event süresi ve Torch peak allocated/reserved VRAM
+ayrı `json/performance_report.json` artifact'ine yazılır. Parent süreleri child
+sürelerini kapsar; rapor tüketicisi bunları birbirine ekleyemez. Opaque
+RF-DETR `predict` GPU kuyruğunu kapsayan senkronize duvar-zamanıyla, ZED SDK
+çağrıları ise doğal senkron CPU duvar-zamanıyla etiketlenir. Torch ölçümü ZED
+SDK veya driver'ın toplam GPU belleği olarak sunulamaz.
+
+Gerekçe: Optimizasyon kararı, aynı protokolde tekrar edilen ve gerçek aktif
+workflow'dan alınmış ölçüme dayanmalıdır. Ölçüm kodunun ana 3B, kalite,
+depth-fusion, optimizer, readiness veya Poomsae karar artifact'lerine alan
+eklemesi davranış-dondurma karşılaştırmasını belirsizleştirirdi. Sistem RAM/CPU
+için yeni ağır runtime bağımlılığı eklemek de salt ölçüm aşamasının kapsamını
+aşardı; güvenilir kaynak yoksa değer açıkça `unavailable` kalır.
+
+Koruma: Profil açmak model/algoritma parametresi, frame/timestamp kimliği,
+stride, eklem sayısı, kamera kanıtı, kalite kapısı veya fallback kararını
+değiştiremez. CUDA peak reset ancak modeller yüklendikten sonra yapılır; model
+resident allocation başlangıç tabanında korunur. Benchmark penceresi yalnız
+raporlama filtresidir ve kare atlamaz. Poomsae analiz/karar ile
+presentation/export süreleri ayrılır. Önce/sonra iddiası aynı veri bölümü,
+kamera seti, stride, model ve config ile; değişken run/provenance alanları
+hariç bilimsel artifact eşitliğiyle doğrulanır. Phase D ölçüm sonuçları tek
+başına bir optimizasyonu yetkilendirmez.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

@@ -24,7 +24,7 @@ python -m pip install smplx trimesh chumpy --no-build-isolation
 Render command after placing `SMPL_MALE.pkl`:
 
 ```powershell
-cd C:\Users\WWWW\Desktop\tk3d
+Set-Location "<repo-root>"
 .\.venv312\Scripts\Activate.ps1
 python scripts\render_aist_smpl_mesh.py --session data\aist_test\session_all.yaml --smpl-dir models\smpl --gender MALE --max-frames 120 --stride 1
 ```

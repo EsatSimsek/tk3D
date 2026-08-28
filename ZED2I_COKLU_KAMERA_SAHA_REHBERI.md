@@ -1,5 +1,9 @@
 # TK3D — 3 ZED 2i / 2 Bilgisayar Saha Kurulum ve Kayıt Rehberi
 
+> **FUTURE FIELD PLAN:** Bu rehber gelecekteki 3-ZED / 2-PC saha düzeni
+> içindir. Güncel `CURRENT_ACTIVE` üretim/araştırma workflow'u değildir;
+> mevcut kanonik hat tek bilgisayarda işlenen iki ZED 2i kaydını kullanır.
+
 Durum: **uygulanacak saha yol haritası — kayıt ve senkron yazılımı henüz
 geliştirilmedi**
 

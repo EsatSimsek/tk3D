@@ -1,16 +1,79 @@
 # TK3D Veri Seti ve Yerel Koşu Notları
 
-Bu belge veri setine özel gerçekleri genel mimariden ayırır.
+Bu belge veri setine ve yerel kayda özgü gerçekleri genel mimariden ayırır.
+Sıralama güncel ürün/araştırma önceliğini izler: önce `CURRENT_ACTIVE`, sonra
+`CURRENT_VALIDATION`, tarihsel benchmark ve legacy/opsiyonel varlıklar.
 
-## AIST / AIST++
+## CURRENT_ACTIVE — iki ZED 2i Poomsae kaydı
+
+Aktif geliştirme ve birincil regresyon workflow'u:
+
+`poomsae1_trimmed`: iki ZED 2i → RGBD multiview 3B → kaynak-bağlı Poomsae
+analizi.
+
+Aktif bağlar:
+
+```text
+config/scoring/profiles/poomsae1_trimmed.yaml
+outputs/poomsae_1_zed2i_20260731_trimmed/source/session.yaml
+outputs/poomsae_1_zed2i_20260731_trimmed/calibration/cameras.json
+```
+
+Session iki kamerayı tanımlar:
+
+- `zed_35151067`
+- `zed_37137479`
+
+Kayıt 60 FPS'tir. Kullanıcı tarafından seçilmiş trim, parent kaydın kaynak
+kare `190–930` aralığını ve 741 çıktı karesini kapsar.
+
+### AVI RGB rolü
+
+Her kamera için kayıpsız AVI, RF-DETR kişi tespiti, ByteTrack, ViTPose-Huge
+WholeBody-133 heatmap/2B gözlemi, multiview triangulation ve review videosunun
+görüntü kanıtıdır. Frame/timestamp kimliği session ve mapping raporlarıyla
+korunur.
+
+### SVO2 depth rolü
+
+Her AVI kamera için bağlı SVO2 kaydı ve timestamp mapping raporu vardır. SVO2,
+ZED SDK üzerinden stereo depth/confidence sağlar. Depth yalnız triangulation
+sonrası, confidence/yüzey/residual ve final RGB-vs-depth kalite kapılarıyla
+BODY-17 yardımcı fusion olarak kullanılır. RGB görüntü kanıtının veya bağımsız
+ground truth'un yerine geçmez.
+
+IMU kullanımı kamera gravity/orientation calibration içindir; kare-bazlı
+sporcu hareket düzeltmesi değildir.
+
+### Güncel rol ve sınırlamalar
+
+- Bu kayıt CURRENT_ACTIVE geliştirme, davranış dondurma ve birincil regresyon
+  örneğidir.
+- Session, AVI, SVO2, timestamp raporları, calibration, checkpoint ve bağlı
+  reference pose Git dışı yerel araştırma varlıklarıdır.
+- Aktif session YAML makineye özgü SVO2/timestamp yolları içerebilir.
+- İki kamera, en az dört başka destekleyici view isteyen cross-view guided
+  ikinci geçişi çalıştırmaz; bu koşuda `ZERO_WORK` beklenebilir.
+- İç reprojection/depth tutarlılığı bağımsız dış 3B doğruluğu değildir.
+- Bu kayıt için bağımsız mocap/ölçüm ground truth yoktur.
+- Elle doğrulanmış Poomsae timeline yalnız M01–M06 kapsamındadır.
+- Uzman/hakem karar etiketi ve judge calibration yoktur.
+- Gerçek saha/genelleme doğruluğu için farklı sporcu, seviye, kıyafet,
+  poomsae, kamera düzeni ve oturumlar gerekir.
+
+AIST veya MADS sonucundan bu ZED RGBD kaydının saha doğruluğu çıkarılmamalıdır.
+
+## CURRENT_VALIDATION — AIST / AIST++
+
+Sınıfı: `CURRENT_VALIDATION`. TK3D'nin aktif ürün/geliştirme workflow'u değildir.
 
 Rolü:
 
 - dokuz kameralı akış, senkron, kalibrasyon, triangulation ve video export
-  smoke/regresyon testi
-- opsiyonel SMPL mesh denemesi
-- ground-truth ana doğruluk benchmark'ı değil
-- poomsae verisi değil
+  smoke/regresyon testi;
+- opsiyonel SMPL mesh denemesi;
+- ground-truth ana doğruluk benchmark'ı değil;
+- Poomsae verisi değil.
 
 Aktif örnek sekans:
 
@@ -63,19 +126,23 @@ json/crossview_2d_feedback_report.json
 json/global_pose_optimization_report.json
 ```
 
-## MADS
+AIST sonucu CURRENT_ACTIVE ZED/Poomsae regresyonunun yerine kullanılamaz.
+
+## HISTORICAL_BENCHMARK — MADS
+
+Sınıfı: `HISTORICAL_BENCHMARK`.
 
 Rolü:
 
-- kalibre üç RGB kamera
-- optik motion-capture ground truth
-- bağlı RGB-only koşu için tarihsel dış 3B doğruluk benchmark'ı
-- karate/tai-chi hareketleri nedeniyle poomsae'ye AIST dansından daha yakın
+- kalibre üç RGB kamera;
+- optik motion-capture ground truth;
+- bağlı RGB-only koşu için tarihsel dış 3B doğruluk benchmark'ı;
+- karate/tai-chi hareketleri nedeniyle poomsae'ye AIST dansından daha yakın.
 
 MADS metrikleri koşuya, kamera/profil yapılandırmasına ve tahmin dosyasına
 bağlıdır. Başka bir koşuya, özellikle ZED stereo depth kullanan güncel RGBD
 hattına devredilmez. ZED depth sistemin kendi sensör kanıtıdır; bağımsız
-ground-truth değildir.
+ground truth değildir.
 
 Split ilkesi:
 
@@ -108,25 +175,24 @@ tuttu. Bu nedenle sonuç önceki temel model ölçümüyle aynıdır. Özellikle
 için eşikleri ayrıca doğrulanmadan yeni optimizasyonların dış doğruluğu
 iyileştirdiği söylenemez.
 
-## Gerçek poomsae verisi
+## LEGACY / tarihsel yerel kayıtlar
 
-Henüz doğrulanması gerekenler:
+Tek-ZED SVO2 pilotları ve tek-kamera RGB-D önizlemeleri ingest, depth ve zaman
+çizelgesi davranışının geliştirilmesinde kullanılmış tarihsel teknik kayıtlardır.
+Ortak-dünya multiview 3B veya güncel Poomsae workflow'u değildirler.
 
-- senkron global-shutter çoklu kamera çekimi
-- ortak checkerboard hacim kalibrasyonu ve drift kontrolü
-- farklı sporcu, seviye, kıyafet ve poomsae
-- mümkünse mocap referansı
-- gerçek phase/step başlangıç-bitiş etiketleri
-- en az birkaç uzman/hakemden teknik hata ve skor etiketi
-- sporcu ve oturum bazlı ayrılmış train/validation/test
+Eski sentetik `run_multiview_3d.py --dry-run` veri yolu
+`SUPPORTED_COMPATIBILITY / LEGACY` sınıfındadır. Gerçek kamera, aktif model veya
+bilimsel benchmark sayılmaz.
 
-AIST veya MADS sonucundan gerçek poomsae saha doğruluğu çıkarılmamalıdır.
-ZED RGB-vs-depth kapısından da bağımsız dış doğruluk sonucu çıkarılmamalıdır.
+Bu varlıklara ait ölçüm ve pilot günlüğü
+[`history/PROJECT_STATUS_PRE_FINAL_POLISH.md`](history/PROJECT_STATUS_PRE_FINAL_POLISH.md)
+içinde korunur.
 
-## SMPL
+## Opsiyonel SMPL varlıkları
 
-- 3B çubuk iskelet veya puanlama için zorunlu değildir.
-- Yalnız gerçekçi mesh görselleştirmesi içindir.
+- 3B çubuk iskelet veya Poomsae analizi için zorunlu değildir.
+- Yalnız AIST hareketlerinden gerçekçi mesh görselleştirmesi içindir.
 - Lisanslı `.pkl` dosyaları repository'ye eklenmez.
 - Kullanıcı modeli kendi hesabıyla `models/smpl/` altına koyar.
 
@@ -143,4 +209,6 @@ outputs/
 .venv*
 ```
 
-Bu dosyaları temizlemek veya yeniden indirmek kullanıcı onayı gerektirir.
+Bu dosyaları temizlemek, taşımak veya yeniden indirmek kullanıcı onayı
+gerektirir. Provenance ve tarihsel run artifact'leri kullanıcı açıkça istemeden
+silinmez.

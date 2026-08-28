@@ -1,5 +1,11 @@
 # TK3D — 10 ZED 2i Offline Çok-Kamera Yol Haritası
 
+> **ARŞİVLENMİŞ TARİHSEL PLAN:** Bu belge erken ZED geliştirme planını ve
+> pilot kararlarını korur. `CURRENT_ACTIVE` uygulama durumunu temsil etmez;
+> güncel kanonik workflow iki ZED 2i ile AVI RGB + SVO2 depth kullanan
+> multiview/Poomsae hattıdır. Güncel durum için `PROJECT_STATUS.md` ve
+> `docs/PROJECT_CONTEXT.md` belgelerine bakın.
+
 Durum: **tek-ZED SVO2 pilotu ölçüldü; üretim ZED çalışma zamanı henüz kaynak
 kod hattına uygulanmadı**
 Ana hedef: 10 adet ZED 2i ile gerçek zaman zorunluluğu olmadan, mümkün olan

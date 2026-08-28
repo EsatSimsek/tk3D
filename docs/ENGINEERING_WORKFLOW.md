@@ -83,11 +83,14 @@ Yukarıdakilere ek olarak:
 
 ```powershell
 .\.venv312\Scripts\python.exe scripts\check_models.py `
-  --session data\aist_test\session.yaml
+  --session outputs\poomsae_1_zed2i_20260731_trimmed\source\session.yaml
 ```
 
-Önce kısa benzersiz smoke run, risk yüksekse tam `stride 1` run çalıştır.
-Rapor JSON'larını programatik ve videoları görsel olarak incele.
+Önce repository'deki güncel profil, son run ve veri notlarından `CURRENT_ACTIVE`
+workflow'u doğrula. Uygun kısa temsilci varsa benzersiz smoke run, risk yüksekse
+aynı aktif workflow üzerinde tam `stride 1` run çalıştır. Rapor JSON'larını
+programatik ve videoları görsel olarak incele. AIST yalnız
+`CURRENT_VALIDATION` olarak ikincil multiview uyumluluk kontrolü sağlayabilir.
 
 ### Ground-truth doğruluk iddiası
 

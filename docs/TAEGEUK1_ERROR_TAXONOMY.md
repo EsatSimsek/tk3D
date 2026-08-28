@@ -54,17 +54,25 @@ kanıtlanabilir. `derive_categorical_observations()`
 (`src/poomsae_scoring/source_bound_accuracy.py`) etiketli segmentler arasındaki
 boşlukları tarar ve eşiği (varsayılan `3,0` saniye, `>=` semantiği) karşılayan
 her boşluğu, boşluktan **önce gelen** harekete bağlı bir
-`pause_at_least_3_sec` gözlemine dönüştürür. Son segmentten sonraki kuyruk
-boşluğu da taranır. `confirmation_method` alanı `duration_measurement`,
-`evidence_status` alanı `observed` olur; gözlem güveni segment güveni ile
-`minimum_confidence` tabanının büyüğüdür.
+`pause_at_least_3_sec` gözlemine dönüştürür. Son segmentten sonraki, performans
+bitişiyle sınırlandırılmamış kuyruk boşluğu taranmaz. `confirmation_method`
+alanı `duration_measurement` olur. Manuel doğrulanmış iki komşu segmentte ve
+yeterli gerçek güvende `evidence_status=observed`; otomatik timeline'da
+`evidence_status=inferred` olur ve doğrulama olmadan kesinti uygulanmaz. Gözlem
+güveni iki komşu segment güveninin küçüğüdür; taban değere yükseltilmez.
 
-Yanlış hareket (`wrong_action`) ve yanlış duruş (`wrong_stance`) için otomasyon
-**bilinçli olarak eklenmemiştir**: timeline doğrulayıcı zaten PoomsaeSpec
-sırasına uymayan bir zaman çizelgesini reddeder ve segmentler gözlenmiş duruş
-alanı taşımaz. Bu yüzden yalnız timeline'dan çıkarılacak bir “sıra ihlali”
-tautolojik olarak boş çıkardı. Bu iki kural hâlâ `manual_video_review` ile
-girilen insan gözlemi ister.
+Yanlış hareket (`wrong_action`) ve yanlış duruş (`wrong_stance`) yalnız timeline
+sırasından türetilmez; bu tautolojik olurdu. Bunun yerine
+`build_categorical_diagnostics()` WholeBody-133 ölçümlerini beklenen ve
+alternatif teknik/duruş mühendislik profilleriyle karşılaştırır. Beklenen aralık
+en az bir gerekli ölçümde dışlanırken alternatif profil bütün gerekli
+ölçümlerde uyuyorsa `kinematic_screening` adayı üretilir. Metrik belirsizliği
+varsa dışlama bu aralığın tamamıyla yapılır; yoksa düşük güvenli nokta
+karşılaştırması olarak işaretlenir. Adayın
+`evidence_status=inferred` olması zorunludur; kaynak-bağlı Accuracy motoru
+`not_directly_observed` nedeniyle kesinti uygulamaz. Doğrudan büyük kesinti için
+hâlâ bağımsız video gözlemi veya ayrı veri üzerinde doğrulanmış bir
+sınıflandırıcı gerekir.
 
 ### 2.2 Tam yarışma performansı cezaları
 

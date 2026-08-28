@@ -1,6 +1,6 @@
 # Presentation Teşhis Katmanı
 
-Son güncelleme: **18 Ağustos 2026**
+Son güncelleme: **23 Ağustos 2026**
 
 Bu belge `src/poomsae_scoring/presentation.py` modülünü açıklar. Modül WT
 Presentation puanı **üretmez**. Ne ürettiği, neden puan üretmediği ve ileride
@@ -135,6 +135,13 @@ assert report["total_score"] is None  # sözleşme
 
 Girdi zaman çizelgesi `build_automatic_movement_timeline()` çıktısı da olabilir;
 katman `label_source` değerine bakmaz, yalnız doğrulanmış olmasını ister.
+WholeBody raporundaki `poomsae` kimliği/sürümü ile `movement_timeline_id` alanı
+girdilerle birebir eşleşmelidir; uyuşmayan veya eksik provenance fail-closed
+olarak reddedilir.
+
+Tek-komut çalıştırıcı bu fonksiyonu otomatik çağırır ve raporu
+`json/presentation_diagnostics_report.json` olarak yazar. Aynı proxy özetleri
+senkron HTML inceleme ekranında ayrı bir bölümde gösterilir.
 
 ## 6. İleride puana kalibre etmek için gerekenler
 

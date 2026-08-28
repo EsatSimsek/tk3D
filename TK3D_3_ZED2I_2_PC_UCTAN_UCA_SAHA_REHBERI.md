@@ -1,5 +1,9 @@
 # TK3D — 3 ZED 2i / 2 PC Uçtan Uca Saha Uygulama Rehberi
 
+> **FUTURE FIELD PLAN:** Bu rehber gelecekteki 3-ZED / 2-PC saha düzeni
+> içindir. Güncel `CURRENT_ACTIVE` üretim/araştırma workflow'u değildir;
+> mevcut kanonik hat tek bilgisayarda işlenen iki ZED 2i kaydını kullanır.
+
 Son güncelleme: **31 Temmuz 2026**
 
 Hedef kullanıcı: Tek operatör
