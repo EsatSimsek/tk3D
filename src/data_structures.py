@@ -96,13 +96,6 @@ class Session:
 
 
 @dataclass(slots=True)
-class Frame:
-    frame_idx: int
-    timestamp_sec: float
-    camera_id: str
-
-
-@dataclass(slots=True)
 class PersonPose2D:
     camera_id: str
     frame_idx: int
@@ -191,45 +184,6 @@ class Validation:
     joint_valid_ratio: np.ndarray
     mean_reprojection_error_px: np.ndarray
     warnings: list[str] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class Metric:
-    name: str
-    value: float
-    unit: str | None = None
-
-
-@dataclass(slots=True)
-class Error:
-    error_type: str
-    severity: str
-    description: str
-
-
-@dataclass(slots=True)
-class Step:
-    step_id: int
-    step_name: str
-    frame_idx: int
-    timestamp_sec: float
-    metrics: dict[str, float] = field(default_factory=dict)
-    errors: list[Error] = field(default_factory=list)
-    score: float | None = None
-
-
-@dataclass(slots=True)
-class Phase:
-    phase_id: int
-    steps: list[Step] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class ScoringEpisode:
-    session_id: str
-    task_name: str
-    pose_dimension: str = "3d"
-    phases: list[Phase] = field(default_factory=list)
 
 
 def empty_pose_2d(camera_id: str, frame_idx: int) -> PersonPose2D:

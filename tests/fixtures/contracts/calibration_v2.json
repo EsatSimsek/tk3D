@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "metadata": {
+    "calibration_mode": "zed_fusion_multiview"
+  },
+  "cameras": [
+    {
+      "camera_id": "fixture-camera",
+      "image_size": [
+        640,
+        480
+      ],
+      "intrinsic_matrix": [
+        [
+          500,
+          0,
+          320
+        ],
+        [
+          0,
+          500,
+          240
+        ],
+        [
+          0,
+          0,
+          1
+        ]
+      ],
+      "distortion_coefficients": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "rotation_vector": [
+        0,
+        0,
+        0
+      ],
+      "translation_vector": [
+        0,
+        0,
+        0
+      ],
+      "projection_matrix": [
+        [
+          500,
+          0,
+          320,
+          0
+        ],
+        [
+          0,
+          500,
+          240,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0
+        ]
+      ],
+      "reprojection_error_px": 0
+    }
+  ]
+}

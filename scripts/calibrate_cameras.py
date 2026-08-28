@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import yaml
 import cv2
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.camera_calibration import calibrate_multiview_cameras, calibrate_single_camera, calibration_report, save_calibrations
 from src.coordinate_system import calibration_metadata, opencv_reference_to_analysis

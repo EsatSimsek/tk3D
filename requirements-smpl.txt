@@ -1,3 +1,4 @@
+# Optional SMPL/Open3D visualization environment; not required by Tier 1 or scoring.
 -r requirements-pose.txt
 smplx>=0.1.28
 trimesh>=4.12

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.model_runtime import check_model_runtime, save_model_runtime_report
 from src.config_validation import validate_model_config

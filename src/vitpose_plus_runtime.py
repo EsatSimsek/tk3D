@@ -9,6 +9,7 @@ import numpy as np
 
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS
 from .model_runtime import ModelRuntimeError
+from .performance import cuda_event_stage, profile_stage
 
 
 def _wholebody_flip_index() -> np.ndarray:
@@ -75,7 +76,8 @@ class ViTPosePlusWholeBodyInferencer:
         bbox_xyxy: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         heatmaps, crop = self._infer_heatmaps(frame, bbox_xyxy=bbox_xyxy)
-        return self._decode_heatmaps(heatmaps, crop)
+        with profile_stage("vitpose_decode", parent="vitpose_causal_2d"):
+            return self._decode_heatmaps(heatmaps, crop)
 
     def predict_arrays_guided(
         self,
@@ -124,11 +126,19 @@ class ViTPosePlusWholeBodyInferencer:
     ) -> tuple[np.ndarray, tuple[float, float, float, float]]:
         tensor, crop = self._preprocess(frame, bbox_xyxy=bbox_xyxy)
         with self._torch.no_grad():
-            heatmaps = self._model(tensor)[0].detach().cpu().numpy()
+            with cuda_event_stage("vitpose_forward_normal", parent="vitpose_causal_2d"):
+                normal_output = self._model(tensor)[0]
+            with profile_stage("vitpose_d2h_normal", parent="vitpose_causal_2d"):
+                heatmaps = normal_output.detach().cpu().numpy()
             if self.flip_test:
-                flipped_tensor = self._torch.flip(tensor, dims=[3])
-                flipped_heatmaps = self._model(flipped_tensor)[0].detach().cpu().numpy()
-                heatmaps = 0.5 * (heatmaps + _flip_back_heatmaps(flipped_heatmaps))
+                with profile_stage("vitpose_flip_prepare", parent="vitpose_causal_2d"):
+                    flipped_tensor = self._torch.flip(tensor, dims=[3])
+                with cuda_event_stage("vitpose_forward_flip", parent="vitpose_causal_2d"):
+                    flipped_output = self._model(flipped_tensor)[0]
+                with profile_stage("vitpose_d2h_flip", parent="vitpose_causal_2d"):
+                    flipped_heatmaps = flipped_output.detach().cpu().numpy()
+                with profile_stage("vitpose_heatmap_merge", parent="vitpose_causal_2d"):
+                    heatmaps = 0.5 * (heatmaps + _flip_back_heatmaps(flipped_heatmaps))
         return heatmaps, crop
 
     def _build_model(self) -> Any:
@@ -205,36 +215,50 @@ class ViTPosePlusWholeBodyInferencer:
         frame: np.ndarray,
         bbox_xyxy: np.ndarray | None = None,
     ) -> tuple[Any, tuple[float, float, float, float]]:
-        if (
-            not isinstance(frame, np.ndarray)
-            or frame.ndim != 3
-            or frame.shape[2] != 3
-            or frame.size == 0
-        ):
-            raise ValueError(f"Expected a non-empty BGR image with shape HxWx3, got {getattr(frame, 'shape', None)}")
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        initial_bbox = _initial_person_bbox(frame) if bbox_xyxy is None else bbox_xyxy
-        crop = _aspect_correct_bbox(initial_bbox, frame.shape[1], frame.shape[0], self.input_width / self.input_height)
-        x1, y1, x2, y2 = crop
-        # The checkpoint is trained with UDP affine transforms: ROI endpoints
-        # map to pixel centers 0 and size-1 instead of the outer image edge.
-        scale_x = (self.input_width - 1.0) / max(x2 - x1, 1e-6)
-        scale_y = (self.input_height - 1.0) / max(y2 - y1, 1e-6)
-        affine = np.asarray([[scale_x, 0.0, -x1 * scale_x], [0.0, scale_y, -y1 * scale_y]], dtype=np.float32)
-        warped = cv2.warpAffine(
-            rgb,
-            affine,
-            (self.input_width, self.input_height),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(0, 0, 0),
-        )
-        image = warped.astype(np.float32) / 255.0
-        mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
-        std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
-        image = (image - mean) / std
-        image = np.transpose(image, (2, 0, 1))[None, ...]
-        return self._torch.from_numpy(image).to(self.device), crop
+        with profile_stage("vitpose_preprocess", parent="vitpose_causal_2d"):
+            if (
+                not isinstance(frame, np.ndarray)
+                or frame.ndim != 3
+                or frame.shape[2] != 3
+                or frame.size == 0
+            ):
+                raise ValueError(
+                    "Expected a non-empty BGR image with shape HxWx3, "
+                    f"got {getattr(frame, 'shape', None)}"
+                )
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            initial_bbox = _initial_person_bbox(frame) if bbox_xyxy is None else bbox_xyxy
+            crop = _aspect_correct_bbox(
+                initial_bbox,
+                frame.shape[1],
+                frame.shape[0],
+                self.input_width / self.input_height,
+            )
+            x1, y1, x2, y2 = crop
+            # The checkpoint is trained with UDP affine transforms: ROI endpoints
+            # map to pixel centers 0 and size-1 instead of the outer image edge.
+            scale_x = (self.input_width - 1.0) / max(x2 - x1, 1e-6)
+            scale_y = (self.input_height - 1.0) / max(y2 - y1, 1e-6)
+            affine = np.asarray(
+                [[scale_x, 0.0, -x1 * scale_x], [0.0, scale_y, -y1 * scale_y]],
+                dtype=np.float32,
+            )
+            warped = cv2.warpAffine(
+                rgb,
+                affine,
+                (self.input_width, self.input_height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(0, 0, 0),
+            )
+            image = warped.astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+            image = (image - mean) / std
+            image = np.transpose(image, (2, 0, 1))[None, ...]
+            with profile_stage("vitpose_h2d", parent="vitpose_preprocess"):
+                tensor = self._torch.from_numpy(image).to(self.device)
+            return tensor, crop
 
     def _decode_heatmaps(
         self,

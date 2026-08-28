@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import math
-import sys
 import time
 from pathlib import Path
 
@@ -10,7 +9,6 @@ import cv2
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.pose2d_estimator import Pose2DConfig, ViTPose2DEstimator
 from src.exporter import export_keypoints2d_csv, export_session_json

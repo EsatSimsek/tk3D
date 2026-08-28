@@ -1,11 +1,12 @@
+# Tier 1 Windows development/test aggregate. Package minimums live in pyproject.toml.
 numpy>=1.26
 opencv-python>=4.9
+imageio-ffmpeg==0.6.0
 PyYAML>=6.0
 pandas>=2.2
 openpyxl>=3.1
 matplotlib>=3.8
 scipy>=1.12
-tqdm>=4.66
 pycocotools>=2.0
 -e ./tools/xtcocotools_compat
 pytest>=8.2

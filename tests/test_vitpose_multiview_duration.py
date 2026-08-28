@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from scripts.run_vitpose_multiview_3d import (
+from src.multiview_application import (
     _effective_smoothing_window,
     _effective_timeline_fps,
     _interpolate_array_for_video,

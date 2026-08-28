@@ -7,7 +7,7 @@ from typing import Iterator
 
 import yaml
 
-from .data_structures import CameraView, Frame, Session
+from .data_structures import CameraView, Session
 
 
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
@@ -114,11 +114,6 @@ def iter_video_frames(video_path: str | Path, stride: int = 1) -> Iterator[tuple
             frame_idx += 1
     finally:
         capture.release()
-
-
-def frame_record(frame_idx: int, fps: float | None, camera_id: str) -> Frame:
-    timestamp_sec = frame_idx / fps if fps else 0.0
-    return Frame(frame_idx=frame_idx, timestamp_sec=timestamp_sec, camera_id=camera_id)
 
 
 def _validated_id(value: object, label: str) -> str:

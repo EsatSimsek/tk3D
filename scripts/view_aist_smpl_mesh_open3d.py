@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 from pathlib import Path
 
@@ -10,7 +9,6 @@ import torch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from scripts.render_aist_smpl_mesh import _center_vertices_per_frame, _load_smpl, _motion_to_vertices
 from src.smpl_mesh import find_smpl_model_file, load_aist_smpl_motion, selected_frame_indices

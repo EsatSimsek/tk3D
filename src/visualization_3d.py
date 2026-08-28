@@ -130,10 +130,6 @@ def write_3d_skeleton_video(
     _write_frames_to_video(frames, target, fps=fps, size=size)
 
 
-def write_placeholder_3d_video(path: str | Path) -> None:
-    _write_blank_video(Path(path))
-
-
 def _safe_nanmean_axis1(values: np.ndarray) -> np.ndarray:
     finite = np.isfinite(values)
     counts = np.sum(finite, axis=1)

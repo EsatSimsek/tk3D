@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import sys
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +12,8 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+
+from src.artifact_io import sha256_file  # noqa: E402
 
 from src.camera_calibration import save_calibrations
 from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM, calibration_metadata
@@ -346,12 +345,7 @@ def _write_synchronized_video(
         raise RuntimeError(f"Prepared video has {written} frames; expected {len(source_indices)}: {output_path}")
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = sha256_file
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

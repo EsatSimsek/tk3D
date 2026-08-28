@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,8 +12,6 @@ import numpy as np
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 
 from src.exporter import export_session_json
 from src.mads_dataset import (

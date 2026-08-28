@@ -1,6 +1,8 @@
 """TK3D core package."""
 
 __all__ = [
+    "artifact_contracts",
+    "artifact_io",
     "data_structures",
     "triangulation",
     "smoothing_3d",
@@ -8,6 +10,7 @@ __all__ = [
     "synthetic_data",
     "camera_calibration",
     "multiview_sync",
+    "multiview_application",
     "exporter",
     "artifacts",
     "preflight",
@@ -36,5 +39,6 @@ __all__ = [
     "zed_svo",
     "zed_depth_fusion",
     "quality_status",
+    "reproducibility",
     "poomsae_scoring",
 ]

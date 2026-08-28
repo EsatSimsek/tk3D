@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +9,6 @@ import torch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from scripts.render_aist_smpl_mesh import _center_vertices_per_frame, _load_smpl, _motion_to_vertices
 from src.progress import ProgressBar, print_step
@@ -262,7 +260,6 @@ animate(performance.now());
 
 if __name__ == "__main__":
     main()
-
 
 
 

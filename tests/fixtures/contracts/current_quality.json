@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "session_id": "fixture-session",
+  "run_id": "fixture-run",
+  "provenance": {
+    "run_manifest": "run_manifest.json",
+    "calibration_snapshot": "../calibration/cameras.json",
+    "calibration_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "model_config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "status": "passed",
+  "ground_truth_accuracy_evaluated": false,
+  "scoring_ready": false,
+  "official_scoring_ready": false
+}

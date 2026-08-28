@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ import yaml
 
 from .coordinate_system import transform_points
 from .data_structures import CameraCalibration, PersonPose2D
+from .performance import performance_profiling_active, profile_stage, record_profile_stage
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,26 +329,33 @@ def fuse_zed_depth_sequence(
     raw: dict[tuple[int, int], list[dict[str, Any]]] = {}
     camera_reports: dict[str, dict[str, Any]] = {}
     for source in sources:
-        camera_rows, camera_report = _extract_camera_depth(
-            source,
-            frames,
-            points_source,
-            accepted,
-            poses_2d_by_frame,
-            calibrations[source.camera_id],
-            config,
-            joint_count,
-        )
+        with profile_stage(
+            "zed_camera_depth_extraction",
+            parent="zed_depth_fusion",
+            tags={"camera_id": source.camera_id},
+        ):
+            camera_rows, camera_report = _extract_camera_depth(
+                source,
+                frames,
+                points_source,
+                accepted,
+                poses_2d_by_frame,
+                calibrations[source.camera_id],
+                config,
+                joint_count,
+            )
         camera_reports[source.camera_id] = camera_report
         for row in camera_rows:
             raw.setdefault((int(row["sample_idx"]), int(row["joint_idx"])), []).append(row)
 
-    offsets = _surface_offsets(raw, config.minimum_offset_samples)
+    with profile_stage("zed_surface_offset_estimation", parent="zed_depth_fusion"):
+        offsets = _surface_offsets(raw, config.minimum_offset_samples)
     observation_rows: list[dict[str, Any]] = []
     accepted_corrections: list[float] = []
     residuals_before: list[float] = []
     residuals_after: list[float] = []
     modified = np.zeros((points_source.shape[0], joint_count), dtype=bool)
+    candidate_started = time.perf_counter() if performance_profiling_active() else 0.0
     for (sample_idx, joint_idx), rows in raw.items():
         usable: list[dict[str, Any]] = []
         constraints: list[tuple[CameraCalibration, float, float]] = []
@@ -419,6 +428,13 @@ def fuse_zed_depth_sequence(
             row["decision"] = decision
             observation_rows.append(row)
 
+    if performance_profiling_active():
+        record_profile_stage(
+            "zed_candidate_construction_fusion",
+            time.perf_counter() - candidate_started,
+            parent="zed_depth_fusion",
+        )
+
     output = transform_points(points_source, source_to_analysis)
     accepted_count = int(np.count_nonzero(modified))
     report = {
@@ -480,7 +496,12 @@ def _extract_camera_depth(
     init.depth_mode = getattr(sl.DEPTH_MODE, mode_name)
     init.coordinate_units = sl.UNIT.METER
     camera = sl.Camera()
-    status = camera.open(init)
+    with profile_stage(
+        "zed_svo_open",
+        parent="zed_camera_depth_extraction",
+        tags={"camera_id": source.camera_id},
+    ):
+        status = camera.open(init)
     if status != sl.ERROR_CODE.SUCCESS:
         raise RuntimeError(f"Could not open ZED depth source {source.svo_path}: {status}")
     runtime = sl.RuntimeParameters()
@@ -503,12 +524,38 @@ def _extract_camera_depth(
             requested += 1
             if source_idx != last_source_idx:
                 if last_source_idx is None or source_idx != last_source_idx + 1:
-                    camera.set_svo_position(source_idx)
-                if camera.grab(runtime) != sl.ERROR_CODE.SUCCESS:
+                    with profile_stage(
+                        "zed_mapping_seek",
+                        parent="zed_camera_depth_extraction",
+                        frame_index=int(frame_idx),
+                    ):
+                        camera.set_svo_position(source_idx)
+                with profile_stage(
+                    "zed_grab",
+                    parent="zed_camera_depth_extraction",
+                    frame_index=int(frame_idx),
+                ):
+                    grab_status = camera.grab(runtime)
+                if grab_status != sl.ERROR_CODE.SUCCESS:
                     continue
-                if camera.retrieve_measure(depth_mat, sl.MEASURE.DEPTH) != sl.ERROR_CODE.SUCCESS:
+                with profile_stage(
+                    "zed_depth_retrieval",
+                    parent="zed_camera_depth_extraction",
+                    frame_index=int(frame_idx),
+                ):
+                    depth_status = camera.retrieve_measure(depth_mat, sl.MEASURE.DEPTH)
+                if depth_status != sl.ERROR_CODE.SUCCESS:
                     continue
-                if camera.retrieve_measure(confidence_mat, sl.MEASURE.CONFIDENCE) != sl.ERROR_CODE.SUCCESS:
+                with profile_stage(
+                    "zed_confidence_retrieval",
+                    parent="zed_camera_depth_extraction",
+                    frame_index=int(frame_idx),
+                ):
+                    confidence_status = camera.retrieve_measure(
+                        confidence_mat,
+                        sl.MEASURE.CONFIDENCE,
+                    )
+                if confidence_status != sl.ERROR_CODE.SUCCESS:
                     continue
                 retrieved += 1
                 depth = np.asarray(depth_mat.get_data())
@@ -520,39 +567,44 @@ def _extract_camera_depth(
             pose = poses_2d_by_frame.get(int(frame_idx), {}).get(source.camera_id)
             if pose is None:
                 continue
-            for joint_idx in range(joint_count):
-                if not accepted[sample_idx, joint_idx] or not pose.valid_mask[joint_idx]:
-                    continue
-                pose_score = float(pose.scores[joint_idx])
-                if pose_score < config.min_pose_score:
-                    continue
-                predicted = _camera_depth(points_source[sample_idx, joint_idx], calibration)
-                sample = robust_depth_patch_sample(
-                    depth,
-                    confidence,
-                    pose.keypoints_xy[joint_idx],
-                    predicted,
-                    config,
-                )
-                if sample is None:
-                    continue
-                rows.append(
-                    {
-                        "sample_idx": sample_idx,
-                        "frame_idx": int(frame_idx),
-                        "prepared_frame_idx": prepared_idx,
-                        "source_frame_idx": source_idx,
-                        "camera_id": source.camera_id,
-                        "joint_idx": joint_idx,
-                        "pose_score": pose_score,
-                        "surface_depth_m": sample.depth_m,
-                        "predicted_joint_depth_m": predicted,
-                        "raw_surface_residual_m": sample.depth_m - predicted,
-                        "confidence": sample.confidence,
-                        "patch_pixel_count": sample.pixel_count,
-                        "imu_gravity_rotation_applied": source.imu_gravity_rotation_applied,
-                    }
-                )
+            with profile_stage(
+                "zed_patch_extraction",
+                parent="zed_camera_depth_extraction",
+                frame_index=int(frame_idx),
+            ):
+                for joint_idx in range(joint_count):
+                    if not accepted[sample_idx, joint_idx] or not pose.valid_mask[joint_idx]:
+                        continue
+                    pose_score = float(pose.scores[joint_idx])
+                    if pose_score < config.min_pose_score:
+                        continue
+                    predicted = _camera_depth(points_source[sample_idx, joint_idx], calibration)
+                    sample = robust_depth_patch_sample(
+                        depth,
+                        confidence,
+                        pose.keypoints_xy[joint_idx],
+                        predicted,
+                        config,
+                    )
+                    if sample is None:
+                        continue
+                    rows.append(
+                        {
+                            "sample_idx": sample_idx,
+                            "frame_idx": int(frame_idx),
+                            "prepared_frame_idx": prepared_idx,
+                            "source_frame_idx": source_idx,
+                            "camera_id": source.camera_id,
+                            "joint_idx": joint_idx,
+                            "pose_score": pose_score,
+                            "surface_depth_m": sample.depth_m,
+                            "predicted_joint_depth_m": predicted,
+                            "raw_surface_residual_m": sample.depth_m - predicted,
+                            "confidence": sample.confidence,
+                            "patch_pixel_count": sample.pixel_count,
+                            "imu_gravity_rotation_applied": source.imu_gravity_rotation_applied,
+                        }
+                    )
     finally:
         camera.close()
     return rows, {

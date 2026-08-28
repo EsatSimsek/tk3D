@@ -10,6 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",
   "opencv-python>=4.9",
+  "imageio-ffmpeg==0.6.0",
   "PyYAML>=6.0",
   "pandas>=2.2",
   "openpyxl>=3.1",
@@ -19,11 +20,23 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.2", "ruff>=0.6"]
-pose = ["torch>=2.5", "timm>=1.0", "pycocotools>=2.0"]
+pose = [
+  "torch>=2.5",
+  "torchvision>=0.20",
+  "timm>=1.0",
+  "pycocotools>=2.0",
+  "rfdetr==1.7.0",
+  "supervision==0.27.0",
+]
 smpl = ["smplx>=0.1.28", "trimesh>=4.0", "chumpy>=0.70", "open3d>=0.19"]
 
+[project.scripts]
+tk3d-check = "scripts.check_reproducibility:main"
+tk3d-multiview = "scripts.run_vitpose_multiview_3d:main"
+tk3d-poomsae = "scripts.run_poomsae_scoring:main"
+
 [tool.setuptools]
-packages = ["src", "src.poomsae_scoring"]
+packages = ["src", "src.poomsae_scoring", "scripts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

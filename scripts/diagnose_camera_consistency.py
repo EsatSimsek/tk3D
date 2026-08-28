@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import cv2
@@ -10,9 +9,9 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.camera_calibration import load_calibration_bundle
+from src.artifact_contracts import load_run_bound_main_3d_artifact
 from src.coordinate_system import transform_points
 from src.data_structures import COCO_BODY_JOINT_NAMES
 
@@ -40,11 +39,7 @@ def main() -> None:
     bundle = load_calibration_bundle(Path(args.calibration))
     if args.camera not in bundle.calibrations:
         raise SystemExit(f"Unknown camera: {args.camera}")
-    with (run_root / "json" / "vitpose_session_3d.json").open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        session = json.load(file)
+    session, _ = load_run_bound_main_3d_artifact(run_root / "json" / "vitpose_session_3d.json")
     points_analysis = np.asarray(session["keypoints_3d_world"], dtype=float)[:, :17]
     source_to_analysis = np.asarray(bundle.metadata["source_to_analysis"], dtype=float)
     points_source = transform_points(points_analysis, np.linalg.inv(source_to_analysis))

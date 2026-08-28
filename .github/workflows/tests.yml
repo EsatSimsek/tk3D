@@ -18,5 +18,21 @@ jobs:
           pip install -r requirements.txt
       - name: Install CPU PyTorch for runtime checkpoint tests
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Validate package and active runtime imports
+        run: |
+          python -m pip install -e . --no-deps --no-build-isolation
+          python -c "import src.pose2d_estimator, src.person_tracking, src.vitpose_plus_runtime"
+          python -c "import pathlib,yaml; from src.config_validation import validate_model_config; validate_model_config(yaml.safe_load(pathlib.Path('config/model_config.yaml').read_text(encoding='utf-8')))"
+          python -c "import json,pathlib; from src.artifact_contracts import validate_main_3d_artifact; validate_main_3d_artifact(json.loads(pathlib.Path('tests/fixtures/contracts/current_main_3d.json').read_text(encoding='utf-8')))"
+          tk3d-check --help
+          tk3d-multiview --help
+          tk3d-poomsae --help
+          tk3d-check --output-root outputs/ci-reproducibility-check
+      - name: Ruff
+        run: python -m ruff check src scripts tests
       - name: Run tests
-        run: python -m pytest -q
+        run: python -m pytest -q -p no:cacheprovider --basetemp pytest-temp
+      - name: Validate installed dependency consistency
+        run: python -m pip check
+      - name: Reject whitespace errors
+        run: git diff --check

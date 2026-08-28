@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.aist_calibration import find_aist_camera_setting, load_aist_camera_calibrations
 from src.camera_calibration import save_calibrations

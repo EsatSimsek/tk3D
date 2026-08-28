@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import cv2
@@ -12,7 +11,6 @@ import yaml
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.smpl_mesh import find_smpl_model_file, load_aist_smpl_motion, selected_frame_indices, split_smpl_pose
 from src.progress import ProgressBar, print_step
@@ -223,7 +221,6 @@ def export_obj(vertices: np.ndarray, faces: np.ndarray, path: Path) -> None:
 
 if __name__ == "__main__":
     main()
-
 
 
 

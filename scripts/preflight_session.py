@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.preflight import preflight_summary, run_preflight, save_preflight_report
 from src.config_validation import validate_model_config

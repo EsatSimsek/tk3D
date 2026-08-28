@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.video_io import ensure_output_tree, load_session
 

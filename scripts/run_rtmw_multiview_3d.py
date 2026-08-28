@@ -6,11 +6,9 @@ This script is kept as a backward-compatible alias.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from scripts.run_vitpose_multiview_3d import main
 

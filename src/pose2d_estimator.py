@@ -11,6 +11,7 @@ import numpy as np
 from .data_structures import COCO_WHOLEBODY_KEYPOINTS, PersonPose2D, empty_pose_2d
 from .mmpose_compat import install_mmpose_runtime_compat
 from .model_runtime import ModelRuntimeError
+from .performance import profile_stage, synchronized_cuda_wall_stage
 from .person_tracking import PersonDetectorConfig, RFDETRPersonTracker
 from .pose_temporal import TemporalPose2DConfig, TemporalPose2DFilter
 
@@ -176,9 +177,17 @@ class ViTPose2DEstimator:
             )
         )
         if not dry_run:
-            self._model = self._build_model()
+            with synchronized_cuda_wall_stage(
+                "vitpose_initialization",
+                synchronize_before=False,
+            ):
+                self._model = self._build_model()
             if self.config.person_detector is not None and self.config.person_detector.enabled:
-                self._person_tracker = RFDETRPersonTracker(self.config.person_detector, device=self.config.device)
+                with synchronized_cuda_wall_stage("rfdetr_initialization"):
+                    self._person_tracker = RFDETRPersonTracker(
+                        self.config.person_detector,
+                        device=self.config.device,
+                    )
 
     def predict(self, frame: np.ndarray, camera_id: str, frame_idx: int) -> PersonPose2D:
         if self.dry_run:
@@ -220,22 +229,24 @@ class ViTPose2DEstimator:
                 self._bbox_frame_idx_by_camera[camera_id] = frame_idx
                 self._missed_bbox_updates_by_camera[camera_id] = 0
                 self._temporal_filter.reset(camera_id)
-        if hasattr(self._model, "predict_arrays"):
-            keypoints_xy, scores = self._model.predict_arrays(frame, bbox_xyxy=bbox)
-        else:
-            result = self._model(frame)
-            keypoints_xy, scores = _extract_mmpose_wholebody(result, allow_padding=False)
-        raw_pose = pose2d_from_arrays(
-            camera_id=camera_id,
-            frame_idx=frame_idx,
-            keypoints_xy=keypoints_xy,
-            scores=scores,
-            score_threshold=self.config.score_threshold,
-            person_id=person_id,
-        )
-        # Keep crop tracking tied to the current observation.  Feeding the
-        # smoothed pose back into the crop creates a lag-amplifying loop.
-        pose = self._temporal_filter.filter(raw_pose)
+        with profile_stage("vitpose_causal_2d", frame_index=frame_idx):
+            if hasattr(self._model, "predict_arrays"):
+                keypoints_xy, scores = self._model.predict_arrays(frame, bbox_xyxy=bbox)
+            else:
+                result = self._model(frame)
+                keypoints_xy, scores = _extract_mmpose_wholebody(result, allow_padding=False)
+            raw_pose = pose2d_from_arrays(
+                camera_id=camera_id,
+                frame_idx=frame_idx,
+                keypoints_xy=keypoints_xy,
+                scores=scores,
+                score_threshold=self.config.score_threshold,
+                person_id=person_id,
+            )
+            # Keep crop tracking tied to the current observation.  Feeding the
+            # smoothed pose back into the crop creates a lag-amplifying loop.
+            with profile_stage("causal_temporal_filter", parent="vitpose_causal_2d"):
+                pose = self._temporal_filter.filter(raw_pose)
         if self._person_tracker is not None:
             return pose
 

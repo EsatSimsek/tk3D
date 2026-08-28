@@ -12,6 +12,14 @@ from .data_structures import CameraCalibration
 from .video_io import iter_video_frames
 
 
+PRODUCTION_CALIBRATION_MODES = {
+    "multiview_common_reference",
+    "aist_official_multiview",
+    "mads_official_multiview",
+    "zed_fusion_multiview",
+}
+
+
 @dataclass(frozen=True, slots=True)
 class CalibrationBundle:
     calibrations: dict[str, CameraCalibration]
@@ -368,10 +376,6 @@ def save_calibrations(
     with temporary.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2)
     temporary.replace(path)
-
-def load_calibrations(path: str | Path) -> dict[str, CameraCalibration]:
-    return load_calibration_bundle(path).calibrations
-
 
 def load_calibration_bundle(path: str | Path) -> CalibrationBundle:
     with Path(path).open("r", encoding="utf-8") as file:

@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.pose3d_html_viewer import write_pose3d_html_viewer
+from src.artifact_contracts import load_run_bound_main_3d_artifact
 
 
 def main() -> None:
@@ -19,7 +17,7 @@ def main() -> None:
     parser.add_argument("--output", default=None)
     args = parser.parse_args()
     input_path = Path(args.input_json).resolve()
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    payload, compatibility = load_run_bound_main_3d_artifact(input_path)
     keypoints = np.asarray(payload["keypoints_3d_world"], dtype=float)
     output_path = (
         Path(args.output).resolve() if args.output else input_path.parent.parent / "viewer" / "pose3d_viewer.html"
@@ -31,6 +29,7 @@ def main() -> None:
         title=str(payload.get("run_id") or "3D pose"),
     )
     print(f"saved: {result}")
+    print(f"artifact_compatibility: {compatibility.value}")
 
 
 if __name__ == "__main__":

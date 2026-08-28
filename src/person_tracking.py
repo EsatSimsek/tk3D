@@ -5,6 +5,8 @@ from typing import Any
 
 import numpy as np
 
+from .performance import profile_stage, synchronized_cuda_wall_stage
+
 
 @dataclass(frozen=True, slots=True)
 class PersonDetectorConfig:
@@ -89,29 +91,36 @@ class RFDETRPersonTracker:
         self._missed_frames: dict[str, int] = {}
 
     def track(self, frame: np.ndarray, camera_id: str, frame_idx: int) -> TrackedPerson | None:
-        del frame_idx  # ByteTrack advances once for each supplied video sample.
         if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3 or frame.size == 0:
             raise ValueError(f"Expected a non-empty BGR frame with shape HxWx3, got {getattr(frame, 'shape', None)}")
-        detections = self._model.predict(frame, threshold=self.config.threshold)
-        if isinstance(detections, list):
-            if len(detections) != 1:
-                raise RuntimeError(f"RF-DETR returned {len(detections)} outputs for one frame")
-            detections = detections[0]
-        if getattr(detections, "class_id", None) is None:
-            raise RuntimeError("RF-DETR returned detections without class IDs")
-        person_detections = detections[detections.class_id == self.config.person_class_id]
-        tracker = self._trackers.get(camera_id)
-        if tracker is None:
-            tracker = self._sv.ByteTrack(
-                track_activation_threshold=self.config.track_activation_threshold,
-                lost_track_buffer=self.config.lost_track_buffer,
-                minimum_matching_threshold=self.config.minimum_matching_threshold,
-                frame_rate=self.config.frame_rate,
-                minimum_consecutive_frames=1,
-            )
-            self._trackers[camera_id] = tracker
-        tracked = tracker.update_with_detections(person_detections)
-        return self._select_tracked_person(tracked, frame.shape[1], frame.shape[0], camera_id)
+        with profile_stage("rfdetr_bytetrack", frame_index=frame_idx, tags={"camera_id": camera_id}):
+            with synchronized_cuda_wall_stage("rfdetr_predict", parent="rfdetr_bytetrack"):
+                detections = self._model.predict(frame, threshold=self.config.threshold)
+            with profile_stage("bytetrack_candidate_selection", parent="rfdetr_bytetrack"):
+                if isinstance(detections, list):
+                    if len(detections) != 1:
+                        raise RuntimeError(f"RF-DETR returned {len(detections)} outputs for one frame")
+                    detections = detections[0]
+                if getattr(detections, "class_id", None) is None:
+                    raise RuntimeError("RF-DETR returned detections without class IDs")
+                person_detections = detections[detections.class_id == self.config.person_class_id]
+                tracker = self._trackers.get(camera_id)
+                if tracker is None:
+                    tracker = self._sv.ByteTrack(
+                        track_activation_threshold=self.config.track_activation_threshold,
+                        lost_track_buffer=self.config.lost_track_buffer,
+                        minimum_matching_threshold=self.config.minimum_matching_threshold,
+                        frame_rate=self.config.frame_rate,
+                        minimum_consecutive_frames=1,
+                    )
+                    self._trackers[camera_id] = tracker
+                tracked = tracker.update_with_detections(person_detections)
+                return self._select_tracked_person(
+                    tracked,
+                    frame.shape[1],
+                    frame.shape[0],
+                    camera_id,
+                )
 
     def _select_tracked_person(
         self,

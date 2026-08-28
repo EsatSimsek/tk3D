@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from .artifact_contracts import ArtifactCompatibility, validate_main_3d_artifact
 from .coordinate_system import ANALYSIS_COORDINATE_SYSTEM
 from .data_structures import COCO_BODY_JOINT_NAMES
 
@@ -37,6 +38,10 @@ def load_pose_sequence_json(
 ) -> PoseSequence:
     source = Path(path)
     payload = json.loads(source.read_text(encoding="utf-8"))
+    artifact_compatibility: ArtifactCompatibility | None = None
+    declared_shape = payload.get("shape", {}).get("keypoints_3d_world") if isinstance(payload.get("shape"), dict) else None
+    if key == "keypoints_3d_world" and payload.get("run_id") and declared_shape and declared_shape[1:] == [133, 3]:
+        artifact_compatibility = validate_main_3d_artifact(payload)
     coordinate_system = payload.get("coordinate_system")
     if coordinate_system != ANALYSIS_COORDINATE_SYSTEM:
         raise ValueError(
@@ -65,7 +70,13 @@ def load_pose_sequence_json(
     fps = None if fps_value is None else float(fps_value)
     if fps is not None and (not np.isfinite(fps) or fps <= 0):
         raise ValueError("fps/sample_fps must be positive")
-    return PoseSequence(points, [str(name) for name in names], frame_indices, timestamps, fps, payload)
+    metadata = dict(payload)
+    if artifact_compatibility is not None:
+        metadata["artifact_compatibility"] = artifact_compatibility.value
+        metadata["artifact_provenance_status"] = (
+            "declared_by_schema" if artifact_compatibility is ArtifactCompatibility.CURRENT else "unavailable_legacy"
+        )
+    return PoseSequence(points, [str(name) for name in names], frame_indices, timestamps, fps, metadata)
 
 
 def match_pose_sequences(

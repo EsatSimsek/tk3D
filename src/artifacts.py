@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
+
+from src.artifact_io import sha256_file
 
 
 EXPECTED_OUTPUTS = [
@@ -53,7 +54,7 @@ def build_artifact_manifest(output_root: str | Path) -> dict[str, Any]:
             {
                 "relative_path": relative_path,
                 "size_bytes": path.stat().st_size,
-                "sha256": _sha256(path),
+                "sha256": sha256_file(path),
             }
         )
 
@@ -73,11 +74,3 @@ def save_artifact_manifest(output_root: str | Path, output_path: str | Path) -> 
     with path.open("w", encoding="utf-8") as file:
         json.dump(manifest, file, indent=2)
     return manifest
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

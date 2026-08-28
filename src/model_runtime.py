@@ -97,11 +97,6 @@ def is_backend_available(backend: str) -> bool:
     return importlib.util.find_spec(backend) is not None
 
 
-def require_ready(status: ModelRuntimeStatus) -> None:
-    if not status.ready:
-        raise ModelRuntimeError(f"{status.model_name} runtime is not ready: {status.message}")
-
-
 def save_model_runtime_report(statuses: dict[str, ModelRuntimeStatus], output_path: str | Path) -> None:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
