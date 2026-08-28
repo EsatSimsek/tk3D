@@ -42,11 +42,11 @@ _UniqueKeyLoader.add_constructor(
 
 
 def load_rule_pack(path: str | Path) -> dict[str, Any]:
-    return validate_rule_pack(_load_yaml_mapping(path))
+    return validate_rule_pack(load_yaml_mapping(path))
 
 
 def load_poomsae_spec(path: str | Path) -> dict[str, Any]:
-    return validate_poomsae_spec(_load_yaml_mapping(path))
+    return validate_poomsae_spec(load_yaml_mapping(path))
 
 
 def load_movement_timeline(
@@ -56,14 +56,14 @@ def load_movement_timeline(
     require_complete: bool = False,
 ) -> dict[str, Any]:
     return validate_movement_timeline(
-        _load_yaml_mapping(path),
+        load_yaml_mapping(path),
         poomsae_spec,
         require_complete=require_complete,
     )
 
 
 def load_engineering_profile(path: str | Path) -> dict[str, Any]:
-    return validate_engineering_profile(_load_yaml_mapping(path))
+    return validate_engineering_profile(load_yaml_mapping(path))
 
 
 def validate_rule_pack(payload: dict[str, Any]) -> dict[str, Any]:
@@ -683,15 +683,16 @@ def validate_movement_timeline(
     return data
 
 
-def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
+def load_yaml_mapping(path: str | Path, *, label: str = "scoring contract") -> dict[str, Any]:
+    """Load a YAML mapping while rejecting duplicate keys."""
     source = Path(path)
-    if not source.exists():
-        raise ScoringContractError(f"scoring contract not found: {source}")
+    if not source.is_file():
+        raise ScoringContractError(f"{label} not found: {source}")
     try:
-        payload = yaml.load(source.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
+        payload = yaml.load(source.read_text(encoding="utf-8-sig"), Loader=_UniqueKeyLoader)
     except yaml.YAMLError as exc:
-        raise ScoringContractError(f"invalid scoring YAML: {exc}") from exc
-    return _require_mapping(payload, str(source))
+        raise ScoringContractError(f"invalid {label} YAML: {exc}") from exc
+    return _require_mapping(payload, label)
 
 
 def _validate_sources(value: Any, label: str) -> set[str]:

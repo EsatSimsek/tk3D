@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
 
 from src.data_structures import (
     COCO_BODY_JOINTS,
@@ -21,7 +20,7 @@ from src.data_structures import (
 )
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
-    _UniqueKeyLoader,
+    load_yaml_mapping,
     validate_movement_timeline,
     validate_poomsae_spec,
 )
@@ -68,14 +67,9 @@ THRESHOLD_KEYS = {
 
 
 def load_wholebody_diagnostic_profile(path: str | Path) -> dict[str, Any]:
-    source = Path(path)
-    if not source.is_file():
-        raise ScoringContractError(f"WholeBody diagnostic profile not found: {source}")
-    try:
-        payload = yaml.load(source.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
-    except yaml.YAMLError as exc:
-        raise ScoringContractError(f"invalid WholeBody diagnostic YAML: {exc}") from exc
-    return validate_wholebody_diagnostic_profile(payload)
+    return validate_wholebody_diagnostic_profile(
+        load_yaml_mapping(path, label="WholeBody diagnostic profile")
+    )
 
 
 def validate_wholebody_diagnostic_profile(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1691,7 +1685,6 @@ def _annotate_metrics(
     execution = _execution_anchor(segment)
     execution_scope = {
         "expected_side_dominance_ratio",
-        "hand_foot_settle_difference_sec",
         "executing_wrist_path_efficiency",
         "executing_wrist_peak_speed_body_scale_per_sec",
     }
@@ -1754,6 +1747,17 @@ def _annotate_metrics(
             low = segment["anchors"].get("landing", segment["start_frame"])
             high = segment["anchors"].get("punch_execution", segment["end_frame"])
             anchor, scope = high, "landing_to_punch_execution"
+        elif metric_id == "hand_foot_settle_difference_sec":
+            low = segment["anchors"].get("preparation", segment["start_frame"])
+            high, anchor, scope = fixation, fixation, "preparation_to_fixation"
+        elif metric_id == "fixation_wrist_jitter_ratio":
+            low, high = fixation, segment["end_frame"]
+            anchor, scope = fixation, "fixation_to_segment_end"
+        elif metric_id == "pelvis_weight_transfer_ratio":
+            preparation = segment["anchors"].get("preparation", segment["start_frame"])
+            low = max(segment["start_frame"], preparation - radius)
+            high = min(segment["end_frame"], fixation + radius)
+            anchor, scope = fixation, "preparation_and_fixation_windows"
         elif metric_id in execution_scope:
             low = segment["anchors"].get("preparation", segment["start_frame"])
             high, anchor, scope = execution, execution, "preparation_to_execution"

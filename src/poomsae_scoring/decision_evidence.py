@@ -593,11 +593,13 @@ def _categorical_event(
     movement_id = decision.get("movement_id")
     movement = movements.get(movement_id) if movement_id is not None else None
     applied = decision.get("application_status") == "applied"
+    inferred = decision.get("evidence_status") == "inferred"
     start, end = int(decision["start_frame"]), int(decision["end_frame"])
     anchor = (start + end) // 2
     return {
         "event_id": f"CAT-{index:03d}-{decision['observation_id']}",
         "event_kind": "categorical_observation",
+        "categorical_kind": decision.get("event_kind"),
         "movement_id": movement_id,
         "movement_name": None if movement is None else movement["display_name"],
         "technique_id": None if movement is None else movement["techniques"][0]["technique_id"],
@@ -606,7 +608,9 @@ def _categorical_event(
         "description": decision["description"],
         "decision_status": "confirmed_source_bound_minor" if applied else "not_applicable",
         "display_status": "confirmed_deduction_candidate" if applied else "not_applicable",
-        "display_label": "Kesinti adayı" if applied else "Uygulanmadı",
+        "display_label": (
+            "Kesinti adayı" if applied else "Çıkarım — kesinti yok" if inferred else "Uygulanmadı"
+        ),
         "display_color": "red" if applied else "blue",
         "application_status": decision.get("application_status"),
         "deduction_kind": decision.get("deduction_kind"),
@@ -619,7 +623,7 @@ def _categorical_event(
             "start_time_sec": start / fps,
             "anchor_time_sec": anchor / fps,
             "end_time_sec": end / fps,
-            "scope": "direct_observation",
+            "scope": "kinematic_screening" if inferred else "direct_observation",
         },
         "visual_geometry": {"kind": "movement_region", "joint_indices": [], "unit": "event"},
         "source": {"source_ref": decision.get("source_ref")},

@@ -62,6 +62,11 @@ def build_presentation_diagnostics(
         raise ScoringContractError(
             "presentation diagnostics require a WholeBody diagnostics report"
         )
+    expected_poomsae = {"poomsae_id": spec["poomsae_id"], "version": spec["version"]}
+    if wholebody_diagnostics.get("poomsae") != expected_poomsae:
+        raise ScoringContractError("WholeBody diagnostics Poomsae binding does not match")
+    if wholebody_diagnostics.get("movement_timeline_id") != timeline["timeline_id"]:
+        raise ScoringContractError("WholeBody diagnostics timeline binding does not match")
 
     movement_reports = wholebody_diagnostics.get("movements")
     if not isinstance(movement_reports, list):

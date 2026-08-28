@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -10,9 +9,9 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
 from src.exporter import export_keypoints3d_csv, export_session_json
+from src.artifact_contracts import load_run_bound_main_3d_artifact
 from src.coordinate_system import ANALYSIS_COORDINATE_SYSTEM
 from src.run_outputs import resolve_latest_run
 from src.quality_status import external_accuracy_not_evaluated
@@ -56,7 +55,12 @@ def main() -> None:
     if not input_path.exists():
         raise SystemExit(f"3D input JSON bulunamadı: {input_path}")
 
-    payload = json.loads(input_path.read_text(encoding="utf-8"))
+    if args.allow_legacy_coordinate_system:
+        payload = json.loads(input_path.read_text(encoding="utf-8"))
+        artifact_compatibility = "UNSUPPORTED_LEGACY_COORDINATES_DIAGNOSTIC_OVERRIDE"
+    else:
+        payload, compatibility = load_run_bound_main_3d_artifact(input_path)
+        artifact_compatibility = compatibility.value
     external_accuracy = payload.get("external_accuracy")
     if not isinstance(external_accuracy, dict):
         external_accuracy = external_accuracy_not_evaluated()
@@ -165,6 +169,7 @@ def main() -> None:
     report = {
         "session_id": session.session_id,
         "source": str(input_path),
+        "source_artifact_compatibility": artifact_compatibility,
         "fps": fps,
         "smoothing_window": args.smoothing_window,
         "smoothing_method": (

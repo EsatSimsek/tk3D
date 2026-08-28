@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
 
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
-    _UniqueKeyLoader,
+    load_yaml_mapping,
     validate_movement_timeline,
     validate_poomsae_spec,
 )
@@ -25,14 +25,9 @@ DECISION_STATUSES = {
 
 
 def load_source_bound_accuracy_profile(path: str | Path) -> dict[str, Any]:
-    source = Path(path)
-    if not source.is_file():
-        raise ScoringContractError(f"Source-bound Accuracy profile not found: {source}")
-    try:
-        payload = yaml.load(source.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
-    except yaml.YAMLError as exc:
-        raise ScoringContractError(f"invalid source-bound Accuracy YAML: {exc}") from exc
-    return validate_source_bound_accuracy_profile(payload)
+    return validate_source_bound_accuracy_profile(
+        load_yaml_mapping(path, label="source-bound Accuracy profile")
+    )
 
 
 def validate_source_bound_accuracy_profile(payload: dict[str, Any]) -> dict[str, Any]:
@@ -112,6 +107,7 @@ def build_source_bound_accuracy_decisions(
         raise ScoringContractError("Source-bound profile Poomsae id does not match")
     if wholebody_diagnostics.get("status") != "wholebody_diagnostics_only":
         raise ScoringContractError("source-bound decisions require a WholeBody diagnostics report")
+    _validate_diagnostic_binding(wholebody_diagnostics, spec, timeline)
     movement_specs = {item["movement_id"]: item for item in spec["movements"]}
     metric_movements = wholebody_diagnostics.get("movements")
     if not isinstance(metric_movements, list):
@@ -144,16 +140,30 @@ def build_source_bound_accuracy_decisions(
         and timeline["status"] == "complete"
         and timeline["coverage"]["recording_scope"] == "complete_performance"
     )
-    return _json_safe(
+    report = _json_safe(
         {
             "schema_version": 1,
             "status": "source_bound_accuracy_decisions",
+            "result_kind": "provisional_observed_scope_deduction_analysis",
             "scoring_status": (
                 "eligible_for_separate_full_accuracy_evaluation"
                 if complete_score_eligible
                 else "observed_scope_only_no_accuracy_score"
             ),
+            "accuracy_evaluation_status": (
+                "eligible_not_evaluated"
+                if complete_score_eligible
+                else "not_eligible_incomplete_evidence"
+            ),
+            "accuracy_score_unavailable_reason": (
+                "separate_full_accuracy_evaluation_not_run"
+                if complete_score_eligible
+                else "incomplete_or_inactive_scoring_evidence"
+            ),
             "accuracy_score": None,
+            "official_score_status": "not_available",
+            "official_score": None,
+            "provisional_deduction_status": "observed_scope_only_not_official",
             "profile": {"profile_id": rules["profile_id"], "version": rules["version"]},
             "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
             "timeline_id": timeline["timeline_id"],
@@ -178,6 +188,28 @@ def build_source_bound_accuracy_decisions(
             "interpretation": rules["disclaimer"],
         }
     )
+    return validate_source_bound_accuracy_result(report)
+
+
+def validate_source_bound_accuracy_result(payload: dict[str, Any]) -> dict[str, Any]:
+    data = dict(payload)
+    if data.get("schema_version") != 1 or data.get("status") != "source_bound_accuracy_decisions":
+        raise ScoringContractError("Source-bound result contract/version is invalid")
+    if data.get("result_kind") != "provisional_observed_scope_deduction_analysis":
+        raise ScoringContractError("Source-bound result_kind must remain explicitly provisional")
+    evaluation_status = data.get("accuracy_evaluation_status")
+    if evaluation_status not in {"eligible_not_evaluated", "not_eligible_incomplete_evidence"}:
+        raise ScoringContractError("Source-bound accuracy_evaluation_status is invalid")
+    if data.get("accuracy_score") is not None:
+        raise ScoringContractError("This source-bound decision contract cannot emit an Accuracy score")
+    if data.get("official_score_status") != "not_available" or data.get("official_score") is not None:
+        raise ScoringContractError("An official score cannot appear in a source-bound decision package")
+    if data.get("provisional_deduction_status") != "observed_scope_only_not_official":
+        raise ScoringContractError("Observed deductions must remain explicitly provisional")
+    provisional = data.get("observed_scope_provisional_deduction_total")
+    if isinstance(provisional, bool) or not isinstance(provisional, (int, float)) or not math.isfinite(provisional):
+        raise ScoringContractError("Observed-scope provisional deduction total must be finite")
+    return data
 
 
 def derive_categorical_observations(
@@ -192,8 +224,8 @@ def derive_categorical_observations(
     Only supports ``pause_at_least_3_sec`` for now: WT Article 16-1.2.3 defines a
     3-second pause during movements as a major deduction, and gap length between
     two labelled segments is a deterministic timeline measurement. The function
-    reports each gap that meets or exceeds ``pause_threshold_sec`` as an
-    observation attached to the movement that immediately precedes the gap
+    reports each bounded inter-segment gap that meets or exceeds the WT minimum
+    as an observation attached to the movement that immediately precedes the gap
     (which is the movement WT considers 'held' for that long).
 
     Wrong-action / wrong-stance detection is intentionally NOT auto-derived
@@ -205,21 +237,20 @@ def derive_categorical_observations(
     """
     spec = validate_poomsae_spec(poomsae_spec)
     timeline = validate_movement_timeline(movement_timeline, spec)
-    if pause_threshold_sec <= 0:
-        raise ScoringContractError("pause_threshold_sec must be positive")
+    if pause_threshold_sec < 3.0:
+        raise ScoringContractError("pause_threshold_sec cannot be below the WT 3-second rule")
+    if not 0.0 <= minimum_confidence <= 1.0:
+        raise ScoringContractError("minimum_confidence must be between 0 and 1")
     fps = float(timeline["fps"])
     if fps <= 0:
         raise ScoringContractError("timeline fps must be positive")
     threshold_frames = int(np.ceil(pause_threshold_sec * fps))
     segments = timeline["segments"]
-    frame_count = int(timeline["frame_count"])
     observations: list[dict[str, Any]] = []
-    for index, segment in enumerate(segments):
+    for index, segment in enumerate(segments[:-1]):
+        next_segment = segments[index + 1]
         gap_start = int(segment["end_frame"]) + 1
-        if index + 1 < len(segments):
-            gap_end_exclusive = int(segments[index + 1]["start_frame"])
-        else:
-            gap_end_exclusive = frame_count
+        gap_end_exclusive = int(next_segment["start_frame"])
         gap_end = gap_end_exclusive - 1
         gap_length = gap_end_exclusive - gap_start
         if gap_length < threshold_frames:
@@ -229,6 +260,13 @@ def derive_categorical_observations(
         # keep the true duration measurement for the pause guard.
         anchor_frame = int(segment["end_frame"])
         duration_sec = float(gap_length) / fps
+        confidence = min(float(segment["confidence"]), float(next_segment["confidence"]))
+        independently_reviewed = confidence >= minimum_confidence and timeline["label_source"] in {
+            "manual",
+            "manual_reviewed_automatic",
+        } and all(
+            item["label_status"] == "confirmed" for item in (segment, next_segment)
+        )
         observations.append(
             {
                 "observation_id": f"AUTO-PAUSE-{segment['movement_id']}-{gap_start:06d}",
@@ -236,8 +274,8 @@ def derive_categorical_observations(
                 "movement_id": segment["movement_id"],
                 "start_frame": anchor_frame,
                 "end_frame": anchor_frame,
-                "evidence_status": "observed",
-                "confidence": max(float(minimum_confidence), float(segment["confidence"])),
+                "evidence_status": "observed" if independently_reviewed else "inferred",
+                "confidence": confidence,
                 "description": (
                     f"Automatic gap of {duration_sec:.2f}s after {segment['movement_id']} "
                     f"(frames {gap_start}-{gap_end}); WT 2024 Article 16-1.2.3 pauses"
@@ -248,6 +286,18 @@ def derive_categorical_observations(
             }
         )
     return observations
+
+
+def _validate_diagnostic_binding(
+    diagnostics: dict[str, Any],
+    spec: dict[str, Any],
+    timeline: dict[str, Any],
+) -> None:
+    expected_poomsae = {"poomsae_id": spec["poomsae_id"], "version": spec["version"]}
+    if diagnostics.get("poomsae") != expected_poomsae:
+        raise ScoringContractError("WholeBody diagnostics Poomsae binding does not match")
+    if diagnostics.get("movement_timeline_id") != timeline["timeline_id"]:
+        raise ScoringContractError("WholeBody diagnostics timeline binding does not match")
 
 
 def _numeric_decision(rule: dict[str, Any], movement: dict[str, Any], metric: dict[str, Any] | None) -> dict[str, Any]:

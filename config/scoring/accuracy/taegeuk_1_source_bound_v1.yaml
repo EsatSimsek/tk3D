@@ -1,6 +1,6 @@
 schema_version: 1
 profile_id: taegeuk1-source-bound-accuracy-v1
-version: 1.0.0
+version: 1.1.0
 status: provisional_historical_geometry
 poomsae_id: taegeuk_1_jang
 decision_policy:
@@ -103,13 +103,13 @@ categorical_rules:
     error_unit: wrong_action
     deduction_kind: major
     source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
-    confirmation_methods: [deterministic_sequence_violation, manual_video_review]
+    confirmation_methods: [deterministic_sequence_violation, kinematic_screening, manual_video_review]
   - rule_id: WT-2024-A16-WRONG-STANCE
     event_kind: wrong_stance
     error_unit: wrong_stance
     deduction_kind: major
     source_ref: wt_poomsae_rules_2024-09-30#Article16-1.2.3
-    confirmation_methods: [deterministic_sequence_violation, manual_video_review]
+    confirmation_methods: [deterministic_sequence_violation, kinematic_screening, manual_video_review]
   - rule_id: WT-2024-A16-MISSING-KIHAP
     event_kind: missing_kihap
     error_unit: kihap

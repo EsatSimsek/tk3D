@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
+
+from src.artifact_io import sha256_file
 
 from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
@@ -62,7 +63,7 @@ def assess_accuracy_readiness(
         timeline,
         expected_pose_sha256=timeline["source_binding"]["pose_file_sha256"],
     )
-    if wholebody_diagnostics is not None and diagnostic_binding["status"] != "verified":
+    if diagnostic_binding["status"] != "verified":
         block(diagnostic_binding["status"], diagnostic_binding["message"])
 
     ready = not blockers
@@ -72,6 +73,14 @@ def assess_accuracy_readiness(
         "rule_scoring_ready": ready,
         "judge_calibrated_ready": False,
         "official_scoring_ready": False,
+        "readiness_scope": "source_bound_rule_scoring_with_wholebody_evidence",
+        "component_states": {
+            "rule_pack": "ready" if pack["status"] == "active" else "blocked",
+            "poomsae_spec": "ready" if spec["status"] == "active" else "blocked",
+            "movement_timeline": "ready" if timeline["status"] == "complete" else "blocked",
+            "pose_binding": pose_binding["status"],
+            "wholebody_diagnostics": diagnostic_binding["status"],
+        },
         "rule_pack": {"rule_pack_id": pack["rule_pack_id"], "version": pack["version"]},
         "poomsae_spec": {
             "poomsae_id": spec["poomsae_id"],
@@ -106,7 +115,7 @@ def _verify_wholebody_diagnostics(
 ) -> dict[str, Any]:
     if report is None:
         return {
-            "status": "not_provided",
+            "status": "wholebody_diagnostics_not_provided",
             "message": "WholeBody diagnostics were not supplied to this readiness check.",
         }
     if not isinstance(report, dict):
@@ -178,7 +187,7 @@ def _verify_pose_binding(source_binding: dict[str, Any], root: Path) -> dict[str
             "actual_sha256": None,
         }
     expected_sha256 = source_binding["pose_file_sha256"]
-    actual_sha256 = _sha256(pose_path)
+    actual_sha256 = sha256_file(pose_path)
     if expected_sha256 is None or actual_sha256 != expected_sha256.lower():
         return {
             "status": "pose_sha256_mismatch",
@@ -194,11 +203,3 @@ def _verify_pose_binding(source_binding: dict[str, Any], root: Path) -> dict[str
         "expected_sha256": expected_sha256,
         "actual_sha256": actual_sha256,
     }
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

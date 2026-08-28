@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+
+from src.artifact_io import sha256_file  # noqa: E402
 
 from src.poomsae_scoring import build_review_html, load_movement_timeline, load_poomsae_spec  # noqa: E402
 
@@ -23,6 +22,11 @@ def main() -> None:
     parser.add_argument("--wholebody-diagnostics")
     parser.add_argument("--accuracy-decisions")
     parser.add_argument("--decision-evidence-events")
+    parser.add_argument("--categorical-diagnostics")
+    parser.add_argument("--technical-conformance")
+    parser.add_argument("--presentation-diagnostics")
+    parser.add_argument("--automatic-segmentation")
+    parser.add_argument("--run-history-url")
     parser.add_argument("--video-a", required=True)
     parser.add_argument("--video-a-label", default="Kamera A")
     parser.add_argument("--video-b", required=True)
@@ -54,6 +58,14 @@ def main() -> None:
         inputs["accuracy_decisions"] = _resolve(args.accuracy_decisions)
     if args.decision_evidence_events:
         inputs["decision_evidence_events"] = _resolve(args.decision_evidence_events)
+    if args.categorical_diagnostics:
+        inputs["categorical_diagnostics"] = _resolve(args.categorical_diagnostics)
+    if args.technical_conformance:
+        inputs["technical_conformance"] = _resolve(args.technical_conformance)
+    if args.presentation_diagnostics:
+        inputs["presentation_diagnostics"] = _resolve(args.presentation_diagnostics)
+    if args.automatic_segmentation:
+        inputs["automatic_segmentation"] = _resolve(args.automatic_segmentation)
     extra_videos: list[tuple[str, Path]] = []
     for index, value in enumerate(args.video_extra, start=1):
         label, path = _parse_extra_video(value)
@@ -88,6 +100,26 @@ def main() -> None:
         if "decision_evidence_events" in inputs
         else None
     )
+    categorical_diagnostics = (
+        _read_json(inputs["categorical_diagnostics"])
+        if "categorical_diagnostics" in inputs
+        else None
+    )
+    technical_conformance = (
+        _read_json(inputs["technical_conformance"])
+        if "technical_conformance" in inputs
+        else None
+    )
+    presentation_diagnostics = (
+        _read_json(inputs["presentation_diagnostics"])
+        if "presentation_diagnostics" in inputs
+        else None
+    )
+    automatic_segmentation = (
+        _read_json(inputs["automatic_segmentation"])
+        if "automatic_segmentation" in inputs
+        else None
+    )
     videos = {
         args.video_a_label: _relative_url(inputs["video_a"], output.parent),
         args.video_b_label: _relative_url(inputs["video_b"], output.parent),
@@ -108,6 +140,11 @@ def main() -> None:
         wholebody_diagnostics,
         accuracy_decisions,
         decision_evidence_events,
+        categorical_diagnostics,
+        presentation_diagnostics,
+        technical_conformance,
+        args.run_history_url,
+        automatic_segmentation,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -134,6 +171,25 @@ def main() -> None:
             if decision_evidence_events is None
             else decision_evidence_events.get("summary", {}).get("event_count")
         ),
+        "categorical_mismatch_candidate_count": (
+            None
+            if categorical_diagnostics is None
+            else categorical_diagnostics.get("summary", {}).get("mismatch_candidate_count")
+        ),
+        "technical_conformance_review_required_count": (
+            None
+            if technical_conformance is None
+            else technical_conformance.get("summary", {}).get("review_required_count")
+        ),
+        "presentation_total_score": (
+            None if presentation_diagnostics is None else presentation_diagnostics.get("total_score")
+        ),
+        "automatic_segmentation_phase_anchor_mae_frames": (
+            None
+            if automatic_segmentation is None
+            else automatic_segmentation.get("summary", {}).get("phase_anchor_mae_frames")
+        ),
+        "run_history_url": args.run_history_url,
     }
     with manifest.open("x", encoding="utf-8", newline="") as stream:
         json.dump(manifest_payload, stream, ensure_ascii=False, indent=2, allow_nan=False)
@@ -165,12 +221,7 @@ def _resolve(value: str) -> Path:
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = sha256_file
 
 
 if __name__ == "__main__":

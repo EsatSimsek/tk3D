@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+
+from src.artifact_io import sha256_file  # noqa: E402
 
 from src.poomsae_scoring.error_video import (  # noqa: E402
     render_decision_evidence_video,
@@ -61,14 +61,7 @@ def _resolve(value: str | Path) -> Path:
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
 
 
-def _sha256(path: Path) -> str:
-    import hashlib
-
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = sha256_file
 
 
 if __name__ == "__main__":

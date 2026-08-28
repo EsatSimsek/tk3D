@@ -10,7 +10,7 @@ movement_timeline: config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_d
 diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml
 accuracy_profile: config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml
 bindings:
-  session_sha256: 5408c454a18c29526b7b3ad5f9bc14b88054bc401ed5e7b33051d7199b04c8cd
+  session_sha256: 09ef04662e6281ea2f1f07370e1c29c8fd2d48f3f72b83478eda118cc3000fca
   reference_pose_sha256: a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947
   movement_timeline_sha256: 94aba7181c2df19d12145195482403b8b56a4890e6103d52367001b56167fa93
 processing:

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+
+from src.artifact_io import sha256_file  # noqa: E402
 
 from src.poomsae_scoring import (  # noqa: E402
     build_source_bound_accuracy_decisions,
@@ -48,7 +47,17 @@ def main() -> None:
     spec = load_poomsae_spec(paths["poomsae_spec"])
     timeline = load_movement_timeline(paths["movement_timeline"], spec)
     profile = load_source_bound_accuracy_profile(paths["accuracy_profile"])
-    observations = _read_json(paths["observations"]) if "observations" in paths else []
+    observations_payload = _read_json(paths["observations"]) if "observations" in paths else []
+    if isinstance(observations_payload, dict):
+        if observations_payload.get("status") != "categorical_diagnostics_only":
+            raise SystemExit("Observation report status is unsupported.")
+        if observations_payload.get("movement_timeline_id") != timeline["timeline_id"]:
+            raise SystemExit("Observation report does not match the MovementTimeline.")
+        observations = observations_payload.get("observations")
+    else:
+        observations = observations_payload
+    if not isinstance(observations, list):
+        raise SystemExit("Categorical observations must be a list.")
     report = build_source_bound_accuracy_decisions(
         diagnostics,
         spec,
@@ -73,12 +82,7 @@ def _resolve(value: str) -> Path:
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = sha256_file
 
 
 if __name__ == "__main__":

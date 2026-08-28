@@ -317,7 +317,7 @@ def build_automatic_timeline_report(
     uncertainty_margin
         Cost distance below the auto skip penalty that still counts as ambiguous
         (matched movements land as ``label_status='ambiguous'`` instead of
-        ``'confirmed'``).
+        ``'provisional'``).
 
     Returns
     -------
@@ -375,6 +375,16 @@ def build_automatic_timeline_report(
         current = best_by_segment.get(seg_idx)
         if current is None or pair_cost < current[1]:
             best_by_segment[seg_idx] = (mov_idx, pair_cost)
+    candidate_pairs = [
+        (seg_idx, mov_idx, pair_cost)
+        for seg_idx, (mov_idx, pair_cost) in best_by_segment.items()
+    ]
+    best_by_movement: dict[int, tuple[int, float]] = {}
+    for seg_idx, mov_idx, pair_cost in candidate_pairs:
+        current = best_by_movement.get(mov_idx)
+        if current is None or pair_cost < current[1]:
+            best_by_movement[mov_idx] = (seg_idx, pair_cost)
+
     # The reverse direction matters just as much: a motion-energy detector routinely
     # splits one movement into several bursts, because the quiet fixation frames in the
     # middle fall below its threshold. Several segments then match the same movement,
@@ -389,7 +399,7 @@ def build_automatic_timeline_report(
         for mov_idx, seg_indices in segments_by_movement.items()
         if len(seg_indices) > 1
     }
-    matched_movement_indices = set(segments_by_movement)
+    matched_movement_indices = set(best_by_movement)
     missing_indices = {
         idx for idx in range(len(movements)) if idx not in matched_movement_indices
     }
@@ -404,7 +414,7 @@ def build_automatic_timeline_report(
         end = max(int(segments[idx]["end_frame"]) for idx in seg_indices)
         anchors = _distribute_anchors(movement["phases"], start, end)
         # Confidence follows the best fragment; a merge cannot make a match stronger.
-        pair_cost = min(float(cost[idx][mov_idx]) for idx in seg_indices)
+        pair_cost = best_by_movement[mov_idx][1]
         is_uncertain = mov_idx in uncertain_movement_indices
         if skip_penalty > 0:
             base = max(0.0, 1.0 - pair_cost / (2.0 * skip_penalty))
@@ -419,7 +429,7 @@ def build_automatic_timeline_report(
                 "end_frame": end,
                 "anchors": anchors,
                 "confidence": confidence,
-                "label_status": "ambiguous" if is_uncertain else "confirmed",
+                "label_status": "ambiguous" if is_uncertain else "provisional",
             }
         )
 
@@ -429,6 +439,12 @@ def build_automatic_timeline_report(
     missing_ids = [
         movements[idx]["movement_id"] for idx in sorted(missing_indices)
     ]
+    expected_ids = [movement["movement_id"] for movement in movements]
+    if observed_ids + missing_ids != expected_ids:
+        raise ScoringContractError(
+            "automatic alignment can only represent an observed prefix; "
+            "missing prefix or middle movements require manual timeline review"
+        )
     recording_scope = "complete_performance" if not missing_ids else "partial_sequence"
     # The timeline contract requires source_end_reason to be None for a complete
     # performance and a non-empty string for a partial one; violating that would

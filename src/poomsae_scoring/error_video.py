@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import unicodedata
 from collections import defaultdict
@@ -10,6 +9,10 @@ from typing import Any
 
 import cv2
 import numpy as np
+
+from src.artifact_io import sha256_file
+
+_sha256 = sha256_file
 
 
 _COLORS = {
@@ -800,14 +803,6 @@ def _ascii(value: Any) -> str:
     replacements = str.maketrans({"ı": "i", "İ": "I", "ş": "s", "Ş": "S", "ğ": "g", "Ğ": "G", "ö": "o", "Ö": "O", "ü": "u", "Ü": "U", "ç": "c", "Ç": "C"})
     normalized = unicodedata.normalize("NFKD", str(value).translate(replacements))
     return normalized.encode("ascii", "ignore").decode("ascii")
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def write_render_manifest(path: str | Path, payload: dict[str, Any]) -> Path:

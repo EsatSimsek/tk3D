@@ -216,7 +216,7 @@ def test_build_automatic_movement_timeline_maps_segments_and_reports_missing():
     anchors = first["anchors"]
     assert list(anchors) == ["preparation", "execution", "fixation"]
     assert 10 <= anchors["preparation"] <= anchors["execution"] <= anchors["fixation"] <= 60
-    assert first["label_status"] in {"confirmed", "ambiguous"}
+    assert first["label_status"] in {"provisional", "ambiguous"}
     assert 0.5 <= first["confidence"] <= 0.99
 
 
@@ -334,6 +334,47 @@ def test_build_automatic_movement_timeline_keeps_best_movement_per_shared_segmen
         timeline["coverage"]["source_end_reason"]
         == "auto_alignment_missing_movements_detected"
     )
+
+
+def test_build_automatic_movement_timeline_keeps_one_segment_per_movement():
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(90, 90)]
+    segments = [
+        {"segment_id": 0, "start_frame": 0, "end_frame": 29, "mean_pose": build_frame(160, 160)},
+        {"segment_id": 1, "start_frame": 30, "end_frame": 59, "mean_pose": build_frame(158, 158)},
+        {"segment_id": 2, "start_frame": 60, "end_frame": 89, "mean_pose": build_frame(90, 90)},
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        **_auto_timeline_kwargs(spec, segments, expected, frame_count=100)
+    )
+
+    assert [item["movement_id"] for item in timeline["segments"]] == ["M01", "M02"]
+    assert len({item["movement_id"] for item in timeline["segments"]}) == 2
+    assert all(item["label_status"] in {"provisional", "ambiguous"} for item in timeline["segments"])
+
+
+def test_build_automatic_movement_timeline_rejects_non_prefix_alignment():
+    import pytest
+
+    from src.poomsae_scoring.contracts import ScoringContractError
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(3)
+    expected = [build_frame(160, 160), build_frame(120, 120), build_frame(90, 90)]
+    segments = [
+        {"segment_id": 0, "start_frame": 0, "end_frame": 29, "mean_pose": build_frame(160, 160)},
+        {"segment_id": 1, "start_frame": 30, "end_frame": 59, "mean_pose": build_frame(90, 90)},
+    ]
+
+    with pytest.raises(ScoringContractError, match="observed prefix"):
+        build_automatic_movement_timeline(
+            **_auto_timeline_kwargs(spec, segments, expected, frame_count=100)
+        )
 
 
 def test_build_automatic_movement_timeline_survives_segment_shorter_than_phase_count():

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import hashlib
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-import yaml
+from src.artifact_io import sha256_file
+from src.poomsae_scoring.contracts import ScoringContractError, load_yaml_mapping
 
-from src.poomsae_scoring.contracts import ScoringContractError, _UniqueKeyLoader
+_sha256 = sha256_file
 
 
 AUTHORITY_TIERS = {
@@ -31,14 +31,7 @@ INTENDED_USES = {
 
 
 def load_source_intake(path: str | Path) -> dict[str, Any]:
-    source = Path(path)
-    if not source.is_file():
-        raise ScoringContractError(f"source intake manifest not found: {source}")
-    try:
-        payload = yaml.load(source.read_text(encoding="utf-8"), Loader=_UniqueKeyLoader)
-    except yaml.YAMLError as exc:
-        raise ScoringContractError(f"invalid source intake YAML: {exc}") from exc
-    return validate_source_intake(payload)
+    return validate_source_intake(load_yaml_mapping(path, label="source intake manifest"))
 
 
 def validate_source_intake(payload: dict[str, Any]) -> dict[str, Any]:
@@ -201,14 +194,6 @@ def inspect_source_intake(payload: dict[str, Any], *, workspace_root: str | Path
     }
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _exact_keys(value: Any, expected: set[str], label: str) -> None:
     if not isinstance(value, dict) or set(value) != expected:
         actual = set(value) if isinstance(value, dict) else set()
@@ -230,4 +215,3 @@ def _is_sha256(value: Any) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value.lower())
     )
-

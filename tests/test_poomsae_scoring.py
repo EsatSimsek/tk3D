@@ -12,10 +12,12 @@ from src.poomsae_scoring import (
     ScoringContractError,
     assess_accuracy_readiness,
     build_movement_evidence,
+    build_categorical_diagnostics,
     build_partial_engineering_trial,
     build_review_html,
     build_presentation_diagnostics,
     build_source_bound_accuracy_decisions,
+    build_technical_conformance,
     build_wholebody_diagnostics,
     derive_categorical_observations,
     evaluate_accuracy,
@@ -33,6 +35,7 @@ from src.poomsae_scoring import (
     validate_rule_pack,
     validate_source_intake,
     validate_source_bound_accuracy_profile,
+    validate_source_bound_accuracy_result,
     validate_wholebody_diagnostic_profile,
 )
 
@@ -287,17 +290,9 @@ BOUND_POSE_PATH = (
 
 
 def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps(tmp_path: Path) -> None:
-    """The blockers must come from the spec and timeline, not from a missing pose file.
-
-    The real bound pose artifact lives under ``outputs/``, which is gitignored, so it is
-    absent from every clean checkout. Binding this test to it made the test report a
-    data-availability problem as if it were a readiness failure. The pose file is
-    therefore reproduced here as a workspace-local stand-in: only its SHA-256 matters
-    to ``_verify_pose_binding``, never its contents.
-    """
+    """Readiness blockers must be scientific contract gaps, not unavailable local data."""
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
     timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
-
     stand_in = tmp_path / "json" / "vitpose_session_3d.json"
     stand_in.parent.mkdir(parents=True)
     stand_in.write_bytes(b'{"session_id": "readiness-fixture"}')
@@ -323,8 +318,32 @@ def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps(tmp_p
         "partial_source_recording",
         "poomsae_spec_has_source_gaps",
         "poomsae_spec_not_active",
+        "wholebody_diagnostics_not_provided",
     }
 
+
+def test_project_accuracy_readiness_reports_missing_pose_separately(tmp_path: Path) -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        spec,
+        load_movement_timeline(DRAFT_TIMELINE_PATH, spec),
+        workspace_root=tmp_path,
+    )
+
+    assert report["status"] == "blocked"
+    assert report["rule_scoring_ready"] is False
+    assert report["pose_binding"]["status"] == "pose_file_missing"
+    blocker_codes = {blocker["code"] for blocker in report["blockers"]}
+    assert blocker_codes == {
+        "movement_sequence_not_active",
+        "movement_timeline_not_complete",
+        "partial_source_recording",
+        "poomsae_spec_has_source_gaps",
+        "poomsae_spec_not_active",
+        "pose_file_missing",
+        "wholebody_diagnostics_not_provided",
+    }
 
 @pytest.mark.skipif(
     not BOUND_POSE_PATH.is_file(),
@@ -421,6 +440,153 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
             }
         ],
     }
+    categorical = {
+        "status": "categorical_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "summary": {
+            "check_count": 2,
+            "mismatch_candidate_count": 1,
+            "consistent_count": 1,
+            "ambiguous_count": 0,
+            "not_measurable_count": 0,
+            "unsupported_count": 0,
+        },
+        "checks": [
+            {
+                "movement_id": "M01",
+                "event_kind": "wrong_stance",
+                "status": "mismatch_candidate",
+                "expected_label": "ap_seogi",
+                "alternate_label": "ap_gubi",
+                "anchor_frame": timeline["segments"][0]["anchors"]["fixation"],
+                "evidence": [],
+            },
+            {
+                "movement_id": "M01",
+                "event_kind": "wrong_action",
+                "status": "consistent",
+                "expected_label": "arae_makki",
+                "alternate_label": "momtong_jireugi",
+                "anchor_frame": timeline["segments"][0]["anchors"]["fixation"],
+                "evidence": [],
+            },
+        ],
+        "interpretation": "Inferred candidates only.",
+    }
+    presentation = {
+        "status": "presentation_diagnostic_only",
+        "timeline_id": timeline["timeline_id"],
+        "total_score": None,
+        "components": {
+            "speed_and_power": {
+                "requested_metric_count": 1,
+                "measurable_metric_count": 1,
+                "metrics": {
+                    "peak_speed": {
+                        "sample_count": 6,
+                        "median": 3.2,
+                        "interquartile_range": 0.4,
+                        "unit": "body_scale/sec",
+                    }
+                },
+            }
+        },
+        "interpretation": "No judge-calibrated score.",
+    }
+    technical_conformance = {
+        "status": "technical_conformance_diagnostic_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "summary": {
+            "movement_count": 1,
+            "review_required_count": 1,
+            "mismatch_candidate_count": 0,
+            "review_candidate_count": 1,
+            "ambiguous_count": 0,
+            "consistent_within_measured_scope_count": 0,
+            "measurable_criterion_count": 1,
+            "expected_criterion_count": 2,
+        },
+        "movements": [
+            {
+                "movement_id": "M01",
+                "display_name": "Sol ap-seogi ve sol arae-makki",
+                "conformance_status": "review_candidate",
+                "fused_evidence_confidence": 0.82,
+                "anchor_frame": timeline["segments"][0]["anchors"]["fixation"],
+                "reason": "one_or_more_measured_criteria_outside_screening_range",
+                "criterion_coverage": {
+                    "measurable_count": 1,
+                    "expected_count": 2,
+                    "threshold_evaluable_count": 1,
+                },
+                "aspects": [
+                    {
+                        "aspect_id": "timing_and_control",
+                        "status": "review_candidate",
+                    }
+                ],
+                "identity_checks": [],
+                "criteria": [
+                    {
+                        "criterion_id": "technique.fixation.stability",
+                        "status": "review_candidate",
+                        "evidence_confidence": 0.82,
+                        "metrics": [
+                            {
+                                "metric_id": "fixation_wrist_jitter_ratio",
+                                "value": 0.07,
+                                "unit": "body_scale",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+        "interpretation": "Measured scope only; no score or automatic deduction.",
+    }
+    automatic_segmentation = {
+        "status": "automatic_segmentation_diagnostic_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "summary": {
+            "detected_candidate_count": 7,
+            "selected_movement_count": 6,
+            "expected_movement_count": 6,
+            "start_boundary_mae_frames": 11.3,
+            "end_boundary_mae_frames": 10.3,
+            "phase_anchor_mae_frames": 6.0,
+            "phase_anchor_max_error_frames": 19,
+        },
+        "segments": [
+            {
+                "movement_id": "M01",
+                "start_frame": 146,
+                "end_frame": 236,
+                "anchors": {"preparation": 146, "execution": 202, "fixation": 213},
+            }
+        ],
+        "reference_comparison": {
+            "summary": {"phase_anchor_mae_sec": 0.1},
+            "movements": [
+                {
+                    "movement_id": "M01",
+                    "status": "compared",
+                    "start": {
+                        "proposed_frame": 146,
+                        "reference_frame": 140,
+                        "delta_frames": 6,
+                    },
+                    "phases": {
+                        "fixation": {
+                            "proposed_frame": 213,
+                            "reference_frame": 218,
+                            "delta_frames": -5,
+                        }
+                    },
+                }
+            ],
+        },
+        "interpretation": "Diagnostic boundaries only.",
+    }
 
     rendered = build_review_html(
         spec,
@@ -432,8 +598,12 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
             "ZED 37137479": "../videos/b.mp4",
             "Gelecek kamera": "../videos/c.mp4",
         },
-        engineering_trial,
-        wholebody,
+        engineering_trial_report=engineering_trial,
+        wholebody_diagnostics_report=wholebody,
+        categorical_diagnostics_report=categorical,
+        presentation_diagnostics_report=presentation,
+        technical_conformance_report=technical_conformance,
+        automatic_segmentation_report=automatic_segmentation,
     )
 
     assert "Kısmi kayıt · 6/18" in rendered
@@ -442,11 +612,26 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
     assert "../videos/a.mp4" in rendered and "../videos/b.mp4" in rendered
     assert "../videos/c.mp4" in rendered and "3 kamera" in rendered
     assert "partial_source_recording" in rendered
-    assert "İkisini oynat" in rendered
+    assert "3 kamerayı oynat" in rendered
+    assert 'type="video/mp4"' in rendered
+    assert 'preload="auto"' in rendered
+    assert "Hedef kareler yükleniyor" in rendered
+    assert "Video hazırlanıyor" in rendered
     assert "BODY-17 sayısal denemesi iptal edildi" in rendered
     assert "WholeBody-133 hata inceleme adayları" in rendered
     assert "fixation_wrist_jitter_ratio" in rendered
     assert "Skor yok" in rendered
+    assert "Yanlış hareket ve yanlış duruş teşhisi" in rendered
+    assert "Uyuşmazlık adayı" in rendered
+    assert "Presentation kinematik göstergeleri" in rendered
+    assert "M01–M06 hareket bazlı teknik uygunluk" in rendered
+    assert "Birleşik kanıt güveni %82" in rendered
+    assert "metric-filter" in rendered
+    assert "metric-filter-status" in rendered
+    assert "clear-review" in rendered
+    assert "Otomatik hareket ve faz sınırı doğrulaması" in rendered
+    assert "6.00 kare" in rendered
+    assert "Oto fixation" in rendered
 
 
 def test_movement_evidence_reports_measurements_without_scoring() -> None:
@@ -637,6 +822,12 @@ def test_wholebody_diagnostics_use_133_points_and_fail_closed() -> None:
     assert first_foot_yaw["direction_basis"] == "back_ankle_to_front_ankle"
     assert first_foot_yaw["sample_count"] >= 3
     assert first_foot_yaw["uncertainty_95"] is not None
+    first_metrics = {
+        metric["metric_id"]: metric for metric in report["movements"][0]["metrics"]
+    }
+    assert first_metrics["hand_foot_settle_difference_sec"]["measurement_evidence"]["scope"] == "preparation_to_fixation"
+    assert first_metrics["fixation_wrist_jitter_ratio"]["measurement_evidence"]["scope"] == "fixation_to_segment_end"
+    assert first_metrics["pelvis_weight_transfer_ratio"]["measurement_evidence"]["scope"] == "preparation_and_fixation_windows"
     not_measurable = [
         metric
         for movement in report["movements"]
@@ -877,6 +1068,8 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
     profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [
             {
                 "movement_id": segment["movement_id"],
@@ -919,6 +1112,184 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
     assert report["observed_scope_provisional_deduction_total"] == 0.1
     assert report["accuracy_score"] is None
     assert report["scoring_status"] == "observed_scope_only_no_accuracy_score"
+    assert report["result_kind"] == "provisional_observed_scope_deduction_analysis"
+    assert report["accuracy_evaluation_status"] == "not_eligible_incomplete_evidence"
+    assert report["official_score_status"] == "not_available"
+    assert report["provisional_deduction_status"] == "observed_scope_only_not_official"
+
+
+def test_categorical_diagnostics_find_kinematic_mismatches_without_deduction() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    diagnostic_profile = load_wholebody_diagnostic_profile(WHOLEBODY_PROFILE_PATH)
+    accuracy_profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    evidence = {
+        "scope": "fixation_window",
+        "anchor_frame": timeline["segments"][0]["anchors"]["fixation"],
+        "anchor_time_sec": timeline["segments"][0]["anchors"]["fixation"] / timeline["fps"],
+    }
+
+    def metric(metric_id: str, value: float, unit: str) -> dict:
+        return {
+            "metric_id": metric_id,
+            "value": value,
+            "unit": unit,
+            "uncertainty_95": 0.01,
+            "measurement_evidence": evidence,
+        }
+
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
+        "profile": {
+            "profile_id": diagnostic_profile["profile_id"],
+            "version": diagnostic_profile["version"],
+        },
+        "movements": [
+            {
+                "movement_id": "M01",
+                "metrics": [
+                    metric("stance_span_ratio", 0.80, "body_scale"),
+                    metric("front_knee_deg", 140.0, "deg"),
+                    metric("executing_wrist_height_torso_ratio", 0.70, "torso_ratio"),
+                    metric("executing_elbow_deg", 175.0, "deg"),
+                ],
+            }
+        ],
+    }
+
+    report = build_categorical_diagnostics(
+        diagnostics,
+        spec,
+        timeline,
+        diagnostic_profile,
+    )
+
+    assert report["summary"]["mismatch_candidate_count"] == 2
+    assert {item["event_kind"] for item in report["observations"]} == {
+        "wrong_action",
+        "wrong_stance",
+    }
+    assert all(item["evidence_status"] == "inferred" for item in report["observations"])
+
+    decisions = build_source_bound_accuracy_decisions(
+        diagnostics,
+        spec,
+        timeline,
+        accuracy_profile,
+        report["observations"],
+    )
+    assert decisions["summary"]["applied_categorical_count"] == 0
+    assert all(
+        item["reason"] == "not_directly_observed"
+        for item in decisions["categorical_decisions"]
+    )
+
+
+def test_technical_conformance_fuses_identity_uncertainty_and_evidence_quality() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    poomsae_binding = {"poomsae_id": spec["poomsae_id"], "version": spec["version"]}
+
+    def movement_report(movement_id: str, value: float, uncertainty: float) -> dict:
+        segment = next(item for item in timeline["segments"] if item["movement_id"] == movement_id)
+        anchor = segment["anchors"]["fixation"]
+        return {
+            "movement_id": movement_id,
+            "metrics": [
+                {
+                    "metric_id": "torso_lean_p95_deg",
+                    "criterion_id": "balance.torso_vertical",
+                    "value": value,
+                    "unit": "deg",
+                    "uncertainty_95": uncertainty,
+                    "screening_status": "review_candidate" if value > 10.0 else "within_screening_range",
+                    "screening_rule": {"operator": "max", "value": 10.0},
+                    "measurement_evidence": {
+                        "start_frame": anchor - 4,
+                        "end_frame": anchor + 5,
+                        "required_group_coverage": {"body17": 0.92},
+                        "required_joint_sample_counts": {
+                            "left_shoulder": 9,
+                            "right_shoulder": 10,
+                        },
+                    },
+                }
+            ],
+        }
+
+    wholebody = {
+        "status": "wholebody_diagnostics_only",
+        "poomsae": poomsae_binding,
+        "movement_timeline_id": timeline["timeline_id"],
+        "profile": {"profile_id": "test-profile", "version": "1.0.0"},
+        "movements": [
+            movement_report(segment["movement_id"], 14.0 if index == 1 else 5.0, 5.0 if index == 1 else 1.0)
+            for index, segment in enumerate(timeline["segments"])
+        ],
+    }
+    categorical = {
+        "status": "categorical_diagnostics_only",
+        "poomsae": poomsae_binding,
+        "movement_timeline_id": timeline["timeline_id"],
+        "profile": {"profile_id": "test-profile", "version": "1.0.0"},
+        "checks": [
+            {
+                "check_id": f"CAT-{event_kind.upper()}-{segment['movement_id']}",
+                "movement_id": segment["movement_id"],
+                "event_kind": event_kind,
+                "status": (
+                    "mismatch_candidate"
+                    if segment["movement_id"] == "M01" and event_kind == "wrong_action"
+                    else "consistent"
+                ),
+                "expected_label": "expected",
+                "alternate_label": "alternate",
+                "reason": "test_reason",
+                "confidence": 0.8 if segment["movement_id"] == "M01" else 0.85,
+                "evidence": [],
+            }
+            for segment in timeline["segments"]
+            for event_kind in ("wrong_action", "wrong_stance")
+        ],
+    }
+
+    report = build_technical_conformance(wholebody, categorical, spec, timeline)
+
+    assert report["status"] == "technical_conformance_diagnostic_only"
+    assert report["safety_contract"]["score_claim_allowed"] is False
+    assert report["safety_contract"]["automatic_deduction_allowed"] is False
+    by_id = {item["movement_id"]: item for item in report["movements"]}
+    assert by_id["M01"]["conformance_status"] == "mismatch_candidate"
+    assert by_id["M01"]["fused_evidence_confidence"] == 0.8
+    assert by_id["M02"]["conformance_status"] == "ambiguous"
+    metric = by_id["M02"]["criteria"][0]["metrics"][0]
+    assert metric["comparison_interval"] == [9.0, 19.0]
+    assert metric["status"] == "boundary_uncertain"
+    assert by_id["M03"]["conformance_status"] == "consistent_within_measured_scope"
+    assert by_id["M03"]["criterion_coverage"]["measurable_count"] == 1
+
+
+def test_technical_conformance_rejects_mismatched_categorical_binding() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    poomsae_binding = {"poomsae_id": spec["poomsae_id"], "version": spec["version"]}
+    wholebody = {
+        "status": "wholebody_diagnostics_only",
+        "poomsae": poomsae_binding,
+        "movement_timeline_id": timeline["timeline_id"],
+        "movements": [],
+    }
+    categorical = {
+        "status": "categorical_diagnostics_only",
+        "poomsae": poomsae_binding,
+        "movement_timeline_id": "other-timeline",
+        "checks": [],
+    }
+
+    with pytest.raises(ScoringContractError, match="categorical diagnostics timeline binding"):
+        build_technical_conformance(wholebody, categorical, spec, timeline)
 
 
 def test_presentation_diagnostics_aggregates_components_without_producing_a_score() -> None:
@@ -926,6 +1297,8 @@ def test_presentation_diagnostics_aggregates_components_without_producing_a_scor
     timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [
             {
                 "movement_id": seg["movement_id"],
@@ -993,6 +1366,23 @@ def test_presentation_diagnostics_reject_non_wholebody_input() -> None:
     timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
     with pytest.raises(ScoringContractError, match="WholeBody diagnostics report"):
         build_presentation_diagnostics({"status": "something_else"}, spec, timeline)
+
+
+def test_downstream_diagnostics_reject_mismatched_provenance() -> None:
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
+    diagnostics = {
+        "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": "different-timeline",
+        "movements": [],
+    }
+
+    with pytest.raises(ScoringContractError, match="timeline binding"):
+        build_presentation_diagnostics(diagnostics, spec, timeline)
+    with pytest.raises(ScoringContractError, match="timeline binding"):
+        build_source_bound_accuracy_decisions(diagnostics, spec, timeline, profile)
 
 
 def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_seconds() -> None:
@@ -1065,6 +1455,8 @@ def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_secon
     profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [{"movement_id": seg["movement_id"], "metrics": []} for seg in segments],
     }
     report = build_source_bound_accuracy_decisions(
@@ -1089,6 +1481,8 @@ def test_source_bound_accuracy_eolgul_forehead_rule_fires_and_gates_boundary() -
     def diagnostics_with_eolgul(value: float, uncertainty: float) -> dict:
         return {
             "status": "wholebody_diagnostics_only",
+            "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+            "movement_timeline_id": timeline["timeline_id"],
             "movements": [
                 {
                     "movement_id": "M13",
@@ -1184,6 +1578,8 @@ def test_source_bound_accuracy_recognizes_complete_performance_scope_name() -> N
     profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [
             {"movement_id": movement_id, "metrics": []} for movement_id in movement_ids
         ],
@@ -1192,7 +1588,25 @@ def test_source_bound_accuracy_recognizes_complete_performance_scope_name() -> N
     report = build_source_bound_accuracy_decisions(diagnostics, spec, timeline, profile)
 
     assert report["scoring_status"] == "eligible_for_separate_full_accuracy_evaluation"
+    assert report["accuracy_evaluation_status"] == "eligible_not_evaluated"
     assert report["accuracy_score"] is None
+
+
+def test_source_bound_result_rejects_official_score_contradiction() -> None:
+    payload = {
+        "schema_version": 1,
+        "status": "source_bound_accuracy_decisions",
+        "result_kind": "provisional_observed_scope_deduction_analysis",
+        "accuracy_evaluation_status": "eligible_not_evaluated",
+        "accuracy_score": None,
+        "official_score_status": "not_available",
+        "official_score": 9.7,
+        "provisional_deduction_status": "observed_scope_only_not_official",
+        "observed_scope_provisional_deduction_total": 0.0,
+    }
+
+    with pytest.raises(ScoringContractError, match="official score"):
+        validate_source_bound_accuracy_result(payload)
 
 
 def test_source_bound_accuracy_major_requires_explicit_categorical_observation() -> None:
@@ -1201,6 +1615,8 @@ def test_source_bound_accuracy_major_requires_explicit_categorical_observation()
     profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [{"movement_id": segment["movement_id"], "metrics": []} for segment in timeline["segments"]],
     }
     first = timeline["segments"][0]
@@ -1358,6 +1774,28 @@ def test_accuracy_readiness_verifies_complete_bound_artifact(tmp_path: Path) -> 
     assert report["blockers"] == []
 
 
+def test_accuracy_readiness_fails_closed_when_wholebody_diagnostics_are_missing(tmp_path: Path) -> None:
+    pose_path = tmp_path / "outputs" / "test_session" / "runs" / "test_run" / "json" / "pose.json"
+    pose_path.parent.mkdir(parents=True)
+    pose_path.write_text('{"keypoints_3d_world": []}\n', encoding="utf-8")
+    timeline = _complete_timeline()
+    timeline["source_binding"]["pose_file_sha256"] = hashlib.sha256(pose_path.read_bytes()).hexdigest()
+
+    report = assess_accuracy_readiness(
+        load_rule_pack(RULE_PACK_PATH),
+        _active_spec(),
+        timeline,
+        workspace_root=tmp_path,
+    )
+
+    assert report["status"] == "blocked"
+    assert report["rule_scoring_ready"] is False
+    assert report["component_states"]["wholebody_diagnostics"] == "wholebody_diagnostics_not_provided"
+    assert {blocker["code"] for blocker in report["blockers"]} == {
+        "wholebody_diagnostics_not_provided"
+    }
+
+
 def test_accuracy_readiness_blocks_low_wholebody_coverage(tmp_path: Path) -> None:
     pose_path = tmp_path / "outputs" / "test_session" / "runs" / "test_run" / "json" / "pose.json"
     pose_path.parent.mkdir(parents=True)
@@ -1408,7 +1846,10 @@ def test_accuracy_readiness_rejects_changed_pose_artifact(tmp_path: Path) -> Non
 
     assert report["status"] == "blocked"
     assert report["pose_binding"]["status"] == "pose_sha256_mismatch"
-    assert {blocker["code"] for blocker in report["blockers"]} == {"pose_sha256_mismatch"}
+    assert {blocker["code"] for blocker in report["blockers"]} == {
+        "pose_sha256_mismatch",
+        "wholebody_diagnostics_not_provided",
+    }
 
 
 def test_accuracy_engine_applies_minor_and_major_deductions() -> None:
@@ -1691,19 +2132,14 @@ def test_derive_categorical_observations_boundary_is_inclusive_at_threshold() ->
     assert observation["observation_id"].startswith("AUTO-PAUSE-M01-")
 
 
-def test_derive_categorical_observations_detects_trailing_gap_after_last_segment() -> None:
+def test_derive_categorical_observations_ignores_unbounded_trailing_gap() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
     # Adjacent segments (zero gap) then 240 empty trailing frames (4.0s @ 60fps).
     timeline = _prefix_timeline_with_gaps(spec, [30, 30], [0], trailing_frames=240)
 
     observations = derive_categorical_observations(spec, timeline)
 
-    assert len(observations) == 1
-    observation = observations[0]
-    assert observation["movement_id"] == "M02"
-    assert observation["measurement"]["duration_sec"] == pytest.approx(4.0)
-    assert observation["start_frame"] == timeline["segments"][-1]["end_frame"]
-    assert observation["end_frame"] == observation["start_frame"]
+    assert observations == []
 
 
 def test_derive_categorical_observations_threshold_parameter_and_validation() -> None:
@@ -1712,18 +2148,14 @@ def test_derive_categorical_observations_threshold_parameter_and_validation() ->
 
     assert derive_categorical_observations(spec, timeline) == []
 
-    lowered = derive_categorical_observations(spec, timeline, pause_threshold_sec=1.0)
-    assert len(lowered) == 1
-    assert lowered[0]["measurement"]["duration_sec"] == pytest.approx(1.5)
-
-    for bad_threshold in (0.0, -2.0):
-        with pytest.raises(ScoringContractError, match="pause_threshold_sec"):
-            derive_categorical_observations(
-                spec, timeline, pause_threshold_sec=bad_threshold
-            )
+    for bad_threshold in (0.0, 1.0, 2.99):
+        with pytest.raises(ScoringContractError, match="3-second rule"):
+            derive_categorical_observations(spec, timeline, pause_threshold_sec=bad_threshold)
+    with pytest.raises(ScoringContractError, match="minimum_confidence"):
+        derive_categorical_observations(spec, timeline, minimum_confidence=1.1)
 
 
-def test_derive_categorical_observations_floors_confidence_at_minimum() -> None:
+def test_derive_categorical_observations_preserves_conservative_confidence() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
     timeline = _prefix_timeline_with_gaps(
         spec, [30, 30], [200], trailing_frames=200, confidences=[0.55, 0.95]
@@ -1731,9 +2163,8 @@ def test_derive_categorical_observations_floors_confidence_at_minimum() -> None:
 
     observations = derive_categorical_observations(spec, timeline)
 
-    assert [obs["movement_id"] for obs in observations] == ["M01", "M02"]
-    assert observations[0]["confidence"] == pytest.approx(0.80)  # floored up to minimum
-    assert observations[1]["confidence"] == pytest.approx(0.95)  # segment value kept
+    assert [obs["movement_id"] for obs in observations] == ["M01"]
+    assert observations[0]["confidence"] == pytest.approx(0.55)
 
 
 def test_presentation_diagnostics_rejects_non_list_movements() -> None:
@@ -1742,7 +2173,12 @@ def test_presentation_diagnostics_rejects_non_list_movements() -> None:
 
     with pytest.raises(ScoringContractError, match="movements must be a list"):
         build_presentation_diagnostics(
-            {"status": "wholebody_diagnostics_only", "movements": "not-a-list"},
+            {
+                "status": "wholebody_diagnostics_only",
+                "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+                "movement_timeline_id": timeline["timeline_id"],
+                "movements": "not-a-list",
+            },
             spec,
             timeline,
         )
@@ -1753,6 +2189,8 @@ def test_presentation_diagnostics_skips_unusable_values_and_summarizes_sparse_sa
     timeline = _prefix_timeline_with_gaps(spec, [60], [])  # single 1.0s segment
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [
             {
                 "movement_id": "M01",
@@ -1913,9 +2351,12 @@ def test_automatic_timeline_feeds_accuracy_and_presentation_end_to_end() -> None
     assert len(observations) == 1
     assert observations[0]["movement_id"] == "M01"
     assert observations[0]["measurement"]["duration_sec"] == pytest.approx(4.0)
+    assert observations[0]["evidence_status"] == "inferred"
 
     diagnostics = {
         "status": "wholebody_diagnostics_only",
+        "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+        "movement_timeline_id": timeline["timeline_id"],
         "movements": [
             {"movement_id": segment["movement_id"], "metrics": []}
             for segment in timeline["segments"]
@@ -1926,8 +2367,8 @@ def test_automatic_timeline_feeds_accuracy_and_presentation_end_to_end() -> None
     )
     assert accuracy["accuracy_score"] is None
     assert accuracy["scoring_status"] == "observed_scope_only_no_accuracy_score"
-    assert accuracy["summary"]["applied_categorical_count"] == 1
-    assert accuracy["observed_scope_provisional_deduction_total"] == pytest.approx(0.3)
+    assert accuracy["summary"]["applied_categorical_count"] == 0
+    assert accuracy["observed_scope_provisional_deduction_total"] == pytest.approx(0.0)
 
     presentation = build_presentation_diagnostics(diagnostics, spec, timeline)
     assert presentation["total_score"] is None

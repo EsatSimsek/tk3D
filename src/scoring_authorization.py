@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from src.artifact_contracts import validate_run_quality_artifact
+from src.artifact_io import sha256_file
 
 
 AUTHORIZATION_ALGORITHM = "tk3d_ground_truth_bound_scoring_authorization_v1"
@@ -14,14 +16,10 @@ PASSED_VALIDATION_STATUS = "passed_for_scoring_validation"
 
 def file_fingerprint(path: str | Path, *, label: str | None = None) -> dict[str, object]:
     source = Path(path).resolve()
-    digest = hashlib.sha256()
-    with source.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
     return {
         "path": label if label is not None else str(source),
         "size_bytes": source.stat().st_size,
-        "sha256": digest.hexdigest(),
+        "sha256": sha256_file(source),
     }
 
 
@@ -273,6 +271,7 @@ def verify_scoring_authorization(
         raise ValueError("Scoring authorization run identity does not match the prediction")
     if "run_quality_report" in bindings:
         quality = _read_json(Path(str(bindings["run_quality_report"]["path"])))
+        validate_run_quality_artifact(quality)
         if (
             quality.get("status") != "passed"
             or quality.get("quality_scope") != "internal_geometry_only"

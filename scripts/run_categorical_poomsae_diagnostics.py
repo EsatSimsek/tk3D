@@ -4,39 +4,34 @@ import argparse
 import json
 from pathlib import Path
 
-from src.artifact_io import sha256_file
-from src.poomsae_scoring import (
-    build_presentation_diagnostics,
+ROOT = Path(__file__).resolve().parents[1]
+
+from src.artifact_io import sha256_file  # noqa: E402
+
+from src.poomsae_scoring import (  # noqa: E402
+    build_categorical_diagnostics,
     load_movement_timeline,
     load_poomsae_spec,
+    load_wholebody_diagnostic_profile,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Build judge-uncalibrated Poomsae Presentation diagnostics. "
-            "This command never produces an official Presentation score."
-        )
+        description="Build non-scoring pause, wrong-action and wrong-stance diagnostics."
     )
     parser.add_argument("--wholebody-diagnostics", required=True)
     parser.add_argument("--poomsae-spec", required=True)
     parser.add_argument("--timeline", required=True)
-    parser.add_argument(
-        "--output",
-        "--output-json",
-        dest="output",
-        required=True,
-        help="Output JSON path; --output-json is retained for compatibility.",
-    )
+    parser.add_argument("--diagnostic-profile", required=True)
+    parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
     paths = {
         "wholebody_diagnostics": _resolve(args.wholebody_diagnostics),
         "poomsae_spec": _resolve(args.poomsae_spec),
         "movement_timeline": _resolve(args.timeline),
+        "diagnostic_profile": _resolve(args.diagnostic_profile),
     }
     for label, path in paths.items():
         if not path.is_file():
@@ -48,13 +43,10 @@ def main() -> None:
     diagnostics = _read_json(paths["wholebody_diagnostics"])
     spec = load_poomsae_spec(paths["poomsae_spec"])
     timeline = load_movement_timeline(paths["movement_timeline"], spec)
-    report = build_presentation_diagnostics(diagnostics, spec, timeline)
-    if report.get("total_score") is not None or report.get("safety_contract", {}).get(
-        "score_claim_allowed"
-    ):
-        raise SystemExit("Presentation report violated its no-score contract; refusing to write it.")
+    profile = load_wholebody_diagnostic_profile(paths["diagnostic_profile"])
+    report = build_categorical_diagnostics(diagnostics, spec, timeline, profile)
     report["bindings"] = {
-        label: {"path": str(path), "sha256": sha256_file(path)}
+        label: {"path": str(path), "sha256": _sha256(path)}
         for label, path in paths.items()
     }
     _write_json(output, report)
@@ -78,6 +70,9 @@ def _write_json(path: Path, payload: dict) -> None:
 def _resolve(value: str) -> Path:
     path = Path(value)
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
+
+
+_sha256 = sha256_file
 
 
 if __name__ == "__main__":

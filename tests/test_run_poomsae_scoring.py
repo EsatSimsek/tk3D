@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,10 +10,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.run_poomsae_scoring import (
+from src.poomsae_scoring.application import (
     WorkflowError,
     _load_profile,
     _output_paths,
+    _portable_pose_path,
     _transfer_timeline_binding,
 )
 from src.poomsae_scoring import load_poomsae_spec
@@ -72,6 +74,19 @@ def test_project_one_command_profile_is_valid() -> None:
     assert {video["camera_id"] for video in profile["videos"]} == {"zed_35151067", "zed_37137479"}
 
 
+def test_one_command_output_contract_includes_integrated_diagnostics(tmp_path: Path) -> None:
+    outputs = _output_paths(tmp_path / "run")
+
+    assert outputs["categorical_diagnostics"].name == "categorical_diagnostics_report.json"
+    assert outputs["technical_conformance"].name == "technical_conformance_report.json"
+    assert outputs["presentation_diagnostics"].name == "presentation_diagnostics_report.json"
+    assert outputs["automatic_segmentation"].name == "automatic_segmentation_report.json"
+    assert outputs["automatic_segmentation_signal"].name == "automatic_segmentation_signal.csv"
+    assert outputs["browser_review_video_manifest"].name == "browser_review_video_manifest.json"
+    assert outputs["run_history_json"].name == "run_history_report.json"
+    assert outputs["run_history_html"].name == "run_history.html"
+
+
 def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) -> None:
     reference = tmp_path / "reference.json"
     new = tmp_path / "new.json"
@@ -91,6 +106,13 @@ def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) ->
     assert transferred["source_binding"]["run_id"] == "new-run"
     assert transferred["source_binding"]["pose_file_sha256"] == _sha256(new)
     assert transferred["timeline_id"].endswith("new-run")
+    assert transferred["source_binding"]["pose_file"] == _portable_pose_path(new)
+
+
+def test_portable_pose_path_preserves_external_absolute_path() -> None:
+    external = Path("C:/Windows/Temp/tk3d-external-pose.json")
+
+    assert _portable_pose_path(external) == external.resolve().as_posix()
 
 
 def test_timeline_transfer_fails_closed_when_timestamps_change(tmp_path: Path) -> None:
@@ -173,35 +195,40 @@ def _prefix_timeline_yaml(
 
 
 def _run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(ROOT)
+    if existing_pythonpath:
+        env["PYTHONPATH"] += os.pathsep + existing_pythonpath
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / script), *[str(item) for item in args]],
         capture_output=True,
         text=True,
         cwd=ROOT,
+        env=env,
         check=False,  # the failure cases below assert on returncode themselves
     )
 
 
-def test_run_outputs_include_the_new_observation_and_presentation_stages(tmp_path: Path) -> None:
+def test_run_outputs_include_integrated_categorical_and_presentation_stages(tmp_path: Path) -> None:
     outputs = _output_paths(tmp_path)
 
-    assert outputs["categorical_observations"].name == "automatic_categorical_observations.json"
+    assert outputs["categorical_diagnostics"].name == "categorical_diagnostics_report.json"
     assert outputs["presentation_diagnostics"].name == "presentation_diagnostics_report.json"
-    assert outputs["categorical_observations"].parent == tmp_path / "json"
+    assert outputs["categorical_diagnostics"].parent == tmp_path / "json"
     assert outputs["presentation_diagnostics"].parent == tmp_path / "json"
 
 
 def test_runner_feeds_derived_observations_into_the_accuracy_stage() -> None:
     """The observation stage is worthless if its output never reaches the accuracy stage."""
-    source = (ROOT / "scripts" / "run_poomsae_scoring.py").read_text(encoding="utf-8")
-    derive_at = source.index("derive_poomsae_categorical_observations.py")
+    source = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")
+    derive_at = source.index("run_categorical_poomsae_diagnostics.py")
     accuracy_at = source.index("build_source_bound_accuracy_decisions.py")
-    presentation_at = source.index("build_poomsae_presentation_diagnostics.py")
 
     assert derive_at < accuracy_at, "observations must be derived before accuracy consumes them"
-    accuracy_stage = source[accuracy_at:presentation_at]
+    accuracy_stage = source[accuracy_at:source.index("build_poomsae_evidence_events.py")]
     assert '"--observations"' in accuracy_stage
-    assert 'outputs["categorical_observations"]' in accuracy_stage
+    assert 'outputs["categorical_diagnostics"]' in accuracy_stage
 
 
 def test_derive_observations_script_emits_pause_and_manifest(tmp_path: Path) -> None:
@@ -260,10 +287,14 @@ def test_presentation_script_writes_a_report_that_claims_no_score(tmp_path: Path
     diagnostics = tmp_path / "wholebody.json"
     output = tmp_path / "presentation.json"
     _prefix_timeline_yaml(timeline, segment_lengths=[60, 60], gap_frames=[60])
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline_payload = yaml.safe_load(timeline.read_text(encoding="utf-8"))
     diagnostics.write_text(
         json.dumps(
             {
                 "status": "wholebody_diagnostics_only",
+                "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
+                "movement_timeline_id": timeline_payload["timeline_id"],
                 "movements": [
                     {
                         "movement_id": movement_id,
@@ -333,14 +364,12 @@ def test_presentation_script_rejects_a_non_wholebody_report(tmp_path: Path) -> N
 
 
 def test_repo_relative_posix_keeps_outside_paths_absolute(tmp_path: Path) -> None:
-    from scripts.run_poomsae_scoring import _repo_relative_posix
-
     inside = ROOT / "config" / "model_config.yaml"
     outside = tmp_path / "pose.json"
     outside.write_text("{}", encoding="utf-8")
 
-    assert _repo_relative_posix(inside) == "config/model_config.yaml"
-    assert _repo_relative_posix(outside) == outside.resolve().as_posix()
+    assert _portable_pose_path(inside) == "config/model_config.yaml"
+    assert _portable_pose_path(outside) == outside.resolve().as_posix()
 
 
 def _write_synthetic_pose(path: Path, frame_count: int) -> None:

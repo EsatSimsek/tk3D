@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import argparse
 import csv
-import hashlib
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
 
+from src.artifact_io import sha256_file  # noqa: E402
+
+from src.artifact_contracts import load_run_bound_main_3d_artifact  # noqa: E402
 from src.poomsae_scoring import (  # noqa: E402
     build_wholebody_diagnostics,
     load_movement_timeline,
@@ -42,7 +42,7 @@ def main() -> None:
         if target.exists():
             raise SystemExit(f"Output already exists; refusing to overwrite: {target}")
 
-    pose = json.loads(paths["pose"].read_text(encoding="utf-8"))
+    pose, pose_compatibility = load_run_bound_main_3d_artifact(paths["pose"])
     spec = load_poomsae_spec(paths["poomsae_spec"])
     timeline = load_movement_timeline(paths["movement_timeline"], spec)
     profile = load_wholebody_diagnostic_profile(paths["diagnostic_profile"])
@@ -50,6 +50,7 @@ def main() -> None:
     report["bindings"] = {
         label: {"path": str(path), "sha256": _sha256(path)} for label, path in paths.items()
     }
+    report["bindings"]["pose"]["artifact_compatibility"] = pose_compatibility.value
     rows = [metric for movement in report["movements"] for metric in movement["metrics"]]
 
     output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -72,12 +73,7 @@ def _resolve(value: str) -> Path:
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_sha256 = sha256_file
 
 
 if __name__ == "__main__":
