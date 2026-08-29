@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from src.exporter import export_session_json
 from src.ground_truth_io import load_joint_map, load_pose_sequence_json, match_pose_sequences
