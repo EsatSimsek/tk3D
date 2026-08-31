@@ -90,6 +90,12 @@ def _print_summary(summary: dict[str, Any], summary_path: Path) -> None:
     )
     print(f"WholeBody teşhis adayı (puan yok): {results['diagnostic_review_candidate_count']}")
     print(
+        "Kapsamlı teknik-doğruluk envanteri/adayı (puan yok): "
+        f"{results['technical_accuracy_rule_count']} kural / "
+        f"{results['technical_accuracy_temporary_candidate_count']} aday / "
+        f"{results['technical_accuracy_score_effect_count']} skor etkisi"
+    )
+    print(
         "Otomatik duraklama gözlemi (puan yetkisi yok): "
         f"{results['categorical_pause_observation_count']}"
     )

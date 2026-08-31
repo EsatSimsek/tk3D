@@ -1,0 +1,401 @@
+schema_version: 3
+profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
+version: 3.0.0
+status: diagnostic_only_unvalidated
+poomsae_id: taegeuk_1_jang
+required_keypoint_count: 133
+policy:
+  category: technical_accuracy_diagnostic
+  numeric_score_enabled: false
+  deduction_enabled: false
+  decision_status: review_candidate_not_deduction
+  rule_eligibility: blocked_unvalidated_screening_threshold
+  provenance: self_authored_temporary_accuracy_rule
+  score_effect: null
+  deduction_points: null
+quality_gates:
+  min_used_cameras: 2
+  max_reprojection_error_px: 8.0
+  min_valid_samples: 3
+  anchor_window_radius_frames: 5
+  min_group_valid_ratio: 0.75
+  max_normalized_frame_jump: 0.50
+threshold_policy:
+  origin: self_authored_temporary_accuracy_rule
+  status: unvalidated_engineering_hypothesis
+  scope: taegeuk_1_wholebody_133_diagnostic_only
+  version_date: '2026-08-30'
+  rationale: Broad screening values requested for geometry debugging; not WT or Kukkiwon judging tolerances.
+  no_score_semantics: true
+thresholds:
+  head_target_yaw_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
+  head_torso_relative_yaw_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
+  head_roll_relative_shoulders_deg: {operator: abs_max, value: 15.0, uncertainty_band: 2.0, unit: deg}
+  head_pitch_relative_torso_deg: {operator: abs_max, value: 20.0, uncertainty_band: 2.0, unit: deg}
+  head_fixation_orientation_dispersion_p95_deg: {operator: max, value: 10.0, uncertainty_band: 2.0, unit: deg}
+  head_post_fixation_drift_deg: {operator: max, value: 10.0, uncertainty_band: 2.0, unit: deg}
+  torso_target_yaw_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
+  pelvis_target_yaw_error_deg: {operator: max, value: 30.0, uncertainty_band: 2.0, unit: deg}
+  stance_axis_target_yaw_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
+  torso_pelvis_relative_yaw_deg: {operator: max, value: 20.0, uncertainty_band: 2.0, unit: deg}
+  torso_lean_p95_deg: {operator: max, value: 15.0, uncertainty_band: 2.0, unit: deg}
+  torso_lateral_bend_deg: {operator: abs_max, value: 12.0, uncertainty_band: 2.0, unit: deg}
+  shoulder_roll_deg: {operator: abs_max, value: 12.0, uncertainty_band: 2.0, unit: deg}
+  pelvis_roll_deg: {operator: abs_max, value: 12.0, uncertainty_band: 2.0, unit: deg}
+  torso_fixation_orientation_dispersion_p95_deg: {operator: max, value: 8.0, uncertainty_band: 2.0, unit: deg}
+  pelvis_fixation_orientation_dispersion_p95_deg: {operator: max, value: 8.0, uncertainty_band: 2.0, unit: deg}
+  torso_post_fixation_drift_deg: {operator: max, value: 8.0, uncertainty_band: 2.0, unit: deg}
+  pelvis_post_fixation_drift_deg: {operator: max, value: 8.0, uncertainty_band: 2.0, unit: deg}
+  foot_fixation_slip_body_ratio: {operator: max, value: 0.04, uncertainty_band: 0.01, unit: leg_length}
+  stance_fixation_dispersion_body_ratio: {operator: max, value: 0.04, uncertainty_band: 0.01, unit: leg_length}
+  foot_landing_position_error_body_ratio: {operator: max, value: 0.15, uncertainty_band: 0.03, unit: leg_length}
+  elbow_flare_body_ratio: {operator: max, value: 0.20, uncertainty_band: 0.03, unit: arm_length}
+  shoulder_elbow_wrist_plane_deviation_ratio: {operator: max, value: 0.15, uncertainty_band: 0.03, unit: arm_length}
+  active_arm_fixation_dispersion_body_ratio: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: arm_length}
+  reaction_arm_fixation_dispersion_body_ratio: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: arm_length}
+  arm_late_correction_body_ratio: {operator: max, value: 0.08, uncertainty_band: 0.02, unit: arm_length}
+  wrist_forearm_alignment_deg: {operator: max, value: 20.0, uncertainty_band: 2.0, unit: deg}
+  fist_target_direction_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
+  active_hand_fixation_stability: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: arm_length}
+  reaction_hand_fixation_stability: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: arm_length}
+  active_hand_stance_settle_offset: {operator: abs_max, value: 0.20, uncertainty_band: 0.02, unit: sec}
+  head_torso_settle_offset: {operator: abs_max, value: 0.20, uncertainty_band: 0.02, unit: sec}
+stance_contracts:
+  ap_seogi:
+    length_leg_ratio: [0.20, 0.60]
+    width_shoulder_ratio: [0.0, 0.75]
+    front_knee_included_angle_deg: [155.0, 180.0]
+    rear_knee_included_angle_deg: [155.0, 180.0]
+    foot_target_yaw_uncertainty_deg: 20.0
+  ap_gubi:
+    length_leg_ratio: [0.45, 0.95]
+    width_shoulder_ratio: [0.10, 1.00]
+    front_knee_included_angle_deg: [120.0, 170.0]
+    rear_knee_included_angle_deg: [155.0, 180.0]
+    foot_target_yaw_uncertainty_deg: 20.0
+technique_contracts:
+  arae_makki:
+    target_region: lower_body
+    target_height: below_pelvis
+    lateral_position: active_side_thigh_line
+    depth: near_body_plane
+    elbow_relationship: extended_not_locked
+    wrist_relationship: forearm_aligned
+    preparation: active_hand_from_opposite_shoulder
+    reaction_hand: opposite_hand_to_hip_chamber
+    allowed_torso_pelvis_yaw_deg: 20.0
+  momtong_jireugi:
+    target_region: middle_trunk
+    target_height: solar_plexus_proxy
+    lateral_position: body_center_line
+    depth: arm_extension_target
+    elbow_relationship: extended_not_locked
+    wrist_relationship: forearm_aligned
+    preparation: active_hand_from_hip_chamber
+    reaction_hand: opposite_hand_to_hip_chamber
+    allowed_torso_pelvis_yaw_deg: 20.0
+  momtong_an_makki:
+    target_region: middle_trunk
+    target_height: solar_plexus_proxy
+    lateral_position: body_center_line
+    depth: forearm_guard_plane
+    elbow_relationship: flexed_block_geometry
+    wrist_relationship: forearm_aligned
+    preparation: active_hand_outside_shoulder_region
+    reaction_hand: opposite_hand_to_hip_chamber
+    allowed_torso_pelvis_yaw_deg: 25.0
+  eolgul_makki:
+    target_region: forehead
+    target_height: above_forehead
+    lateral_position: forehead_center_coverage
+    depth: forehead_clearance
+    elbow_relationship: elevated_flexed_block
+    wrist_relationship: forearm_aligned
+    preparation: active_hand_from_opposite_lower_trunk
+    reaction_hand: opposite_hand_to_hip_chamber
+    allowed_torso_pelvis_yaw_deg: 20.0
+  ap_chagi:
+    target_region: forward_midline
+    target_height: configured_by_movement_unavailable
+    lateral_position: movement_direction_line
+    depth: full_kick_extension
+    elbow_relationship: not_applicable
+    wrist_relationship: not_applicable
+    preparation: knee_chamber
+    reaction_hand: guard_or_chamber_not_numerically_bound
+    allowed_torso_pelvis_yaw_deg: 25.0
+  kihap:
+    target_region: audio_event_not_observable_in_pose
+    target_height: not_applicable
+    lateral_position: not_applicable
+    depth: not_applicable
+    elbow_relationship: not_applicable
+    wrist_relationship: not_applicable
+    preparation: not_observable_from_wholebody_pose
+    reaction_hand: not_applicable
+    allowed_torso_pelvis_yaw_deg: 0.0
+metric_catalog:
+  head_orientation:
+    - head_target_yaw_error_deg
+    - head_torso_relative_yaw_deg
+    - head_roll_relative_shoulders_deg
+    - head_pitch_relative_torso_deg
+    - head_fixation_orientation_dispersion_p95_deg
+    - head_post_fixation_drift_deg
+    - head_turn_completion_state
+    - head_turn_direction_sign_match
+    - head_wrong_direction_stable_state
+    - head_late_turn_state
+    - head_orientation_unmeasurable_reason
+    - head_face_geometry_quality
+  torso_pelvis:
+    - torso_target_yaw_error_deg
+    - pelvis_target_yaw_error_deg
+    - stance_axis_target_yaw_error_deg
+    - torso_pelvis_relative_yaw_deg
+    - torso_lean_p95_deg
+    - torso_forward_backward_lean_deg
+    - torso_lateral_bend_deg
+    - shoulder_roll_deg
+    - pelvis_roll_deg
+    - shoulder_pelvis_roll_difference_deg
+    - shoulder_height_asymmetry_body_ratio
+    - pelvis_height_asymmetry_body_ratio
+    - torso_fixation_orientation_dispersion_p95_deg
+    - pelvis_fixation_orientation_dispersion_p95_deg
+    - torso_post_fixation_drift_deg
+    - pelvis_post_fixation_drift_deg
+    - torso_translation_after_fixation_body_ratio
+    - pelvis_translation_after_fixation_body_ratio
+    - body_height_change_during_fixation_ratio
+    - torso_geometry_quality
+  stance_feet:
+    - expected_stance_type_match
+    - lead_leg_side_match
+    - moving_foot_side_match
+    - expected_support_or_pivot_foot_match
+    - stance_length_leg_ratio
+    - stance_width_shoulder_ratio
+    - front_foot_target_yaw_error_deg
+    - rear_foot_target_yaw_error_deg
+    - inter_foot_yaw_difference_deg
+    - foot_progression_axis_error_deg
+    - foot_crossing_margin_body_ratio
+    - heel_alignment_error_body_ratio
+    - toe_alignment_error_body_ratio
+    - front_back_foot_order_match
+    - foot_landing_position_error_body_ratio
+    - pivot_foot_displacement_body_ratio
+    - support_foot_displacement_body_ratio
+    - foot_fixation_slip_body_ratio
+    - stance_fixation_dispersion_body_ratio
+    - stance_depth_or_pelvis_height_leg_ratio
+    - stance_geometry_quality
+  lower_body:
+    - front_knee_flexion_deg
+    - rear_knee_flexion_deg
+    - expected_knee_flexion_range_match
+    - knee_over_foot_alignment_ratio
+    - knee_valgus_varus_proxy_deg
+    - knee_target_direction_error_deg
+    - hip_knee_ankle_plane_deviation_ratio
+    - lead_leg_identity_match
+    - rear_leg_identity_match
+    - lower_body_left_right_swap_state
+    - pelvis_height_stance_match
+    - lower_body_fixation_dispersion
+    - lower_body_geometry_quality
+  kick:
+    - chamber_knee_height_body_ratio
+    - chamber_hip_flexion_deg
+    - chamber_knee_flexion_deg
+    - support_leg_stability
+    - kick_extension_deg
+    - kick_target_height_body_ratio
+    - kick_direction_error_deg
+    - kick_retraction_state
+    - kick_landing_stance_restoration
+  upper_body:
+    - active_arm_side_match
+    - reaction_or_chamber_arm_side_match
+    - shoulder_elevation_body_ratio
+    - shoulder_abduction_deg
+    - shoulder_flexion_deg
+    - elbow_flexion_deg
+    - elbow_target_angle_error_deg
+    - elbow_flare_body_ratio
+    - shoulder_elbow_wrist_plane_deviation_ratio
+    - active_arm_extension_ratio
+    - active_arm_target_direction_error_deg
+    - active_arm_target_height_body_ratio
+    - active_arm_target_lateral_offset_body_ratio
+    - active_arm_target_depth_body_ratio
+    - active_hand_target_distance_body_ratio
+    - reaction_hand_target_distance_body_ratio
+    - reaction_elbow_position_error_body_ratio
+    - active_arm_fixation_dispersion_body_ratio
+    - reaction_arm_fixation_dispersion_body_ratio
+    - arm_late_correction_body_ratio
+    - arm_target_overshoot_body_ratio
+    - upper_body_geometry_quality
+  wrist_hand:
+    - wrist_forearm_alignment_deg
+    - wrist_flexion_extension_proxy_deg
+    - wrist_radial_ulnar_deviation_proxy_deg
+    - fist_or_hand_orientation_proxy_deg
+    - fist_target_direction_error_deg
+    - fist_target_height_error_body_ratio
+    - fist_target_lateral_error_body_ratio
+    - fist_target_depth_error_body_ratio
+    - hand_shape_observability
+    - active_hand_fixation_stability
+    - reaction_hand_fixation_stability
+    - hand_geometry_quality
+  phase_structure:
+    - required_phase_coverage
+    - preparation_pose_observed
+    - preparation_side_match
+    - chamber_pose_observed
+    - chamber_precedes_execution
+    - active_technique_reaches_target_by_fixation
+    - stance_reaches_target_by_fixation
+    - head_reaches_target_by_fixation
+    - torso_reaches_target_by_fixation
+    - reaction_hand_reaches_target_by_fixation
+    - active_hand_stance_settle_offset
+    - head_torso_settle_offset
+    - late_post_fixation_correction
+    - premature_next_movement_transition
+    - fixation_pose_stability
+    - final_pose_geometry_conformance
+    - phase_evidence_quality
+  transition:
+    - expected_direction_change_match
+    - rotation_direction_sign_match
+    - moving_foot_match
+    - support_or_pivot_foot_match
+    - step_direction_error_deg
+    - step_length_error_body_ratio
+    - step_width_error_body_ratio
+    - landing_position_error_body_ratio
+    - landing_stance_type_match
+    - head_turn_settled_by_fixation
+    - torso_turn_settled_by_fixation
+    - pelvis_or_stance_turn_settled_by_fixation
+    - pivot_foot_excess_displacement
+    - transition_foot_crossing
+    - post_landing_adjustment
+    - transition_geometry_quality
+  fixation:
+    - head_fixation_dispersion
+    - torso_fixation_dispersion
+    - pelvis_fixation_dispersion
+    - active_hand_fixation_dispersion
+    - reaction_hand_fixation_dispersion
+    - front_foot_fixation_dispersion
+    - rear_foot_fixation_dispersion
+    - knee_fixation_dispersion
+    - body_height_fixation_drift
+    - torso_translation_after_fixation
+    - pelvis_translation_after_fixation
+    - stance_width_after_fixation_change
+    - stance_length_after_fixation_change
+    - late_balance_recovery_proxy
+    - fixation_evidence_quality
+  sequence:
+    - movement_contract_exists
+    - movement_timeline_segment_exists
+    - expected_movement_order
+    - movement_phase_order
+    - expected_technique_contract_resolved
+    - expected_stance_contract_resolved
+    - expected_active_side_contract_resolved
+    - expected_direction_contract_resolved
+    - final_geometry_consistent_with_declared_movement
+    - movement_completion_state
+  pipeline_limits:
+    - actual_eye_gaze
+    - centre_of_mass
+    - centre_of_pressure
+    - actual_weight_distribution
+    - ground_reaction_force
+    - impact_power
+    - muscle_tension
+active_rules:
+  - head_torso_relative_yaw_deg
+  - head_roll_relative_shoulders_deg
+  - head_pitch_relative_torso_deg
+  - head_fixation_orientation_dispersion_p95_deg
+  - head_post_fixation_drift_deg
+  - torso_pelvis_relative_yaw_deg
+  - torso_lean_p95_deg
+  - torso_lateral_bend_deg
+  - shoulder_roll_deg
+  - pelvis_roll_deg
+  - torso_fixation_orientation_dispersion_p95_deg
+  - pelvis_fixation_orientation_dispersion_p95_deg
+  - torso_post_fixation_drift_deg
+  - pelvis_post_fixation_drift_deg
+  - foot_fixation_slip_body_ratio
+  - stance_fixation_dispersion_body_ratio
+  - elbow_flare_body_ratio
+  - shoulder_elbow_wrist_plane_deviation_ratio
+  - active_arm_fixation_dispersion_body_ratio
+  - reaction_arm_fixation_dispersion_body_ratio
+  - arm_late_correction_body_ratio
+  - wrist_forearm_alignment_deg
+  - active_hand_fixation_stability
+  - reaction_hand_fixation_stability
+  - active_hand_stance_settle_offset
+  - required_phase_coverage
+  - movement_contract_exists
+  - movement_timeline_segment_exists
+  - expected_movement_order
+  - movement_phase_order
+  - expected_technique_contract_resolved
+  - expected_stance_contract_resolved
+  - expected_active_side_contract_resolved
+direction_bound_rules:
+  - head_target_yaw_error_deg
+  - head_turn_direction_sign_match
+  - head_wrong_direction_stable_state
+  - torso_target_yaw_error_deg
+  - pelvis_target_yaw_error_deg
+  - stance_axis_target_yaw_error_deg
+  - front_foot_target_yaw_error_deg
+  - rear_foot_target_yaw_error_deg
+  - foot_progression_axis_error_deg
+  - front_back_foot_order_match
+  - knee_target_direction_error_deg
+  - active_arm_target_direction_error_deg
+  - fist_target_direction_error_deg
+  - expected_direction_change_match
+  - rotation_direction_sign_match
+  - step_direction_error_deg
+  - expected_direction_contract_resolved
+not_observable_rules:
+  - actual_eye_gaze
+  - centre_of_mass
+  - centre_of_pressure
+  - actual_weight_distribution
+  - ground_reaction_force
+  - impact_power
+  - muscle_tension
+  - hand_shape_observability
+failure_behavior: emit_state_and_reason_without_candidate
+skip_reason_codes:
+  - insufficient_valid_samples
+  - missing_required_landmarks
+  - non_finite_geometry
+  - degenerate_body_axis
+  - degenerate_face_geometry
+  - inadequate_eye_separation
+  - ambiguous_head_forward_sign
+  - missing_athlete_local_direction_binding
+  - movement_not_present_in_timeline
+  - movement_contract_incomplete
+  - unsupported_technique
+  - unreliable_hand_geometry
+  - insufficient_phase_duration
+  - measurement_not_observable
+disclaimer: Comprehensive temporary WholeBody-133 technical-accuracy diagnostics; no threshold is an official WT or Kukkiwon tolerance and no result changes a score or deduction.

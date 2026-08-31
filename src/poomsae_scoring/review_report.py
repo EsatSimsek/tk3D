@@ -26,6 +26,7 @@ def build_review_html(
     technical_conformance_report: dict[str, Any] | None = None,
     run_history_url: str | None = None,
     automatic_segmentation_report: dict[str, Any] | None = None,
+    technical_accuracy_diagnostics_report: dict[str, Any] | None = None,
 ) -> str:
     """Build a self-contained, synchronized two-camera review page."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -51,6 +52,11 @@ def build_review_html(
         raise ScoringContractError("Presentation diagnostics must reference the same MovementTimeline")
     if technical_conformance_report is not None and technical_conformance_report.get("movement_timeline_id") != timeline["timeline_id"]:
         raise ScoringContractError("technical conformance must reference the same MovementTimeline")
+    if technical_accuracy_diagnostics_report is not None:
+        if technical_accuracy_diagnostics_report.get("status") != "technical_accuracy_diagnostics_only":
+            raise ScoringContractError("technical accuracy diagnostics status is invalid")
+        if technical_accuracy_diagnostics_report.get("movement_timeline_id") != timeline["timeline_id"]:
+            raise ScoringContractError("technical accuracy diagnostics must reference the same MovementTimeline")
     if automatic_segmentation_report is not None:
         if automatic_segmentation_report.get("status") != "automatic_segmentation_diagnostic_only":
             raise ScoringContractError("automatic segmentation report status is invalid")
@@ -120,6 +126,9 @@ def build_review_html(
     technical_stat, technical_section = _technical_conformance_html(
         technical_conformance_report,
         timeline["fps"],
+    )
+    accuracy_diagnostic_stat, accuracy_diagnostic_section = _technical_accuracy_html(
+        technical_accuracy_diagnostics_report
     )
     presentation_stat, presentation_section = _presentation_diagnostics_html(
         presentation_diagnostics_report
@@ -238,6 +247,7 @@ def build_review_html(
     {wholebody_stat}
     {categorical_stat}
     {technical_stat}
+    {accuracy_diagnostic_stat}
     {presentation_stat}
     {automatic_stat}
     {trial_stat}
@@ -251,6 +261,7 @@ def build_review_html(
   {wholebody_section}
   {categorical_section}
   {technical_section}
+  {accuracy_diagnostic_section}
   {presentation_section}
   {decision_section}
   <div class="two-col">
@@ -861,6 +872,42 @@ def _technical_status_icon(status: Any) -> str:
     if status == "not_measurable":
         return "&mdash;"
     return "&#8505;"
+
+
+def _technical_accuracy_html(report: dict[str, Any] | None) -> tuple[str, str]:
+    if report is None:
+        return "", ""
+    summary = report.get("summary", {})
+    candidates = int(summary.get("temporary_candidate_count", 0))
+    rule_count = int(summary.get("rule_count", 0))
+    stat = (
+        '<div class="stat"><span>Teknik doğruluk envanteri</span>'
+        f'<b>{rule_count}</b><small>{candidates} puansız aday</small></div>'
+    )
+    movement_rows: list[str] = []
+    for movement in report.get("movements", []):
+        item = movement.get("summary", {})
+        movement_rows.append(
+            "<tr>"
+            f'<td>{_escape(movement.get("movement_id"))}</td>'
+            f'<td>{_escape(movement.get("movement_label"))}</td>'
+            f'<td>{int(item.get("applicable_rule_count", 0))}</td>'
+            f'<td>{int(item.get("measured_rule_count", 0))}</td>'
+            f'<td>{int(item.get("in_range_rule_count", 0))}</td>'
+            f'<td>{int(item.get("temporary_candidate_count", 0))}</td>'
+            f'<td>{int(item.get("blocked_count", 0))}</td>'
+            f'<td>{int(item.get("unmeasurable_count", 0))}</td>'
+            "</tr>"
+        )
+    table = "".join(movement_rows)
+    section = f'''<section class="section" id="technical-accuracy-diagnostics">
+      <h2>Kapsamlı teknik doğruluk teşhisleri · puan yok</h2>
+      <p>Geçici mühendislik eşikleri yalnız inceleme adayı üretir. Baş yönelimi gerçek göz bakışı değildir; M07–M18 mevcut videoda ölçülmüş sayılmaz.</p>
+      <div class="metric-table-wrap"><table class="metric-table"><thead><tr>
+        <th>Hareket</th><th>Kontrat</th><th>Uygulanır</th><th>Ölçüldü</th><th>Aralıkta</th><th>Puansız aday</th><th>Bloke</th><th>Ölçülemez</th>
+      </tr></thead><tbody>{table}</tbody></table></div>
+    </section>'''
+    return stat, section
 
 
 def _presentation_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str]:

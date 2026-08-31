@@ -24,6 +24,14 @@ from src.poomsae_scoring.categorical_diagnostics import build_categorical_diagno
 from src.poomsae_scoring.engineering_trial import build_partial_engineering_trial
 from src.poomsae_scoring.presentation import build_presentation_diagnostics
 from src.poomsae_scoring.technical_conformance import build_technical_conformance
+from src.poomsae_scoring.technical_accuracy import (
+    build_technical_accuracy_diagnostics,
+    evaluate_temporary_threshold,
+    load_technical_accuracy_profile,
+    resolve_movement_accuracy_contracts,
+    validate_athlete_local_direction_reference,
+    validate_technical_accuracy_profile,
+)
 from src.poomsae_scoring.readiness import assess_accuracy_readiness
 from src.poomsae_scoring.segmentation import (  # noqa: E402
     detect_movement_segments,
@@ -66,6 +74,7 @@ __all__ = [
     "build_movement_evidence",
     "build_presentation_diagnostics",
     "build_technical_conformance",
+    "build_technical_accuracy_diagnostics",
     "build_decision_evidence_events",
     "build_categorical_diagnostics",
     "build_partial_engineering_trial",
@@ -85,6 +94,7 @@ __all__ = [
     "load_source_bound_accuracy_profile",
     "load_source_intake",
     "load_wholebody_diagnostic_profile",
+    "load_technical_accuracy_profile",
     "overlay_state_for_frame",
     "render_movement_overlay",
     "run_poomsae_analysis",
@@ -97,4 +107,8 @@ __all__ = [
     "validate_source_bound_accuracy_profile",
     "validate_source_intake",
     "validate_wholebody_diagnostic_profile",
+    "validate_technical_accuracy_profile",
+    "validate_athlete_local_direction_reference",
+    "resolve_movement_accuracy_contracts",
+    "evaluate_temporary_threshold",
 ]

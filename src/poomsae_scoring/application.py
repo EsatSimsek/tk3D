@@ -38,6 +38,7 @@ _PROFILE_KEYS = {
     "poomsae_spec",
     "movement_timeline",
     "diagnostic_profile",
+    "accuracy_diagnostic_profile",
     "accuracy_profile",
     "bindings",
     "processing",
@@ -52,6 +53,7 @@ _PATH_KEYS = {
     "poomsae_spec",
     "movement_timeline",
     "diagnostic_profile",
+    "accuracy_diagnostic_profile",
     "accuracy_profile",
 }
 _POOMSAE_PRESENTATION_SCRIPTS = {
@@ -242,6 +244,26 @@ def run_workflow(
         outputs["wholebody_metrics"],
     )
     run_stage(
+        "Kapsamlı Taegeuk 1 teknik-doğruluk teşhisleri (puan değil)",
+        "scripts/run_technical_accuracy_diagnostics.py",
+        "--pose",
+        pose_path,
+        "--poomsae-spec",
+        config_paths["poomsae_spec"],
+        "--timeline",
+        config_paths["movement_timeline"],
+        "--profile",
+        config_paths["accuracy_diagnostic_profile"],
+        "--wholebody-diagnostics",
+        outputs["wholebody_diagnostics"],
+        "--output-json",
+        outputs["technical_accuracy_diagnostics"],
+        "--coverage-csv",
+        outputs["technical_accuracy_coverage"],
+        "--landmark-coverage-csv",
+        outputs["technical_accuracy_landmark_coverage"],
+    )
+    run_stage(
         "Hareket ve faz kanıtları",
         "scripts/analyze_poomsae_movement_evidence.py",
         "--pose",
@@ -336,6 +358,8 @@ def run_workflow(
         config_paths["movement_timeline"],
         "--wholebody-diagnostics",
         outputs["wholebody_diagnostics"],
+        "--technical-accuracy-diagnostics",
+        outputs["technical_accuracy_diagnostics"],
         "--output",
         outputs["decision_evidence_events"],
     )
@@ -370,6 +394,8 @@ def run_workflow(
         outputs["rule_scoring_readiness"],
         "--wholebody-diagnostics",
         outputs["wholebody_diagnostics"],
+        "--technical-accuracy-diagnostics",
+        outputs["technical_accuracy_diagnostics"],
         "--accuracy-decisions",
         outputs["accuracy_decisions"],
         "--decision-evidence-events",
@@ -554,6 +580,7 @@ def _snapshot_configuration(
         "poomsae_spec": config_root / "poomsae_spec.yaml",
         "movement_timeline": config_root / "movement_timeline.yaml",
         "diagnostic_profile": config_root / "wholebody_diagnostic_profile.yaml",
+        "accuracy_diagnostic_profile": config_root / "technical_accuracy_diagnostic_profile.yaml",
         "accuracy_profile": config_root / "accuracy_profile.yaml",
     }
     copies = {
@@ -561,6 +588,7 @@ def _snapshot_configuration(
         "rule_pack": paths["rule_pack"],
         "poomsae_spec": paths["poomsae_spec"],
         "diagnostic_profile": paths["diagnostic_profile"],
+        "accuracy_diagnostic_profile": paths["accuracy_diagnostic_profile"],
         "accuracy_profile": paths["accuracy_profile"],
     }
     for key, source in copies.items():
@@ -669,6 +697,7 @@ def _build_summary(
     diagnostics = _read_json(outputs["wholebody_diagnostics"])
     categorical = _read_json(outputs["categorical_diagnostics"])
     technical_conformance = _read_json(outputs["technical_conformance"])
+    technical_accuracy = _read_json(outputs["technical_accuracy_diagnostics"])
     presentation = _read_json(outputs["presentation_diagnostics"])
     automatic_segmentation = _read_json(outputs["automatic_segmentation"])
     timeline = yaml.safe_load(config_paths["movement_timeline"].read_text(encoding="utf-8"))
@@ -688,6 +717,7 @@ def _build_summary(
     diagnostic_coverage = diagnostics.get("coverage", {})
     categorical_summary = categorical.get("summary", {})
     technical_summary = technical_conformance.get("summary", {})
+    technical_accuracy_summary = technical_accuracy.get("summary", {})
     presentation_components = presentation.get("components", {})
     presentation_requested = sum(
         int(component.get("requested_metric_count", 0))
@@ -799,6 +829,16 @@ def _build_summary(
             "technical_conformance_threshold_evaluable_criterion_count": int(
                 technical_summary.get("threshold_evaluable_criterion_count", 0)
             ),
+            "technical_accuracy_rule_count": int(technical_accuracy_summary.get("rule_count", 0)),
+            "technical_accuracy_active_diagnostic_rule_count": int(
+                technical_accuracy_summary.get("active_diagnostic_rule_count", 0)
+            ),
+            "technical_accuracy_temporary_candidate_count": int(
+                technical_accuracy_summary.get("temporary_candidate_count", 0)
+            ),
+            "technical_accuracy_score_effect_count": int(
+                technical_accuracy_summary.get("score_effect_count", 0)
+            ),
             "presentation_measurable_proxy_count": presentation_measurable,
             "presentation_requested_proxy_count": presentation_requested,
             "rule_scoring_ready": bool(readiness.get("rule_scoring_ready", False)),
@@ -821,6 +861,9 @@ def _output_paths(run_root: Path) -> dict[str, Path]:
         "automatic_segmentation_signal": run_root / "csv" / "automatic_segmentation_signal.csv",
         "wholebody_diagnostics": run_root / "json" / "wholebody_diagnostics_report.json",
         "wholebody_metrics": run_root / "csv" / "wholebody_metrics.csv",
+        "technical_accuracy_diagnostics": run_root / "json" / "technical_accuracy_diagnostics_report.json",
+        "technical_accuracy_coverage": run_root / "csv" / "technical_accuracy_coverage_matrix.csv",
+        "technical_accuracy_landmark_coverage": run_root / "csv" / "technical_accuracy_landmark_coverage.csv",
         "movement_evidence": run_root / "json" / "movement_evidence_report.json",
         "movement_evidence_csv": run_root / "csv" / "movement_evidence.csv",
         "categorical_diagnostics": run_root / "json" / "categorical_diagnostics_report.json",

@@ -160,12 +160,24 @@ kanıtı, kategorik ve teknik uygunluk teşhisleri, kaynak-bağlı provisional
 kararlar, readiness, hata videosu ve HTML inceleme raporları üretir. Teşhis
 adayları otomatik WT kesintisi veya resmî Accuracy skoru değildir.
 
+V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurallık
+makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
+kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i
+aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
+ölçülür; M07–M18 kontrat/sentetik kapsamdır. Geçici adaylar skor ve kesintiyi değiştirmez.
+Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
+yorumlanır. Ayrıntı:
+[`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
+
 Önemli Poomsae çıktıları:
 
 ```text
 json/poomsae_scoring_summary.json
 json/automatic_segmentation_report.json
 json/wholebody_diagnostics_report.json
+json/technical_accuracy_diagnostics_report.json
+csv/technical_accuracy_coverage_matrix.csv
+csv/technical_accuracy_landmark_coverage.csv
 json/movement_evidence_report.json
 json/categorical_diagnostics_report.json
 json/technical_conformance_report.json
@@ -189,6 +201,8 @@ videos/poomsae_scoring_annotated.mp4
   `config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml`
 - WholeBody teşhis profili:
   `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml`
+- Kapsamlı teknik-doğruluk profili:
+  `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml`
 - Kaynak-bağlı Accuracy profili:
   `config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml`
 

@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -363,13 +364,12 @@ def test_presentation_script_rejects_a_non_wholebody_report(tmp_path: Path) -> N
     assert not output.exists()
 
 
-def test_repo_relative_posix_keeps_outside_paths_absolute(tmp_path: Path) -> None:
+def test_repo_relative_posix_keeps_outside_paths_absolute() -> None:
     inside = ROOT / "config" / "model_config.yaml"
-    outside = tmp_path / "pose.json"
-    outside.write_text("{}", encoding="utf-8")
-
-    assert _portable_pose_path(inside) == "config/model_config.yaml"
-    assert _portable_pose_path(outside) == outside.resolve().as_posix()
+    with tempfile.NamedTemporaryFile(suffix=".json") as stream:
+        outside = Path(stream.name)
+        assert _portable_pose_path(inside) == "config/model_config.yaml"
+        assert _portable_pose_path(outside) == outside.resolve().as_posix()
 
 
 def _write_synthetic_pose(path: Path, frame_count: int) -> None:

@@ -1,13 +1,13 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **28 Ağustos 2026**
+Son doğrulama tarihi: **31 Ağustos 2026**
 
 Dal: **`main`**
 
-HEAD: **`49bf063`**
+HEAD: **`aab10ec`**
 
-Çalışma ağacı: **kirli; Phase A–D ve Final Polish değişiklikleri henüz
-commitlenmedi**
+Çalışma ağacı: **kirli; kapsamlı Taegeuk 1 teknik-doğruluk diagnostic
+değişiklikleri kullanıcı isteği gereği commitlenmedi**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -36,6 +36,21 @@ Mevcut mühendislik kapsamı şunları içerir:
 Sistem **resmî Poomsae puanlamasına veya bağımsız olarak doğrulanmış bilimsel
 doğruluk iddiasına hazır değildir**. Bu sınır kullanıcı çıktılarında fail-closed
 durumlarla açıkça korunur.
+
+31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
+doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
+kontrata çözülür; 174 kurallık envanter 33 `active_diagnostic`, 116
+`measurement_only`, 17 `blocked_missing_reference` ve 8
+`not_observable_with_current_pipeline` kural taşır. Aktif kayıt kanıtı yine
+yalnız M01–M06'dır. Geçici adaylar source-bound karar, Accuracy skoru,
+Presentation veya readiness'i değiştiremez.
+
+Landmark kapsam envanteri 0–132 arasındaki `17 body + 6 foot + 68 face + 42
+hand = 133` noktanın tamamını listeler. Tamamı en az bir kural sözleşmesine
+bağlıdır; 51 landmark aktif eşikli değerlendiricilerce doğrudan gerekli ilan
+edilir: 12 body, 23 yüz, 6 ayak ve iki elde toplam 10 palm/wrist noktası. Kalan
+parmak/yüz detayları ölçüm veya observability sözleşmesindedir. Bu ayrım yeni
+`csv/technical_accuracy_landmark_coverage.csv` artifact'inde açıkça raporlanır.
 
 ## 2. CURRENT_ACTIVE workflow
 
@@ -84,6 +99,18 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 
 ## 4. Güncel test ve kalite kapısı
 
+31 Ağustos 2026 kapsamlı teknik-doğruluk teslim kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest: **`314 passed in 35.88s`**;
+- `git diff --check`: temiz;
+- v3 odaklı testler: **`15 passed`** (tam koşuya dahil);
+- gerçek 741-kare Poomsae analizi multiview inference yeniden çalıştırılmadan
+  mevcut doğrulanmış reference pose ile tamamlandı;
+- gerçek run'ın 16 JSON'u parse edildi; JSON/CSV'de `NaN`/`inf` bulunmadı;
+- işaretli video karesi ve HTML'deki ayrı “puan yok” teknik doğruluk bölümü
+  görsel olarak incelendi.
+
 28 Ağustos 2026 Final Polish teslim kapısı:
 
 - `python -m ruff check src scripts tests`: geçti;
@@ -129,9 +156,9 @@ Ana session'ın `latest_run.json` işaretçisi smoke için değiştirilmedi.
 
 ## 6. Son CURRENT_ACTIVE Poomsae sonucu
 
-Son yerel profiling/uyumluluk run'ı:
+Son yerel teknik-doğruluk regresyon run'ı:
 
-`outputs/poomsae_1_zed2i_20260731_trimmed/runs/phased-poomsae-profile-r1-20260826/`
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/taegeuk1-comprehensive-active-metrics-20260831-r2/`
 
 - durum: `provisional_observed_scope_analysis_generated`;
 - bağlı 3B pose: 741 kare, WholeBody-133;
@@ -143,14 +170,29 @@ Son yerel profiling/uyumluluk run'ı:
 - technical-conformance inceleme gereken hareket `6/6`;
 - gözlenen-kapsam provisional kesinti toplamı `0,4` ve `4` kaynak-bağlı küçük
   karar; tam Accuracy değildir;
+- v3 envanter `174` kural ve `18/18` hareket kontratı üretti;
+- pipeline sınırındaki 8 kural dışında `166/166` ölçüm evaluator yolu
+  uygulanmış, gözlenen kapsamda `evaluator_not_implemented=0` kalmıştır;
+- gerçek M01–M06 toplamında `589` kural ölçüldü, `153` aktif kural
+  değerlendirildi, `109` aralık-içi, `37` puansız aday ve `7` sınır-belirsiz
+  sonuç oluştu;
+- gözlenen M01–M06'da `436` measurement-only, yön ve eksik sayısal teknik
+  hedef nedeniyle `114` bloke, `239` ölçülemez ve `48` pipeline'da
+  gözlenemez kural-hareket sonucu raporlandı; bunların `85`i `%75` zorunlu
+  landmark-grup kalite kapısında güvenle kapandı;
+- M07–M18 için video ölçümü yapılmadı; bütün uygulanabilir satırlar
+  `movement_not_present_in_timeline` olarak bloke kaldı;
 - tam Accuracy `null`, resmî skor `null`;
 - `rule_scoring_ready:false`;
 - `judge_calibrated_ready:false`;
 - `official_scoring_ready:false`.
 
-Phase B, Phase C ve Phase D Poomsae karşılaştırmalarında sayısal CSV'ler ve
-technical-conformance JSON byte düzeyinde eşit kaldı; diğer farklar doğal
-run/provenance alanlarıyla sınırlıydı.
+Önceki karşılaştırılabilir `taegeuk1-accuracy-v3-20260831-r2` run'ına göre
+source-bound numeric/categorical/applied karar dizileri ve karar özeti eşittir:
+`4` küçük karar, `0,4` gözlenen-kapsam toplamı, `3` ölçülemez ve `1`
+sınır-belirsiz karar değişmedi. Presentation bileşenleri eşit ve iki run'da da
+Presentation toplamı `null` kaldı. V3'ün `37` adayı score/deduction etkisi
+olmayan mavi evidence olaylarıdır.
 
 ## 7. Phase D performans özeti
 

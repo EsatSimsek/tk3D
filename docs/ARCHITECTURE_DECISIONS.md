@@ -498,6 +498,50 @@ kamera seti, stride, model ve config ile; değişken run/provenance alanları
 hariç bilimsel artifact eşitliğiyle doğrulanır. Phase D ölçüm sonuçları tek
 başına bir optimizasyonu yetkilendirmez.
 
+## AD-027 — Kapsamlı teknik doğruluk ayrı, puansız ve yön bağı fail-closed katmandır
+
+Karar: Taegeuk 1'in mevcut WholeBody-133 ile gözlenebilir teknik doğruluk alanı,
+v2 ölçüm ve source-bound karar katmanlarını değiştirmeden ayrı v3 diagnostic
+profilinde tanımlanır. M01–M18 hareket kontratı, 174 kural envanteri,
+measurement/evaluation ayrımı ve kural-hareket kapsam matrisi kanonik
+`tk3d-poomsae` uygulamasının artifact'idir.
+
+Sporcu-yerel semantik yön, session kimliği ve immutable reference pose hash'i
+ile bağlı ayrı bir referans olmadan dünya eksenlerine eşlenmez. Bağ yoksa
+mutlak yön kuralları `blocked_missing_reference`, bağıl gövde geometrisi ise
+ölçülebilir kalır. Manuel referans yalnız diagnostic provenance'dır; üretim
+kalibrasyonu sayılmaz.
+
+Baş/yüz geometrisi `head_orientation_proxy` olarak adlandırılır; gerçek pupil,
+gaze, dikkat veya rakip farkındalığı iddiası yasaktır. Pelvis/body-centre ve
+fixation dağılımları geometrik proxy'dir; merkez kütle, basınç, ağırlık
+dağılımı, kuvvet veya güç değildir.
+
+Koruma: Bütün v3 adaylar `review_candidate_not_deduction`, `score_effect=null`,
+`deduction_points=null`, `numeric_score_enabled=false` ve
+`deduction_enabled=false` taşır. Eşikler yalnız v3 YAML'da sürümlenir ve
+`self_authored_temporary_accuracy_rule` olarak işaretlenir. Source-bound karar
+dizileri, Accuracy toplamı, readiness ve Presentation bileşenleri v3'ten veri
+almaz. Kanıt zinciri yalnız JSON/CSV → mavi EvidenceEvent → video/HTML yönünde
+ilerler; render çıktısı yeniden değerlendirilmez. M07–M18 aktif videoda yoktur
+ve yalnız kontrat/config/sentetik test kapsamıdır.
+
+Ölçüm uygulama sözleşmesi: Pipeline sınırındaki 8 özellik dışında kalan 166
+kuralın her biri bir evaluator kimliği taşır. Eksik evaluator, eksik sayısal
+teknik hedef ve yetersiz video kanıtı aynı durum olarak raporlanamaz. Zorunlu
+landmark grubu profilin minimum geçerlilik oranını karşılamazsa sonlu birkaç
+örnek bulunsa bile ölçüm aday üretmeden `unmeasurable` olur. Ayrıntılı el
+kararlılığı palm/wrist WholeBody noktalarından, ayak kararlılığı heel/toe
+noktalarından hesaplanır; BODY wrist/ankle bunların yerine kanıt sayılmaz.
+
+Gerekçe: Eski v2, ölçülebilir birkaç metriği sağlıyordu fakat eksik kuralları,
+yön referansı boşluğunu ve M01–M18 sözleşme kapsamını tek makine-okunur yerde
+göstermiyordu. Bu ayrım eksik kanıtı sessizce atlamak yerine açık durum koduyla
+korurken ikinci bir skor gerçeği yaratmaz.
+
+Ayrıntı:
+[`TECHNICAL_ACCURACY_DIAGNOSTICS.md`](TECHNICAL_ACCURACY_DIAGNOSTICS.md).
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

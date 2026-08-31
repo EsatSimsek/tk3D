@@ -258,6 +258,12 @@ WholeBody diagnostic profile `diagnostic_only_unvalidated` durumundadır.
 Threshold dışı bir ölçüm yalnız insan inceleme adayıdır; otomatik WT kesintisi,
 doğruluk etiketi veya numeric Accuracy skoru değildir.
 
+Kapsamlı v3 teknik-doğruluk katmanı bunun üzerinde M01–M18 hareket kontratı,
+174 kurallık envanter ve her kural-hareket için measured/evaluated/state
+matrisi üretir. Aktif kayıt yalnız M01–M06 kanıtıdır; M07–M18 config/sentetik
+kapsamdır. Sporcu-yerel yön bağı yoksa mutlak yön kuralları fail-closed kalır.
+V3 katmanı Accuracy veya Presentation skorunu değiştiremez.
+
 ## 10. Readiness ve scoring semantiği
 
 Kritik durumlar birbirine eşit değildir:
@@ -321,6 +327,7 @@ Ana aktif yollar:
 - `config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml`
 - `config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml`
 - `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml`
+- `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml`
 - `config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml`
 
 Profil; session, reference pose ve timeline SHA-256 bağlarını taşır. Aktif

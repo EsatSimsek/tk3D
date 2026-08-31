@@ -8,6 +8,7 @@ rule_pack: config/scoring/rules/wt_recognized_2024-09-30.yaml
 poomsae_spec: config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml
 movement_timeline: config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml
 diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml
+accuracy_diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml
 accuracy_profile: config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml
 bindings:
   session_sha256: 09ef04662e6281ea2f1f07370e1c29c8fd2d48f3f72b83478eda118cc3000fca

@@ -1,8 +1,8 @@
 # Taegeuk 1 Hata Taksonomisi ve Ölçülebilirlik Matrisi
 
 Son araştırma ve doğrulama: **3 Ağustos 2026**
-Son güncelleme: **18 Ağustos 2026** (15 Ağustos'ta eklenen eolgul-makki sayısal
-kuralı ve otomatik duraklama tespiti belgelendi)
+Son güncelleme: **31 Ağustos 2026** (kapsamlı, puansız v3 teknik-doğruluk
+envanteri ve M01–M18 hareket kontratları belgelendi)
 
 Bu belge, Taegeuk 1 için “hangi hataları aramalıyız?” sorusunu kaynak
 otoritesi, puan semantiği ve sensörle ölçülebilirlik bakımından ayırır. Buradaki
@@ -332,7 +332,38 @@ kapısını fail-closed tutacaktır:
 Bu açıkların hiçbiri M01-M06 için ölçüm ve hata adayı üretmeyi engellemez;
 yalnız doğrulanmamış adayın otomatik puan kesmesine engel olur.
 
-## 7. Kaynaklar
+## 7. Kapsamlı geçici teknik-doğruluk katmanı
+
+31 Ağustos 2026 itibarıyla v3 profil, yukarıdaki taksonomiyi 174 ayrı
+makine-okunur kurala ve M01–M18 hareket kontratına dönüştürür. Durum dağılımı
+33 `active_diagnostic`, 116 `measurement_only`, 17
+`blocked_missing_reference` ve 8
+`not_observable_with_current_pipeline` kuraldır. Çalışma anındaki eksik veya
+dejenere kanıt ayrıca `unmeasurable` olur.
+
+Pipeline sınırındaki 8 özellik hariç 166 kuralın tamamında ölçüm evaluator
+yolu vardır. 133 landmarkın tamamı kural envanterine bağlı, 51'i aktif eşikli
+kuralların zorunlu landmark kümesindedir. Ayrıntılı el/ayak/yüz ölçümü `%75`
+landmark-grup kalite kapısını geçmezse fail-closed kapanır.
+
+Mutlak baş, torso, pelvis, stance, ayak ve adım yönü sporcu-yerel session/pose
+bağlı referans olmadan değerlendirilmez. Bağıl geometri çalışmaya devam eder;
+dünya `x/y` eksenleri semantik Taegeuk yönü sayılmaz. Yüz ölçümü gerçek göz
+bakışı değil baş yönelim proxy'sidir. Pelvis ve body-centre proxy'leri merkez
+kütle, basınç veya gerçek ağırlık dağılımı değildir.
+
+Bu envanter source-bound kuralları kopyalamaz: tarihsel arka ayak yaw,
+arae-makki yumruk-uyluk, momtong-an-makki dirsek ve eolgul-makki yumruk-alın
+kararları mevcut kaynak-bağlı katmanda kalır. V3'ün bütün sayısal sınırları
+`self_authored_temporary_accuracy_rule` provenance'lı, puan/kesinti etkisi
+`null` mühendislik hipotezleridir. Ayrıntılı alan ve eşikler için
+[`TECHNICAL_ACCURACY_DIAGNOSTICS.md`](TECHNICAL_ACCURACY_DIAGNOSTICS.md)
+kullanılır.
+
+Aktif kayıt kapsamı hâlâ yalnız M01–M06'dır. M07–M18'in envanterde bulunması
+gerçek video kanıtı veya sporcunun bu hareketlerde hata yaptığı anlamına gelmez.
+
+## 8. Kaynaklar
 
 - World Taekwondo, *Poomsae Competition Rules and Interpretation*, yürürlük
   30 Eylül 2024, Articles 15-16.

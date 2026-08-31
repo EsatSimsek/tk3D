@@ -21,6 +21,7 @@ def main() -> None:
     parser.add_argument("--poomsae-spec", required=True)
     parser.add_argument("--timeline", required=True)
     parser.add_argument("--wholebody-diagnostics")
+    parser.add_argument("--technical-accuracy-diagnostics")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -31,6 +32,8 @@ def main() -> None:
     }
     if args.wholebody_diagnostics:
         paths["wholebody_diagnostics"] = _resolve(args.wholebody_diagnostics)
+    if args.technical_accuracy_diagnostics:
+        paths["technical_accuracy_diagnostics"] = _resolve(args.technical_accuracy_diagnostics)
     for label, path in paths.items():
         if not path.is_file():
             raise SystemExit(f"Input file is missing ({label}): {path}")
@@ -44,7 +47,18 @@ def main() -> None:
     diagnostics = None
     if "wholebody_diagnostics" in paths:
         diagnostics = json.loads(paths["wholebody_diagnostics"].read_text(encoding="utf-8"))
-    report = build_decision_evidence_events(decisions, spec, timeline, diagnostics)
+    technical_accuracy = None
+    if "technical_accuracy_diagnostics" in paths:
+        technical_accuracy = json.loads(
+            paths["technical_accuracy_diagnostics"].read_text(encoding="utf-8")
+        )
+    report = build_decision_evidence_events(
+        decisions,
+        spec,
+        timeline,
+        diagnostics,
+        technical_accuracy_diagnostics=technical_accuracy,
+    )
     report["bindings"] = {
         label: {"path": str(path), "sha256": _sha256(path)} for label, path in paths.items()
     }

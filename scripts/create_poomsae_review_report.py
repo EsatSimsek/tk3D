@@ -20,6 +20,7 @@ def main() -> None:
     parser.add_argument("--readiness", required=True)
     parser.add_argument("--engineering-trial")
     parser.add_argument("--wholebody-diagnostics")
+    parser.add_argument("--technical-accuracy-diagnostics")
     parser.add_argument("--accuracy-decisions")
     parser.add_argument("--decision-evidence-events")
     parser.add_argument("--categorical-diagnostics")
@@ -54,6 +55,10 @@ def main() -> None:
         inputs["engineering_trial_report"] = _resolve(args.engineering_trial)
     if args.wholebody_diagnostics:
         inputs["wholebody_diagnostics_report"] = _resolve(args.wholebody_diagnostics)
+    if args.technical_accuracy_diagnostics:
+        inputs["technical_accuracy_diagnostics_report"] = _resolve(
+            args.technical_accuracy_diagnostics
+        )
     if args.accuracy_decisions:
         inputs["accuracy_decisions"] = _resolve(args.accuracy_decisions)
     if args.decision_evidence_events:
@@ -90,6 +95,11 @@ def main() -> None:
     wholebody_diagnostics = (
         _read_json(inputs["wholebody_diagnostics_report"])
         if "wholebody_diagnostics_report" in inputs
+        else None
+    )
+    technical_accuracy_diagnostics = (
+        _read_json(inputs["technical_accuracy_diagnostics_report"])
+        if "technical_accuracy_diagnostics_report" in inputs
         else None
     )
     accuracy_decisions = (
@@ -145,6 +155,7 @@ def main() -> None:
         technical_conformance,
         args.run_history_url,
         automatic_segmentation,
+        technical_accuracy_diagnostics_report=technical_accuracy_diagnostics,
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -165,6 +176,13 @@ def main() -> None:
             None
             if wholebody_diagnostics is None
             else wholebody_diagnostics.get("summary", {}).get("review_candidate_count")
+        ),
+        "technical_accuracy_temporary_candidate_count": (
+            None
+            if technical_accuracy_diagnostics is None
+            else technical_accuracy_diagnostics.get("summary", {}).get(
+                "temporary_candidate_count"
+            )
         ),
         "source_bound_decision_count": (
             None

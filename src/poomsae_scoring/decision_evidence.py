@@ -27,6 +27,7 @@ def build_decision_evidence_events(
     movement_timeline: dict[str, Any],
     wholebody_diagnostics: dict[str, Any] | None = None,
     alignment_anomalies: list[dict[str, Any]] | None = None,
+    technical_accuracy_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convert scoring decisions into immutable, camera-renderable evidence events.
 
@@ -97,6 +98,36 @@ def build_decision_evidence_events(
             )
         diagnostic_count = len(candidates)
 
+    technical_accuracy_count = 0
+    if technical_accuracy_diagnostics is not None:
+        if technical_accuracy_diagnostics.get("status") != "technical_accuracy_diagnostics_only":
+            raise ScoringContractError(
+                "technical accuracy evidence requires a technical accuracy diagnostics report"
+            )
+        if technical_accuracy_diagnostics.get("movement_timeline_id") != timeline["timeline_id"]:
+            raise ScoringContractError(
+                "technical accuracy diagnostics and MovementTimeline must match"
+            )
+        candidates = technical_accuracy_diagnostics.get("candidate_events")
+        if not isinstance(candidates, list):
+            raise ScoringContractError("technical accuracy candidate_events must be a list")
+        for index, candidate in enumerate(candidates, start=1):
+            movement_id = candidate.get("movement_id")
+            if movement_id not in movements or movement_id not in segments:
+                raise ScoringContractError(
+                    f"technical accuracy candidate references an unobserved movement: {movement_id}"
+                )
+            events.append(
+                _technical_accuracy_diagnostic_event(
+                    index=index,
+                    candidate=candidate,
+                    movement=movements[movement_id],
+                    segment=segments[movement_id],
+                    fps=timeline["fps"],
+                )
+            )
+        technical_accuracy_count = len(candidates)
+
     anomaly_count = 0
     if alignment_anomalies is not None:
         if not isinstance(alignment_anomalies, list):
@@ -134,6 +165,7 @@ def build_decision_evidence_events(
             "within_source_range_count": counts["within_source_range"],
             "categorical_event_count": len(categorical),
             "diagnostic_review_candidate_count": diagnostic_count,
+            "technical_accuracy_review_candidate_count": technical_accuracy_count,
             "alignment_anomaly_count": anomaly_count,
         },
         "events": events,
@@ -318,6 +350,66 @@ def _diagnostic_event(
             "allowed_values": ["confirmed", "rejected", "uncertain"],
         },
     }
+
+
+def _technical_accuracy_diagnostic_event(
+    *,
+    index: int,
+    candidate: dict[str, Any],
+    movement: dict[str, Any],
+    segment: dict[str, Any],
+    fps: float,
+) -> dict[str, Any]:
+    if candidate.get("decision_status") != "review_candidate_not_deduction":
+        raise ScoringContractError(
+            "technical accuracy evidence accepts only score-neutral review candidates"
+        )
+    if candidate.get("score_effect") is not None or candidate.get("deduction_points") is not None:
+        raise ScoringContractError("technical accuracy candidate must remain score-neutral")
+    raw_evidence = candidate.get("evidence")
+    evidence = raw_evidence if isinstance(raw_evidence, dict) else {}
+    fixation = segment.get("anchors", {}).get("fixation", segment["end_frame"])
+    start = _frame(evidence.get("start_frame"), max(segment["start_frame"], fixation - 5))
+    end = _frame(evidence.get("end_frame"), min(segment["end_frame"], fixation + 5))
+    anchor = min(max(fixation, start), end)
+    threshold = candidate.get("threshold") or {}
+    adapted = {
+        "movement_id": candidate.get("movement_id"),
+        "metric_id": candidate.get("metric_id"),
+        "criterion_id": candidate.get("criterion_id"),
+        "family": candidate.get("rule_family"),
+        "value": candidate.get("value"),
+        "unit": candidate.get("unit"),
+        "uncertainty_95": candidate.get("uncertainty"),
+        "sample_count": None,
+        "screening_rule": {
+            "operator": threshold.get("operator"),
+            "value": threshold.get("value"),
+        },
+        "measurement_evidence": {
+            "scope": evidence.get("scope", candidate.get("phase_or_window")),
+            "start_frame": start,
+            "anchor_frame": anchor,
+            "end_frame": end,
+        },
+    }
+    event = _diagnostic_event(
+        index=index,
+        candidate=adapted,
+        movement=movement,
+        segment=segment,
+        fps=fps,
+    )
+    event["event_id"] = (
+        f"TAD-{index:03d}-{movement['movement_id']}-{candidate.get('metric_id')}"
+    )
+    event["event_kind"] = "technical_accuracy_diagnostic_review_candidate"
+    event["rule_id"] = candidate.get("rule_id")
+    event["criterion_id"] = candidate.get("criterion_id")
+    event["provenance"] = candidate.get("provenance")
+    event["rule_eligibility"] = candidate.get("rule_eligibility")
+    event["reason"] = "unvalidated_technical_accuracy_screening_threshold_exceeded"
+    return event
 
 
 def _screening_limits(screening_rule: dict[str, Any]) -> list[float]:
