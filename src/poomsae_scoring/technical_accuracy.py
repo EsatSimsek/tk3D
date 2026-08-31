@@ -24,7 +24,10 @@ from src.poomsae_scoring.contracts import (
     validate_poomsae_spec,
 )
 from src.poomsae_scoring.wholebody_diagnostics import _pose_arrays
-from src.poomsae_scoring.technical_accuracy_metrics import measure_observable_accuracy_metrics
+from src.poomsae_scoring.technical_accuracy_metrics import (
+    measure_athlete_forward_vector,
+    measure_observable_accuracy_metrics,
+)
 
 
 RULE_STATES = {
@@ -318,6 +321,129 @@ def validate_athlete_local_direction_reference(
     }
 
 
+DIRECTION_REFERENCE_ANCHOR_MOVEMENT = "M01"
+DIRECTION_REFERENCE_ANCHOR_PHASE = "preparation"
+WORLD_UP_VECTOR = (0.0, 0.0, 1.0)
+
+
+def derive_athlete_local_direction_reference(
+    pose_payload: dict[str, Any],
+    poomsae_spec: dict[str, Any],
+    movement_timeline: dict[str, Any],
+    profile_payload: dict[str, Any],
+    *,
+    anchor_movement_id: str = DIRECTION_REFERENCE_ANCHOR_MOVEMENT,
+    anchor_phase: str = DIRECTION_REFERENCE_ANCHOR_PHASE,
+) -> dict[str, Any]:
+    """Derive the session-bound athlete-local direction reference from the ready stance.
+
+    The reference is measured, never assumed: the athlete's facing is taken as the
+    median torso-forward geometry inside the anchor window of the opening movement,
+    projected horizontally against the pipeline's gravity-aligned world up axis. The
+    result is a diagnostic reference bound to one session and one pose hash; it is not
+    a production calibration and it never claims a world or judging axis.
+
+    Always returns an envelope. When the geometry cannot be measured the envelope
+    carries ``status="not_derived"`` with a profile skip reason and no reference, so
+    direction-bound rules stay fail-closed instead of running on invented geometry.
+    """
+    spec = validate_poomsae_spec(poomsae_spec)
+    timeline = validate_movement_timeline(movement_timeline, spec)
+    profile = (
+        profile_payload
+        if isinstance(profile_payload, dict) and "resolved_rules" in profile_payload
+        else validate_technical_accuracy_profile(profile_payload)
+    )
+    if profile["poomsae_id"] != spec["poomsae_id"]:
+        raise ScoringContractError("technical accuracy profile Poomsae id does not match")
+    gates = profile["quality_gates"]
+    source_binding = timeline["source_binding"]
+    envelope: dict[str, Any] = {
+        "schema_version": 1,
+        "status": "not_derived",
+        "reason": None,
+        "binding": {
+            "session_id": source_binding["session_id"],
+            "reference_pose_sha256": source_binding["pose_file_sha256"],
+            "movement_timeline_id": timeline["timeline_id"],
+        },
+        "anchor": {
+            "movement_id": anchor_movement_id,
+            "phase": anchor_phase,
+            "anchor_frame": None,
+            "window": None,
+            "sample_count": 0,
+        },
+        "measurement": "median_torso_forward_horizontal",
+        "production_calibration_claim": False,
+        "reference": None,
+    }
+
+    segment = next(
+        (item for item in timeline["segments"] if item["movement_id"] == anchor_movement_id),
+        None,
+    )
+    if segment is None:
+        envelope["reason"] = "movement_not_present_in_timeline"
+        return envelope
+    anchors = segment["anchors"]
+    if anchor_phase not in anchors:
+        envelope["reason"] = "movement_contract_incomplete"
+        return envelope
+
+    arrays = _pose_arrays(
+        pose_payload,
+        timeline,
+        {
+            "min_used_cameras": gates["min_used_cameras"],
+            "max_reprojection_error_px": gates["max_reprojection_error_px"],
+            "min_segment_group_valid_ratio": gates["min_group_valid_ratio"],
+        },
+    )
+    anchor_frame = int(anchors[anchor_phase])
+    radius = int(gates["anchor_window_radius_frames"])
+    start = max(int(segment["start_frame"]), anchor_frame - radius)
+    end = min(int(segment["end_frame"]), anchor_frame + radius)
+    frames = np.arange(start, end + 1, dtype=int)
+    envelope["anchor"].update(
+        {"anchor_frame": anchor_frame, "window": [int(start), int(end)], "sample_count": int(len(frames))}
+    )
+
+    forward = measure_athlete_forward_vector(arrays, frames, int(gates["min_valid_samples"]))
+    if forward is None:
+        envelope["reason"] = "insufficient_valid_samples"
+        return envelope
+
+    up = np.asarray(WORLD_UP_VECTOR, dtype=float)
+    horizontal = forward - float(np.dot(forward, up)) * up
+    if not np.all(np.isfinite(horizontal)) or float(np.linalg.norm(horizontal)) <= 1e-8:
+        envelope["reason"] = "degenerate_body_axis"
+        return envelope
+    horizontal = horizontal / float(np.linalg.norm(horizontal))
+
+    reference = {
+        "schema_version": 1,
+        "session_id": source_binding["session_id"],
+        "reference_pose_sha256": source_binding["pose_file_sha256"],
+        "gravity_up_vector": [float(value) for value in up],
+        "initial_forward_vector": [float(value) for value in horizontal],
+        "basis_source": "derived_session_bound",
+        "provenance": (
+            f"derived from {anchor_movement_id} {anchor_phase} median torso-forward geometry; "
+            "session-bound diagnostic reference, not production calibration"
+        ),
+        "quality_status": "validated_diagnostic_reference",
+    }
+    validate_athlete_local_direction_reference(
+        reference,
+        expected_session_id=source_binding["session_id"],
+        expected_pose_sha256=source_binding["pose_file_sha256"],
+    )
+    envelope["status"] = "derived"
+    envelope["reference"] = reference
+    return envelope
+
+
 def build_technical_accuracy_diagnostics(
     pose_payload: dict[str, Any],
     poomsae_spec: dict[str, Any],
@@ -350,7 +476,12 @@ def build_technical_accuracy_diagnostics(
             "min_segment_group_valid_ratio": gates["min_group_valid_ratio"],
         },
     )
-    direction = validate_athlete_local_direction_reference(direction_reference)
+    source_binding = timeline["source_binding"]
+    direction = validate_athlete_local_direction_reference(
+        direction_reference,
+        expected_session_id=source_binding["session_id"],
+        expected_pose_sha256=source_binding["pose_file_sha256"],
+    )
     contracts = resolve_movement_accuracy_contracts(spec, profile)
     observed_segments = {segment["movement_id"]: segment for segment in timeline["segments"]}
     old_movements = {movement["movement_id"]: movement for movement in wholebody_diagnostics.get("movements", [])}

@@ -166,7 +166,10 @@ kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51
 aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
 ölçülür; M07–M18 kontrat/sentetik kapsamdır. Geçici adaylar skor ve kesintiyi değiştirmez.
 Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
-yorumlanır. Ayrıntı:
+yorumlanır. Sporcu-yerel yön referansı her run'da açılış duruşundan türetilir ve
+oturum/pose hash'ine bağlanır; türetilemezse 17 yön kuralı fail-closed kalır ve
+gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
+Ayrıntı:
 [`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
 Önemli Poomsae çıktıları:
@@ -175,6 +178,7 @@ yorumlanır. Ayrıntı:
 json/poomsae_scoring_summary.json
 json/automatic_segmentation_report.json
 json/wholebody_diagnostics_report.json
+json/athlete_local_direction_reference_status.json
 json/technical_accuracy_diagnostics_report.json
 csv/technical_accuracy_coverage_matrix.csv
 csv/technical_accuracy_landmark_coverage.csv

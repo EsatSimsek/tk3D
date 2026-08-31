@@ -26,6 +26,7 @@ from src.poomsae_scoring.presentation import build_presentation_diagnostics
 from src.poomsae_scoring.technical_conformance import build_technical_conformance
 from src.poomsae_scoring.technical_accuracy import (
     build_technical_accuracy_diagnostics,
+    derive_athlete_local_direction_reference,
     evaluate_temporary_threshold,
     load_technical_accuracy_profile,
     resolve_movement_accuracy_contracts,
@@ -75,6 +76,7 @@ __all__ = [
     "build_presentation_diagnostics",
     "build_technical_conformance",
     "build_technical_accuracy_diagnostics",
+    "derive_athlete_local_direction_reference",
     "build_decision_evidence_events",
     "build_categorical_diagnostics",
     "build_partial_engineering_trial",

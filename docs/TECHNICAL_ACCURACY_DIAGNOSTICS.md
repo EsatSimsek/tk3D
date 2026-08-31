@@ -28,7 +28,9 @@ Ana dosyalar:
 - `src/poomsae_scoring/technical_accuracy_metrics.py`: baş/torso/alt gövde,
   ayak, kol, ayrıntılı el, faz, geçiş, fixation ve tekme ölçüm kayıtları;
 - `scripts/run_technical_accuracy_diagnostics.py`: kanonik uygulama içindeki
-  ince CLI adaptörü.
+  ince CLI adaptörü;
+- `scripts/build_athlete_local_direction_reference.py`: oturuma bağlı yön
+  referansını açılış duruşundan türeten üretici aşama.
 
 Tarihsel v2 profil değiştirilmemiştir ve mevcut WholeBody/source-bound akışının
 girdisi olmaya devam eder. V3, `accuracy_diagnostic_profile` olarak ayrı
@@ -103,6 +105,31 @@ mutlak baş/torso/pelvis/duruş yönü `null` ve
 gözlenen yönü “beklenen doğru” diye tahmin edilmez. Manuel bağ üretim
 kalibrasyonu değildir.
 
+### Referansın üretimi
+
+Bağ her run'da kendi kaydından türetilir; sabit bir dosya olarak commit'lenmez.
+`scripts/build_athlete_local_direction_reference.py` açılış hareketinin
+(`M01`, varsayılan olarak `preparation` çapası) anchor penceresinde torso-forward
+geometrisinin medyanını alır, yerçekimi ekseninde yataya izdüşürür ve sonucu
+timeline'ın `source_binding` session kimliği ile pose SHA-256'sına bağlar. Ölçülen
+şey sporcunun o kayıtta baktığı yöndür; dünya ekseni ya da hakem referansı değildir
+ve `basis_source=derived_session_bound`, `production_calibration_claim=false`
+kalır.
+
+Kanonik run önce bu aşamayı koşar, sonra teşhis aşamasına referansı geçirir.
+Aşama her koşulda `json/athlete_local_direction_reference_status.json` yazar:
+türetilebildiyse `status=derived` ve referans, türetilemediyse `status=not_derived`
+ve profilin skip kodlarından biri (`movement_not_present_in_timeline`,
+`movement_contract_incomplete`, `insufficient_valid_samples`,
+`degenerate_body_axis`). Türetilemediğinde referans dosyası hiç yazılmaz, teşhis
+aşamasına `--direction-reference` geçilmez ve 17 yön kuralı bugünkü gibi
+`blocked_missing_reference` kalır. Run bu yüzden düşmez; boşluk sessizce
+kapanmaz, kayda geçer.
+
+`build_technical_accuracy_diagnostics` gelen referansı timeline'ın session
+kimliği ve pose hash'iyle karşılaştırır. Başka bir oturumdan gelen referans
+kabul edilmez; yön kuralları yanlış geometriyle açılamaz.
+
 ## Baş yönelimi göz bakışı değildir
 
 Yüz göz kümeleri, burun/yüz geometrisi, omuz hattı ve torso-up kullanılarak
@@ -156,6 +183,8 @@ provenance = self_authored_temporary_accuracy_rule
 
 Her kanonik run şunları ekler:
 
+- `json/athlete_local_direction_reference_status.json` (ve türetilebildiyse
+  `json/athlete_local_direction_reference.json`);
 - `json/technical_accuracy_diagnostics_report.json`;
 - `csv/technical_accuracy_coverage_matrix.csv`;
 - `csv/technical_accuracy_landmark_coverage.csv`.

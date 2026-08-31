@@ -220,6 +220,28 @@ def test_run_outputs_include_integrated_categorical_and_presentation_stages(tmp_
     assert outputs["presentation_diagnostics"].parent == tmp_path / "json"
 
 
+def test_run_outputs_include_the_session_bound_direction_reference(tmp_path: Path) -> None:
+    outputs = _output_paths(tmp_path)
+
+    assert outputs["athlete_direction_reference"].name == "athlete_local_direction_reference.json"
+    assert outputs["athlete_direction_reference_status"].name == "athlete_local_direction_reference_status.json"
+    assert outputs["athlete_direction_reference"].parent == tmp_path / "json"
+    assert outputs["athlete_direction_reference_status"].parent == tmp_path / "json"
+
+
+def test_runner_derives_the_direction_reference_before_the_accuracy_diagnostics_stage() -> None:
+    """The 17 direction-bound rules stay closed unless the reference is built first and passed on."""
+    source = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")
+    derive_at = source.index("build_athlete_local_direction_reference.py")
+    diagnostics_at = source.index("run_technical_accuracy_diagnostics.py")
+
+    assert derive_at < diagnostics_at, "the reference must exist before diagnostics consume it"
+    diagnostics_stage = source[diagnostics_at:source.index("analyze_poomsae_movement_evidence.py")]
+    assert "*direction_args" in diagnostics_stage
+    assert '"--direction-reference"' in source[derive_at:diagnostics_at]
+    assert 'outputs["athlete_direction_reference"].is_file()' in source[derive_at:diagnostics_at]
+
+
 def test_runner_feeds_derived_observations_into_the_accuracy_stage() -> None:
     """The observation stage is worthless if its output never reaches the accuracy stage."""
     source = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")

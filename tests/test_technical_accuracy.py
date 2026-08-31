@@ -18,6 +18,7 @@ from src.poomsae_scoring import ScoringContractError, load_movement_timeline, lo
 from src.poomsae_scoring.technical_accuracy import (
     ACTIVE_EVALUATORS,
     build_technical_accuracy_diagnostics,
+    derive_athlete_local_direction_reference,
     evaluate_temporary_threshold,
     load_technical_accuracy_profile,
     resolve_movement_accuracy_contracts,
@@ -219,10 +220,11 @@ def test_direction_bound_rules_evaluate_only_with_valid_session_local_basis() ->
     spec = load_poomsae_spec(SPEC_PATH)
     timeline = load_movement_timeline(TIMELINE_PATH, spec)
     pose = _synthetic_pose(timeline["frame_count"])
+    binding = timeline["source_binding"]
     reference = {
         "schema_version": 1,
-        "session_id": "synthetic-session",
-        "reference_pose_sha256": "b" * 64,
+        "session_id": binding["session_id"],
+        "reference_pose_sha256": binding["pose_file_sha256"],
         "gravity_up_vector": [0.0, 0.0, 1.0],
         "initial_forward_vector": [0.0, 1.0, 0.0],
         "basis_source": "manually_declared_session_bound",
@@ -250,6 +252,79 @@ def test_direction_bound_rules_evaluate_only_with_valid_session_local_basis() ->
     assert any(row["measured"] and row["evaluated"] for row in observed)
     assert report["summary"]["score_effect_count"] == 0
     assert report["total_score"] is None
+
+    foreign = deepcopy(reference)
+    foreign["session_id"] = "another-session"
+    with pytest.raises(ScoringContractError, match="session binding mismatch"):
+        build_technical_accuracy_diagnostics(
+            pose,
+            spec,
+            timeline,
+            profile,
+            _synthetic_wholebody(timeline),
+            direction_reference=foreign,
+        )
+
+
+def test_direction_reference_is_derived_from_ready_stance_and_stays_session_bound() -> None:
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    pose = _synthetic_pose(timeline["frame_count"])
+    binding = timeline["source_binding"]
+
+    envelope = derive_athlete_local_direction_reference(pose, spec, timeline, profile)
+
+    assert envelope["status"] == "derived"
+    assert envelope["reason"] is None
+    assert envelope["production_calibration_claim"] is False
+    assert envelope["anchor"]["movement_id"] == "M01"
+    assert envelope["anchor"]["phase"] == "preparation"
+    reference = envelope["reference"]
+    assert reference["basis_source"] == "derived_session_bound"
+    assert reference["quality_status"] == "validated_diagnostic_reference"
+    assert reference["session_id"] == binding["session_id"]
+    assert reference["reference_pose_sha256"] == binding["pose_file_sha256"]
+    # The synthetic athlete faces +y; the derived basis must stay horizontal and unit.
+    forward = np.asarray(reference["initial_forward_vector"], dtype=float)
+    assert forward == pytest.approx([0.0, 1.0, 0.0], abs=1e-6)
+    assert np.linalg.norm(forward) == pytest.approx(1.0)
+    assert np.dot(forward, reference["gravity_up_vector"]) == pytest.approx(0.0)
+
+    report = build_technical_accuracy_diagnostics(
+        pose,
+        spec,
+        timeline,
+        profile,
+        _synthetic_wholebody(timeline),
+        direction_reference=reference,
+    )
+    assert report["direction_reference_status"] == "validated_session_bound_diagnostic"
+    assert report["total_score"] is None
+
+
+def test_direction_reference_fails_closed_without_measurable_ready_stance() -> None:
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+
+    missing_anchor = derive_athlete_local_direction_reference(
+        _synthetic_pose(timeline["frame_count"]), spec, timeline, profile, anchor_phase="kick_apex"
+    )
+    assert missing_anchor["status"] == "not_derived"
+    assert missing_anchor["reason"] == "movement_contract_incomplete"
+    assert missing_anchor["reference"] is None
+
+    blind = _synthetic_pose(timeline["frame_count"])
+    points = np.asarray(blind["keypoints_3d_world"], dtype=float)
+    points[:, [COCO_BODY_JOINTS["left_shoulder"], COCO_BODY_JOINTS["right_shoulder"]], :] = np.nan
+    blind["keypoints_3d_world"] = points.tolist()
+
+    unmeasurable = derive_athlete_local_direction_reference(blind, spec, timeline, profile)
+    assert unmeasurable["status"] == "not_derived"
+    assert unmeasurable["reason"] == "insufficient_valid_samples"
+    assert unmeasurable["reference"] is None
+    assert unmeasurable["reason"] in profile["skip_reason_codes"]
 
 
 def test_detailed_hand_and_foot_quality_fail_closed_with_specific_evidence_reason() -> None:

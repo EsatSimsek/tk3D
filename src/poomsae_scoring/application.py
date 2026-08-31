@@ -244,6 +244,27 @@ def run_workflow(
         outputs["wholebody_metrics"],
     )
     run_stage(
+        "Sporcu-yerel yön referansı (oturuma bağlı teşhis referansı)",
+        "scripts/build_athlete_local_direction_reference.py",
+        "--pose",
+        pose_path,
+        "--poomsae-spec",
+        config_paths["poomsae_spec"],
+        "--timeline",
+        config_paths["movement_timeline"],
+        "--profile",
+        config_paths["accuracy_diagnostic_profile"],
+        "--output-json",
+        outputs["athlete_direction_reference_status"],
+        "--output-reference-json",
+        outputs["athlete_direction_reference"],
+    )
+    direction_args: tuple[str | Path, ...] = (
+        ("--direction-reference", outputs["athlete_direction_reference"])
+        if outputs["athlete_direction_reference"].is_file()
+        else ()
+    )
+    run_stage(
         "Kapsamlı Taegeuk 1 teknik-doğruluk teşhisleri (puan değil)",
         "scripts/run_technical_accuracy_diagnostics.py",
         "--pose",
@@ -256,6 +277,7 @@ def run_workflow(
         config_paths["accuracy_diagnostic_profile"],
         "--wholebody-diagnostics",
         outputs["wholebody_diagnostics"],
+        *direction_args,
         "--output-json",
         outputs["technical_accuracy_diagnostics"],
         "--coverage-csv",
@@ -861,6 +883,8 @@ def _output_paths(run_root: Path) -> dict[str, Path]:
         "automatic_segmentation_signal": run_root / "csv" / "automatic_segmentation_signal.csv",
         "wholebody_diagnostics": run_root / "json" / "wholebody_diagnostics_report.json",
         "wholebody_metrics": run_root / "csv" / "wholebody_metrics.csv",
+        "athlete_direction_reference_status": run_root / "json" / "athlete_local_direction_reference_status.json",
+        "athlete_direction_reference": run_root / "json" / "athlete_local_direction_reference.json",
         "technical_accuracy_diagnostics": run_root / "json" / "technical_accuracy_diagnostics_report.json",
         "technical_accuracy_coverage": run_root / "csv" / "technical_accuracy_coverage_matrix.csv",
         "technical_accuracy_landmark_coverage": run_root / "csv" / "technical_accuracy_landmark_coverage.csv",

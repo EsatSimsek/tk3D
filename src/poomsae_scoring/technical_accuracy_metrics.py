@@ -243,6 +243,27 @@ def measure_observable_accuracy_metrics(
     return result
 
 
+def measure_athlete_forward_vector(
+    arrays: dict[str, Any],
+    frames: np.ndarray,
+    min_valid_samples: int,
+) -> np.ndarray | None:
+    """Median horizontal facing of the athlete over a window; None when evidence is thin.
+
+    The per-frame estimate is the existing torso-forward geometry: the shoulder line
+    crossed with world up, sign-resolved by the observed face direction. This measures
+    where the athlete faced; it does not claim any world or judging reference.
+    """
+    vectors = [
+        value
+        for frame in frames
+        if (value := _torso_forward(arrays, int(frame))) is not None
+    ]
+    if len(vectors) < max(3, int(min_valid_samples)):
+        return None
+    return _unit(np.median(np.asarray(vectors, dtype=float), axis=0))
+
+
 def _direction_metrics(result: dict[str, dict[str, Any]], put: Callable[..., None], arrays: dict[str, Any], contract: dict[str, Any], frames: np.ndarray, direction: dict[str, Any] | None, active: str | None) -> None:
     ids = (
         "head_target_yaw_error_deg", "torso_target_yaw_error_deg", "pelvis_target_yaw_error_deg",
