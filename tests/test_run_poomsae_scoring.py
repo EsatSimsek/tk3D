@@ -254,57 +254,6 @@ def test_runner_feeds_derived_observations_into_the_accuracy_stage() -> None:
     assert 'outputs["categorical_diagnostics"]' in accuracy_stage
 
 
-def test_derive_observations_script_emits_pause_and_manifest(tmp_path: Path) -> None:
-    timeline = tmp_path / "timeline.yaml"
-    output = tmp_path / "observations.json"
-    # 240 empty frames at 60 fps is a 4.0 s pause after M01; the second gap is 1.0 s.
-    _prefix_timeline_yaml(timeline, segment_lengths=[30, 30, 30], gap_frames=[240, 60])
-
-    result = _run_script(
-        "derive_poomsae_categorical_observations.py",
-        "--poomsae-spec",
-        SPEC_PATH,
-        "--timeline",
-        timeline,
-        "--output-json",
-        output,
-    )
-
-    assert result.returncode == 0, result.stderr
-    observations = json.loads(output.read_text(encoding="utf-8"))
-    assert len(observations) == 1
-    assert observations[0]["movement_id"] == "M01"
-    assert observations[0]["event_kind"] == "pause_at_least_3_sec"
-    assert observations[0]["confirmation_method"] == "duration_measurement"
-    assert observations[0]["measurement"]["duration_sec"] == pytest.approx(4.0)
-
-    manifest = json.loads((tmp_path / "observations_manifest.json").read_text(encoding="utf-8"))
-    assert manifest["pause_threshold_sec"] == 3.0
-    assert manifest["observation_count"] == 1
-    assert "wrong_action" in manifest["not_derived_event_kinds"]
-    assert set(manifest["bindings"]) == {"poomsae_spec", "movement_timeline"}
-
-
-def test_derive_observations_script_refuses_to_overwrite(tmp_path: Path) -> None:
-    timeline = tmp_path / "timeline.yaml"
-    output = tmp_path / "observations.json"
-    _prefix_timeline_yaml(timeline, segment_lengths=[30, 30], gap_frames=[240])
-    output.write_text("[]", encoding="utf-8")
-
-    result = _run_script(
-        "derive_poomsae_categorical_observations.py",
-        "--poomsae-spec",
-        SPEC_PATH,
-        "--timeline",
-        timeline,
-        "--output-json",
-        output,
-    )
-
-    assert result.returncode != 0
-    assert "refusing to overwrite" in result.stderr
-
-
 def test_presentation_script_writes_a_report_that_claims_no_score(tmp_path: Path) -> None:
     timeline = tmp_path / "timeline.yaml"
     diagnostics = tmp_path / "wholebody.json"

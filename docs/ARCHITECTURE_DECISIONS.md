@@ -542,6 +542,42 @@ korurken ikinci bir skor gerçeği yaratmaz.
 Ayrıntı:
 [`TECHNICAL_ACCURACY_DIAGNOSTICS.md`](TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
+## AD-028 — Segment tespiti tek yöntemde birleşir: ölçülen hareket-enerjisi dedektörü
+
+Karar: Hareket ve faz sınırı önerisi yalnız `automatic_segmentation.py` tarafından
+üretilir. Paralel geliştirilen hold (duruş) tabanlı dedektör
+`src/poomsae_scoring/segmentation.py` ve eş işlevli
+`scripts/derive_poomsae_categorical_observations.py` kaldırılmıştır.
+
+Gerekçe: İki dedektör aynı elle etiketlenmiş M01–M06 kaydına karşı aynı ölçütlerle
+ölçüldü (31 Ağustos 2026; `poomsae1-zed2i-rgbd-rerun-20260802-draft` timeline'ı,
+741 kare, 60 fps). Kare cinsinden ortalama mutlak hata:
+
+| Dedektör | Başlangıç | Bitiş | Fixation ort. | Fixation en kötü |
+| --- | ---: | ---: | ---: | ---: |
+| Hareket enerjisi (`automatic_segmentation`) | **11,3** | **10,3** | **6,8** | **13** |
+| Hold tabanlı (`segmentation`) | 34,2 | 10,7 | 12,5 | 22 |
+| Karışım (hareket sınırı + hold fixation) | 11,3 | 10,3 | 12,5 | 22 |
+
+Hareket dedektörü her iki metrikte de öndedir. "Her yöntemin iyi yanını al"
+varsayımı ayrıca ölçüldü: sınırları hareket dedektöründen, fixation anını hold
+dedektöründen alan karışım denendi ve hareket dedektöründen kesin olarak kötü
+çıktı; fixation hatasını 6,8'den 12,5'e taşıdı. Bu yüzden karışım da
+uygulanmamıştır. Hold dedektörünün belgelenmiş amacı — otomatik hizalama için
+segment kaynağı olmak — hareket dedektörü tarafından daha iyi karşılanmaktadır.
+
+Sınır: Bu sonuç hiçbir dedektörü elle etiketlemenin yerine koymaz. Fixation ölçüm
+penceresi ±5 karedir; kazanan dedektörün 6,8 karelik ortalaması ve 13 karelik en
+kötü hatası bu pencereden büyüktür. Öneriler insan onayı gerektirir ve
+`confirmed_timeline_replacement_allowed: False` korunur. Ölçüm tek sporcunun tek
+kaydının altı hareketine dayanır; genel bir doğruluk iddiası değildir.
+
+Kategorik gözlemler: Duraklama, yanlış hareket ve yanlış duruş gözlemleri
+`run_categorical_poomsae_diagnostics.py` üzerinden üretilir ve kanonik akışta
+`--observations` girdisi olarak source-bound karar katmanına gider. Timeline'dan
+tek başına duraklama türeten eski script bu gözlemlerin dar bir alt kümesini
+üretiyordu ve hiçbir yerden çağrılmıyordu.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

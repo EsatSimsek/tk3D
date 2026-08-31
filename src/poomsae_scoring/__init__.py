@@ -34,9 +34,6 @@ from src.poomsae_scoring.technical_accuracy import (
     validate_technical_accuracy_profile,
 )
 from src.poomsae_scoring.readiness import assess_accuracy_readiness
-from src.poomsae_scoring.segmentation import (  # noqa: E402
-    detect_movement_segments,
-)
 from src.poomsae_scoring.sequence_alignment import (
     align_segments_to_movements,
     build_automatic_movement_timeline,
@@ -71,7 +68,6 @@ __all__ = [
     "build_automatic_segmentation_diagnostics",
     "build_automatic_movement_timeline",
     "build_automatic_timeline_report",
-    "detect_movement_segments",
     "build_movement_evidence",
     "build_presentation_diagnostics",
     "build_technical_conformance",
