@@ -103,10 +103,16 @@ def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior(
         assert evaluate_temporary_threshold(boundary, threshold) == "boundary_uncertain"
         assert evaluate_temporary_threshold(failing, threshold) == "out_of_range"
         assert evaluate_temporary_threshold(None, threshold) == "unmeasurable"
+        assert evaluate_temporary_threshold(float("nan"), threshold) == "unmeasurable"
+        assert evaluate_temporary_threshold(float("inf"), threshold) == "unmeasurable"
+        assert evaluate_temporary_threshold(float("-inf"), threshold) == "unmeasurable"
+        assert evaluate_temporary_threshold("5", threshold) == "unmeasurable"
+        assert evaluate_temporary_threshold(True, threshold) == "unmeasurable"
     for metric_id in boolean_rules:
         assert evaluate_temporary_threshold(True, None) == "within_screening_range", metric_id
         assert evaluate_temporary_threshold(False, None) == "out_of_range", metric_id
         assert evaluate_temporary_threshold(None, None) == "unmeasurable", metric_id
+        assert evaluate_temporary_threshold("true", None) == "unmeasurable", metric_id
 
 
 def test_athlete_local_direction_reference_is_session_bound_orthogonal_and_fail_closed() -> None:

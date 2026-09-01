@@ -172,6 +172,14 @@ gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
 Ayrıntı:
 [`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
+Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
+kural ile 133-landmark kapsam envanterini, 33 aktif kural için 330
+sınır/eksik/non-finite vakasını ve 12 WholeBody-133 geometri senaryosunu
+hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
+Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
+yorum sınırları:
+[`docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md`](docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md).
+
 Önemli Poomsae çıktıları:
 
 ```text
@@ -207,6 +215,8 @@ videos/poomsae_scoring_annotated.mp4
   `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml`
 - Kapsamlı teknik-doğruluk profili:
   `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml`
+- Teknik-doğruluk sentetik validation profili:
+  `config/scoring/validation/taegeuk_1_rule_accuracy_validation_v1.yaml`
 - Kaynak-bağlı Accuracy profili:
   `config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml`
 

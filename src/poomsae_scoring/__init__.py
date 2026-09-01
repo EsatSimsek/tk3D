@@ -33,6 +33,13 @@ from src.poomsae_scoring.technical_accuracy import (
     validate_athlete_local_direction_reference,
     validate_technical_accuracy_profile,
 )
+from src.poomsae_scoring.technical_accuracy_validation import (
+    build_rule_accuracy_validation,
+    build_synthetic_wholebody_diagnostics,
+    build_synthetic_wholebody_pose,
+    load_rule_accuracy_validation_profile,
+    validate_rule_accuracy_validation_profile,
+)
 from src.poomsae_scoring.readiness import assess_accuracy_readiness
 from src.poomsae_scoring.sequence_alignment import (
     align_segments_to_movements,
@@ -72,6 +79,9 @@ __all__ = [
     "build_presentation_diagnostics",
     "build_technical_conformance",
     "build_technical_accuracy_diagnostics",
+    "build_rule_accuracy_validation",
+    "build_synthetic_wholebody_diagnostics",
+    "build_synthetic_wholebody_pose",
     "derive_athlete_local_direction_reference",
     "build_decision_evidence_events",
     "build_categorical_diagnostics",
@@ -93,6 +103,7 @@ __all__ = [
     "load_source_intake",
     "load_wholebody_diagnostic_profile",
     "load_technical_accuracy_profile",
+    "load_rule_accuracy_validation_profile",
     "overlay_state_for_frame",
     "render_movement_overlay",
     "run_poomsae_analysis",
@@ -106,6 +117,7 @@ __all__ = [
     "validate_source_intake",
     "validate_wholebody_diagnostic_profile",
     "validate_technical_accuracy_profile",
+    "validate_rule_accuracy_validation_profile",
     "validate_athlete_local_direction_reference",
     "resolve_movement_accuracy_contracts",
     "evaluate_temporary_threshold",

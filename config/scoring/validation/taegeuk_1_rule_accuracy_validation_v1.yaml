@@ -1,0 +1,92 @@
+schema_version: 1
+validation_id: taegeuk1-rule-accuracy-validation-v1
+status: synthetic_engineering_validation_only
+target_profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
+required_keypoint_count: 133
+synthetic_fixture_id: taegeuk1-wholebody133-synthetic-v2
+classification_cases:
+  - pass
+  - boundary
+  - opposite_boundary
+  - fail
+  - opposite_fail
+  - missing
+  - nan
+  - positive_infinity
+  - negative_infinity
+  - wrong_type
+geometry_scenarios:
+  - scenario_id: baseline_full_133
+    fixture_mutation: none
+    expectation: complete_score_neutral_contract
+    target_metrics: []
+  - scenario_id: missing_face_evidence
+    fixture_mutation: invalidate_face
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - head_roll_relative_shoulders_deg
+      - head_pitch_relative_torso_deg
+      - head_fixation_orientation_dispersion_p95_deg
+      - head_post_fixation_drift_deg
+  - scenario_id: missing_hand_evidence
+    fixture_mutation: invalidate_hands
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - active_hand_fixation_stability
+      - reaction_hand_fixation_stability
+  - scenario_id: missing_foot_evidence
+    fixture_mutation: invalidate_feet
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - foot_fixation_slip_body_ratio
+      - stance_fixation_dispersion_body_ratio
+  - scenario_id: insufficient_camera_evidence
+    fixture_mutation: lower_camera_count
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - head_roll_relative_shoulders_deg
+      - torso_lateral_bend_deg
+      - active_hand_fixation_stability
+      - foot_fixation_slip_body_ratio
+  - scenario_id: excessive_reprojection_error
+    fixture_mutation: raise_reprojection_error
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - head_roll_relative_shoulders_deg
+      - torso_lateral_bend_deg
+      - active_hand_fixation_stability
+      - foot_fixation_slip_body_ratio
+  - scenario_id: degenerate_face_geometry
+    fixture_mutation: collapse_face
+    expectation: target_metrics_unmeasurable_without_candidate
+    target_metrics:
+      - head_roll_relative_shoulders_deg
+      - head_pitch_relative_torso_deg
+      - head_fixation_orientation_dispersion_p95_deg
+  - scenario_id: post_fixation_drift
+    fixture_mutation: inject_post_fixation_drift
+    expectation: target_metrics_increase_from_baseline
+    target_metrics:
+      - head_post_fixation_drift_deg
+      - active_hand_fixation_stability
+      - foot_fixation_slip_body_ratio
+  - scenario_id: left_right_mirror
+    fixture_mutation: mirror_left_right
+    expectation: mirror_involution_and_stability_invariance
+    target_metrics:
+      - head_fixation_orientation_dispersion_p95_deg
+      - foot_fixation_slip_body_ratio
+      - active_hand_fixation_stability
+  - scenario_id: body17_contract_rejected
+    fixture_mutation: reduce_to_body17
+    expectation: scoring_contract_error
+    target_metrics: []
+  - scenario_id: missing_direction_binding
+    fixture_mutation: none
+    expectation: direction_rules_blocked
+    target_metrics: []
+  - scenario_id: valid_direction_binding
+    fixture_mutation: none
+    expectation: direction_rules_evaluated_when_measurable
+    target_metrics: []
+disclaimer: Synthetic engineering validation proves software behavior and fail-closed contracts only; it does not establish biomechanical, judge, WT, Kukkiwon, or ground-truth accuracy.

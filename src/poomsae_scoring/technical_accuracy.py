@@ -691,12 +691,20 @@ def resolve_movement_accuracy_contracts(spec_payload: dict[str, Any], profile_pa
     return contracts
 
 
-def evaluate_temporary_threshold(value: float | bool | None, threshold: dict[str, Any] | None) -> str:
+def evaluate_temporary_threshold(value: Any, threshold: dict[str, Any] | None) -> str:
     if value is None:
         return "unmeasurable"
     if threshold is None:
-        return "within_screening_range" if value is True else "out_of_range"
+        if not isinstance(value, (bool, np.bool_)):
+            return "unmeasurable"
+        return "within_screening_range" if bool(value) else "out_of_range"
+    if isinstance(value, (bool, np.bool_)) or not isinstance(
+        value, (int, float, np.integer, np.floating)
+    ):
+        return "unmeasurable"
     numeric = float(value)
+    if not np.isfinite(numeric):
+        return "unmeasurable"
     uncertainty = float(threshold["uncertainty_band"])
     operator = threshold["operator"]
     limit = threshold["value"]

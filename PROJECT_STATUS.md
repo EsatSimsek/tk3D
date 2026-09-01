@@ -1,13 +1,13 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **31 Ağustos 2026**
+Son doğrulama tarihi: **1 Eylül 2026**
 
 Dal: **`main`**
 
-HEAD: **`aab10ec`**
+HEAD: **bu belgenin bulunduğu teslim commit'i (`git rev-parse HEAD`)**
 
-Çalışma ağacı: **kirli; kapsamlı Taegeuk 1 teknik-doğruluk diagnostic
-değişiklikleri kullanıcı isteği gereği commitlenmedi**
+Çalışma ağacı: **teslim commit'i dışında beklenen repository değişikliği yok;
+yerel `outputs/` validation run'ları Git dışıdır**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -98,6 +98,33 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+1 Eylül 2026 teknik-doğruluk kural validation inceleme ve güçlendirme kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest: **`316 passed in 48.16s`**;
+- validation + teknik-doğruluk odaklı testler: **`24 passed in 20.21s`**;
+- `git diff --check`: temiz;
+- sentetik validation CLI: **`passed`**;
+- kural envanteri **`174/174`**, landmark kapsamı **`133/133`**,
+  aktif-kural çift-yönlü sınır/eksik/non-finite/yanlış-tip vakaları
+  **`330/330`**, WholeBody-133 geometri senaryoları **`12/12`** geçti;
+- JSON `allow_nan=false` ile parse edildi; ham non-finite sayı yazılmadı;
+- eksik-kanıt hedeflerinin baz çizgide önce ölçülebilir olduğu, sıfır olmayan
+  ayna metriklerinin değişmezliği, dört pose/kalite dizisinin ayna involution'ı
+  ve geçerli bağla yön kurallarının **`17/17`** değerlendirildiği doğrulandı;
+- beş ana artifact'in SHA-256/boyut manifesti tekrar hesaplanarak doğrulandı;
+  CLI staging dizininden atomik yayın yapıyor ve run dizini tekrarını reddediyor;
+- rapor readiness'i `synthetic_contract_validation_ready=true` fakat dış
+  doğruluk, hakem kalibrasyonu, üretim eşiği ve resmî puan hazırlığını `false`
+  tutuyor;
+- doğrulama çıktısı
+  `outputs/validation/runs/taegeuk1-rule-validation-20260901-r6/` altında
+  benzersiz run olarak üretildi.
+
+Bu düzeneğin başarısı yazılım sözleşmesi ve fail-closed davranışı doğrular.
+Uzman etiketli gerçek video, kör hakem karşılaştırması ve precision/recall
+olmadan biomekanik, resmî veya ground-truth doğruluk iddiası yapılamaz.
 
 31 Ağustos 2026 kapsamlı teknik-doğruluk teslim kapısı:
 

@@ -31,6 +31,10 @@ Ana dosyalar:
   ince CLI adaptörü;
 - `scripts/build_athlete_local_direction_reference.py`: oturuma bağlı yön
   referansını açılış duruşundan türeten üretici aşama.
+- `src/poomsae_scoring/technical_accuracy_validation.py`: 174 kuralın kapsam,
+  eşik ve sentetik geometri doğrulama çekirdeği;
+- `scripts/run_technical_accuracy_rule_validation.py`: üzerine yazmayan,
+  makine-okunur JSON/CSV validation artifact'leri üreten CLI.
 
 Tarihsel v2 profil değiştirilmemiştir ve mevcut WholeBody/source-bound akışının
 girdisi olmaya devam eder. V3, `accuracy_diagnostic_profile` olarak ayrı
@@ -213,3 +217,20 @@ dönüşür; görselleştirme yeniden değerlendirilmez.
 Aktif kayıt yalnız M01–M06'dır. M07–M18 kontrat/şema/sentetik test kapsamıdır;
 gerçek video kanıtı değildir. Dış 3B ground truth ve hakem kalibrasyonu
 bulunmadığından eşiklerin precision/recall veya resmî hakem uyumu bilinmez.
+
+## Kural doğrulama düzeneği
+
+`config/scoring/validation/taegeuk_1_rule_accuracy_validation_v1.yaml`, runtime
+puanlamasından ayrı sentetik mühendislik doğrulamasını tanımlar. Her aktif
+kural pass/boundary/fail/eksik/NaN/±sonsuzluk vakalarından geçer. WholeBody-133
+fixture üzerinde yüz, el, ayak, kamera ve reprojection kanıt kaybı; dejenere
+geometri; kontrollü fixation drift'i; sağ-sol ayna; BODY-17 sözleşme reddi ve
+session-bound yön davranışı çalıştırılır. 133 landmarkın tamamı ayrı coverage
+satırı taşır; eksik kanıt hedefleri önce ölçülebilir baz çizgiye karşı
+karşılaştırılır. Artifact seti input/implementation SHA-256 bağları ve çıktı
+manifesti taşır. Ayrıntılı protokol ve komut:
+[`TECHNICAL_ACCURACY_RULE_VALIDATION.md`](TECHNICAL_ACCURACY_RULE_VALIDATION.md).
+
+Harness başarısı yalnız yazılım sözleşmesinin doğrulandığını gösterir. Gerçek
+teknik hata doğruluğu için kural başına uzman etiketli video, kör hakem
+karşılaştırması ve precision/recall analizi hâlâ gereklidir.

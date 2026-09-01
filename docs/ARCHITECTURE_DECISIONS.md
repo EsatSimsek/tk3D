@@ -578,6 +578,34 @@ Kategorik gözlemler: Duraklama, yanlış hareket ve yanlış duruş gözlemleri
 tek başına duraklama türeten eski script bu gözlemlerin dar bir alt kümesini
 üretiyordu ve hiçbir yerden çağrılmıyordu.
 
+## AD-029 — Kural doğruluğu yazılım kontratı ve dış doğruluk olarak ikiye ayrılır
+
+Karar: Taegeuk 1 v3 teknik-doğruluk kuralları için sentetik, sürümlü ve
+makine-okunur ayrı bir validation düzeneği kullanılır. Düzenek 174 kuralın
+durum/evaluator/puan-sızlık envanterini, 33 aktif kuralın eşik sınırlarını ve
+WholeBody-133 kanıt bozulmalarını doğrular. Runtime analiz artifact'i veya
+source-bound kararları bu düzeneğin çıktısından beslenmez.
+
+Koruma: NaN ve sonsuzluk her sayısal eşikte `unmeasurable` olur ve JSON'a ham
+non-finite sayı yazılmaz. BODY-17 reddedilir; eksik yüz/el/ayak, kamera veya
+reprojection kanıtı aday üretmez; yön kuralları session-bound referans olmadan
+kapalı kalır. Sağ-sol ayna iki kez uygulandığında fixture geri dönmeli,
+kontrollü fixation drift'i hedef kararlılık metriklerini baz çizginin üzerine
+taşımalıdır. Eksik kanıt testi ancak aynı hedef baz çizgide ölçülebilirken
+başarılı sayılır; ayna testi sıfır olmayan metrikleri ve bütün koordinat/kalite
+dizilerini kapsar. 133 landmarkın her biri ayrı coverage satırı taşır. Girdi,
+uygulama kaynakları ve çıktı artifact'leri SHA-256 ile bağlanır; staging dizini
+tamamlanmadan final run görünür olmaz. Çıktı yollarının üzerine yazılmaz ve
+bütün sonuçlar puansızdır.
+
+Sınır: `status=passed` yalnız bu yazılım davranışlarını kanıtlar. Biomekanik
+geçerlilik, resmî kural uyumu, hakem anlaşması, gerçek videoda precision/recall
+ve sporcular arası genelleme iddiası için bağımsız etiketli dış doğrulama
+gerekir. Sentetik fixture, gerçek hata doğruluğunun yerine kullanılamaz.
+
+Ayrıntı:
+[`TECHNICAL_ACCURACY_RULE_VALIDATION.md`](TECHNICAL_ACCURACY_RULE_VALIDATION.md).
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:
