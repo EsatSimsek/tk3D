@@ -101,7 +101,7 @@ def test_uncertain_band_flags_borderline_kept_movement():
     )
     expected = [build_frame(90, 90), build_frame(180, 180), build_frame(90, 90)]
     penalty = _auto_skip_penalty(expected)
-    margin = 0.03
+    margin = 0.25
     # Ortadaki hareket sinirda (125 derece): tutulmali ama belirsiz isaretlenmeli
     segments = [build_frame(90, 90), build_frame(125, 125), build_frame(90, 90)]
     cost = _pose_cost_matrix(segments, expected)
@@ -118,7 +118,7 @@ def test_clear_movement_not_flagged_uncertain():
     )
     expected = [build_frame(90, 90), build_frame(180, 180), build_frame(90, 90)]
     penalty = _auto_skip_penalty(expected)
-    margin = 0.03
+    margin = 0.25
     # Ortadaki hareket iyi (175 derece): tutulmali, belirsiz OLMAMALI
     segments = [build_frame(90, 90), build_frame(175, 175), build_frame(90, 90)]
     cost = _pose_cost_matrix(segments, expected)
@@ -522,3 +522,77 @@ def test_automatic_timeline_merges_a_movement_split_across_several_segments():
     assert split[0]["start_frame"] == 10
     assert split[0]["end_frame"] == 70
     assert "birleştirildi" in split[0]["detail"]
+
+
+def _shift(frame, offset):
+    """Move a whole pose in space, leaving unmeasured joints unmeasured."""
+    import numpy as np
+
+    return np.asarray(frame, dtype=float) + np.asarray(offset, dtype=float)
+
+
+def _rotate_about_up(frame, degrees):
+    """Turn a whole pose about the world up axis."""
+    import numpy as np
+
+    angle = np.radians(degrees)
+    rotation = np.array(
+        [
+            [np.cos(angle), -np.sin(angle), 0.0],
+            [np.sin(angle), np.cos(angle), 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
+    return np.asarray(frame, dtype=float) @ rotation.T
+
+
+def test_pose_distance_ignores_where_the_athlete_stood_and_how_big_they_are():
+    """A template is worthless if the same movement two metres left looks different."""
+    import numpy as np
+    import pytest
+
+    from src.poomsae_scoring.sequence_alignment import pose_distance
+    from src.synthetic_poses import build_frame
+
+    pose = build_frame(120, 120)
+
+    assert pose_distance(pose, _shift(pose, [2.0, -1.5, 0.0])) == pytest.approx(0.0, abs=1e-9)
+    assert pose_distance(pose, _shift(pose, [0.0, 0.0, 0.8])) == pytest.approx(0.0, abs=1e-9)
+    assert pose_distance(pose, np.asarray(pose, dtype=float) * 1.3) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_pose_distance_still_separates_movements_by_facing():
+    """Facing must survive normalisation, or every movement of the form matches."""
+    from src.poomsae_scoring.sequence_alignment import pose_distance
+    from src.synthetic_poses import build_frame
+
+    pose = build_frame(120, 120)
+
+    assert pose_distance(pose, _rotate_about_up(pose, 90.0)) > 0.1
+    assert pose_distance(pose, build_frame(170, 170)) > 0.0
+
+
+def test_automatic_alignment_survives_a_recording_made_in_a_different_spot():
+    """The whole point of templates: they match a later recording, not only their own."""
+    from src.poomsae_scoring.sequence_alignment import build_automatic_movement_timeline
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(3)
+    expected = [build_frame(90, 90), build_frame(150, 150), build_frame(115, 115)]
+    offset = [2.0, -1.5, 0.0]
+    segments = [
+        {
+            "segment_id": index,
+            "start_frame": 10 + index * 50,
+            "end_frame": 50 + index * 50,
+            "mean_pose": _shift(pose, offset),
+        }
+        for index, pose in enumerate(expected)
+    ]
+
+    timeline = build_automatic_movement_timeline(
+        **_auto_timeline_kwargs(spec, segments, expected)
+    )
+
+    assert timeline["coverage"]["observed_movement_ids"] == ["M01", "M02", "M03"]
+    assert [segment["movement_id"] for segment in timeline["segments"]] == ["M01", "M02", "M03"]

@@ -174,8 +174,13 @@ def main() -> None:
             ),
         ],
         "bindings": {
-            label: {"path": str(path), "sha256": _sha256(path)} for label, path in paths.items()
+            label: {"path": _binding_path(path), "sha256": _sha256(path)}
+            for label, path in paths.items()
         },
+        "binding_note": (
+            "The SHA-256 is the authoritative binding; the path is a convenience and is "
+            "reduced to a file name when the input lives outside the repository."
+        ),
         "templates": templates,
     }
 
@@ -192,6 +197,19 @@ def main() -> None:
 def _resolve(value: str) -> Path:
     path = Path(value)
     return path.resolve() if path.is_absolute() else (ROOT / path).resolve()
+
+
+def _binding_path(path: Path) -> str:
+    """Repo-relative when the input is in the repository, otherwise just the file name.
+
+    This file is meant to be committed, and the pose artifact normally lives outside
+    the working tree, so writing its absolute path would publish somebody's home
+    directory. The hash below identifies the input either way.
+    """
+    try:
+        return path.relative_to(ROOT).as_posix()
+    except ValueError:
+        return path.name
 
 
 def _sha256(path: Path) -> str:

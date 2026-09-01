@@ -193,15 +193,60 @@ def _dtw_align_with_skip(cost_matrix, skip_penalty=0.5):
     return {"pairs": pairs, "skipped_movements": skipped, "total_cost": acc[n_segments][n_movements]}
 
 
-def pose_distance(frame_a, frame_b):
-    """�ki poz karesi aras�ndaki ortalama eklem uzakl��� (NaN eklemler atlan�r)."""
+def normalize_pose_for_matching(frame):
+    """Put a pose in a place- and size-free frame so it can be matched across recordings.
+
+    A template is only useful if it still matches the same movement in a *different*
+    recording. Raw world coordinates cannot do that: if the athlete starts a metre to
+    the left, every joint is a metre away and the correct movement looks as wrong as
+    the others. Two normalisations remove that without touching what actually
+    distinguishes the movements:
+
+    * **Place.** The pose is centred on the pelvis midpoint when both hips are
+      measured, and on the mean of the measured joints otherwise. Where the athlete
+      stood stops mattering.
+    * **Size.** Coordinates are divided by the root-mean-square distance of the
+      measured joints from that centre. Body size and how far the athlete happened to
+      step stop mattering.
+
+    Facing is deliberately *not* normalised. Which way the athlete turns is what
+    separates one movement of the form from another, so removing it would make the
+    templates match each other. Recordings whose world axes differ must instead be
+    brought into a common frame with the session's athlete-local direction reference.
+
+    Joints that were not measured stay NaN and are ignored downstream.
+    """
     import numpy as np
-    a = np.asarray(frame_a, dtype=float)
-    b = np.asarray(frame_b, dtype=float)
-    # Her eklemin 3D uzakl���
+
+    points = np.asarray(frame, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ScoringContractError("a pose frame must be shaped [joints, 3]")
+    measured = np.all(np.isfinite(points), axis=1)
+    if not np.any(measured):
+        return points
+    hips = [index for index in (11, 12) if index < len(points) and measured[index]]
+    centre = points[hips].mean(axis=0) if len(hips) == 2 else points[measured].mean(axis=0)
+    centred = points - centre
+    scale = float(np.sqrt(np.mean(np.sum(centred[measured] ** 2, axis=1))))
+    return centred if not np.isfinite(scale) or scale <= 1e-9 else centred / scale
+
+
+def pose_distance(frame_a, frame_b):
+    """Mean joint distance between two poses, place- and size-free (NaN joints skipped).
+
+    Both poses go through :func:`normalize_pose_for_matching` first, so the result is
+    a shape difference rather than a difference in where the athlete stood or how big
+    they are. The value is in normalised units, not metres.
+    """
+    import numpy as np
+    a = normalize_pose_for_matching(frame_a)
+    b = normalize_pose_for_matching(frame_b)
+    if a.shape != b.shape:
+        raise ScoringContractError("pose frames must have the same joint count")
+    # Her eklemin 3B uzaklığı
     diff = a - b
     per_joint = np.sqrt(np.sum(diff * diff, axis=1))
-    # �ki karede de dolu (NaN olmayan) eklemleri se�
+    # İki karede de dolu (NaN olmayan) eklemleri seç
     valid = np.isfinite(per_joint)
     if not np.any(valid):
         return float("inf")
@@ -234,12 +279,17 @@ def _auto_skip_penalty(expected_poses, fraction=0.7):
 
 
 def _flag_uncertain_movements(cost_matrix, pairs, skip_penalty, uncertainty_margin):
-    """Tutulan (atlanmayan) ama atlama esigine yakin hareketleri belirsiz isaretler."""
+    """Tutulan (atlanmayan) ama atlama esigine yakin hareketleri belirsiz isaretler.
+
+    ``uncertainty_margin`` esigin bir orani olarak okunur; poz maliyetleri
+    normalize edildigi icin mutlak bir bant olcek degistiginde anlamini yitirir.
+    """
     uncertain = []
+    band = abs(skip_penalty) * uncertainty_margin
     for seg_idx, mov_idx in pairs:
         cost = cost_matrix[seg_idx][mov_idx]
-        lower = skip_penalty - uncertainty_margin
-        upper = skip_penalty + uncertainty_margin
+        lower = skip_penalty - band
+        upper = skip_penalty + band
         if lower <= cost <= upper:
             uncertain.append({
                 "movement_index": mov_idx,
@@ -261,7 +311,7 @@ def build_automatic_movement_timeline(
     fps: float,
     source_binding: dict[str, Any],
     timeline_id: str,
-    uncertainty_margin: float = 0.03,
+    uncertainty_margin: float = 0.25,
 ) -> dict[str, Any]:
     """Return only the validated MovementTimeline; see :func:`build_automatic_timeline_report`.
 
@@ -291,7 +341,7 @@ def build_automatic_timeline_report(
     fps: float,
     source_binding: dict[str, Any],
     timeline_id: str,
-    uncertainty_margin: float = 0.03,
+    uncertainty_margin: float = 0.25,
 ) -> dict[str, Any]:
     """Auto-align detected pose segments to a PoomsaeSpec and return a validated MovementTimeline.
 
@@ -315,7 +365,7 @@ def build_automatic_timeline_report(
     frame_count, fps, source_binding, timeline_id
         Straight passthroughs to the MovementTimeline schema.
     uncertainty_margin
-        Cost distance below the auto skip penalty that still counts as ambiguous
+        Fraction of the auto skip penalty that still counts as ambiguous
         (matched movements land as ``label_status='ambiguous'`` instead of
         ``'provisional'``).
 
