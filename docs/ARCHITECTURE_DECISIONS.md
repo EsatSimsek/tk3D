@@ -526,6 +526,12 @@ almaz. Kanıt zinciri yalnız JSON/CSV → mavi EvidenceEvent → video/HTML yö
 ilerler; render çıktısı yeniden değerlendirilmez. M07–M18 aktif videoda yoktur
 ve yalnız kontrat/config/sentetik test kapsamıdır.
 
+Eşiksiz boolean teknik koşullar EvidenceEvent'te sayısal limite çevrilmez;
+`bool_true` operatörü, `expected_boolean=true` ve boş `rule_limits` taşır.
+Boolean olmayan eşiksiz aday sözleşme hatasıdır. Böylece puansız boolean
+inceleme adayı hem tipini korur hem `float(null)` gibi sunum-adaptörü hataları
+fail-closed testlerle yakalanır.
+
 Ölçüm uygulama sözleşmesi: Pipeline sınırındaki 8 özellik dışında kalan 166
 kuralın her biri bir evaluator kimliği taşır. Eksik evaluator, eksik sayısal
 teknik hedef ve yetersiz video kanıtı aynı durum olarak raporlanamaz. Zorunlu

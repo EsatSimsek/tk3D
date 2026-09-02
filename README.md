@@ -236,6 +236,8 @@ hash'leri veya config'leri yalnız biçimsel temizlik amacıyla değiştirmeyin.
   üzerine yazılamaz bir dizin kullanır.
 - `latest_run.json` yalnız başarıyla tamamlanan ve uygun koşuya ilerletilir;
   failed/incomplete run önceki başarılı işaretçiyi değiştiremez.
+- Workflow içindeki bir subprocess aşaması hata verirse `run_state.json`
+  `running` bırakılmaz; aşama adı, exit code ve `failed` durumu kaydedilir.
 - Her güncel 3B artifact; session/run kimliği, calibration snapshot/hash ve run
   manifestiyle bağlanır. Sözleşme uyuşmazlığı fail-closed'dur.
 - Yaklaşık calibration açıkça izin verilmedikçe üretim inference'ta kabul

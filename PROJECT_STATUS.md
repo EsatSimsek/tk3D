@@ -1,6 +1,6 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **1 Eylül 2026**
+Son doğrulama tarihi: **2 Eylül 2026**
 
 Dal: **`main`**
 
@@ -98,6 +98,23 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+2 Eylül 2026 boolean technical-accuracy EvidenceEvent ve lifecycle düzeltmesi:
+
+- `python -m ruff check src scripts tests`: geçti;
+- güncel `origin/main` üzerine rebase sonrası tam pytest:
+  **`329 passed in 50.87s`**;
+- decision-evidence + runner odaklı testler: **`29 passed in 15.91s`**;
+- `git diff --check`: temiz;
+- gerçek `benim-denemem-17` artifact'lerinden ayrı validation çıktısında
+  **70** event, **50** teknik aday ve sorun çıkaran **6/6** boolean event
+  üretildi; boolean event'lerin tamamı puansız kaldı;
+- yeni uçtan uca `benim-denemem-17-fix-r1` run'ı tamamlandı; 70 event,
+  işaretli video (**40.429.676 byte**), HTML review, run history ve ana özet
+  üretildi;
+- yeni run `run_state=completed`; eski yarım `benim-denemem-17` run'ı hata
+  açıklamasıyla `failed` olarak kapatıldı; önceki uygun `latest_run.json`
+  işaretçisi değiştirilmedi.
 
 1 Eylül 2026 teknik-doğruluk kural validation inceleme ve güçlendirme kapısı:
 

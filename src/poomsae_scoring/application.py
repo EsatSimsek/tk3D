@@ -18,7 +18,13 @@ import yaml
 from src.artifact_io import load_json_object, sha256_file, write_json_exclusive
 from src.performance import PerformanceCollector, basic_environment_identity, write_performance_report
 from src.poomsae_scoring.contracts import load_movement_timeline, load_poomsae_spec, load_yaml_mapping
-from src.run_outputs import initialize_run_state, mark_run_complete, mark_run_completed, mark_run_running
+from src.run_outputs import (
+    initialize_run_state,
+    mark_run_complete,
+    mark_run_completed,
+    mark_run_failed,
+    mark_run_running,
+)
 from src.video_io import load_session
 
 
@@ -171,6 +177,10 @@ def run_workflow(
             (run_root / directory).mkdir(parents=True, exist_ok=False)
         initialize_run_state(run_root, session.session_id, run_id)
     mark_run_running(run_root, session.session_id, run_id)
+    run_stage = partial(
+        run_stage,
+        failure_context=(run_root, session.session_id, run_id),
+    )
 
     config_paths = _snapshot_configuration(
         run_root=run_root,
@@ -921,6 +931,7 @@ def _run_stage(
     script: str,
     *args: str | int | Path,
     profiler: PerformanceCollector | None = None,
+    failure_context: tuple[Path, str, str] | None = None,
 ) -> None:
     command = [sys.executable, str((ROOT / script).resolve()), *(str(arg) for arg in args)]
     print(f"\n[{label}]", flush=True)
@@ -928,7 +939,11 @@ def _run_stage(
     try:
         subprocess.run(command, cwd=ROOT, check=True)
     except subprocess.CalledProcessError as exc:
-        raise WorkflowError(f"{label} failed with exit code {exc.returncode}.") from exc
+        error = f"{label} failed with exit code {exc.returncode}."
+        if failure_context is not None:
+            run_root, session_id, run_id = failure_context
+            mark_run_failed(run_root, session_id, run_id, error)
+        raise WorkflowError(error) from exc
     finally:
         if profiler is not None:
             elapsed = time.perf_counter() - started

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pytest
 
 from src.poomsae_scoring import (
+    ScoringContractError,
     build_decision_evidence_events,
     load_movement_timeline,
     load_poomsae_spec,
@@ -139,6 +141,131 @@ def test_wholebody_hand_and_head_candidates_become_no_score_video_events() -> No
     assert head["visual_geometry"]["kind"] == "head_torso_direction"
     assert len(head["visual_geometry"]["joint_indices"]) == 14
     assert "Accuracy puanı düşürülmedi" in head["user_explanation"]["result"]
+
+
+def test_thresholdless_boolean_technical_candidate_becomes_typed_no_score_event() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    technical = {
+        "status": "technical_accuracy_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "candidate_events": [
+            {
+                "movement_id": "M01",
+                "rule_id": "TK3D-T1-V3-HEAD-WRONG-DIRECTION-STABLE-STATE",
+                "metric_id": "head_wrong_direction_stable_state",
+                "criterion_id": "technical_accuracy.head_orientation.head_wrong_direction_stable_state",
+                "rule_family": "head_orientation",
+                "phase_or_window": "phase_specific_or_fixation",
+                "value": False,
+                "unit": "bool",
+                "threshold": None,
+                "uncertainty": None,
+                "decision_status": "review_candidate_not_deduction",
+                "score_effect": None,
+                "deduction_points": None,
+                "provenance": "self_authored_temporary_accuracy_rule",
+                "rule_eligibility": "blocked_unvalidated_screening_threshold",
+                "evidence": {"scope": "fixation_window"},
+            }
+        ],
+    }
+
+    report = build_decision_evidence_events(
+        _empty_decisions(timeline),
+        spec,
+        timeline,
+        technical_accuracy_diagnostics=technical,
+    )
+
+    assert report["summary"]["technical_accuracy_review_candidate_count"] == 1
+    event = report["events"][0]
+    assert event["event_kind"] == "technical_accuracy_diagnostic_review_candidate"
+    assert event["measurement"]["value"] is False
+    assert event["measurement"]["unit"] == "bool"
+    assert event["measurement"]["rule_operator"] == "bool_true"
+    assert event["measurement"]["rule_limits"] == []
+    assert event["measurement"]["expected_boolean"] is True
+    assert event["deduction_points"] is None
+    assert event["reason"] == "unvalidated_technical_accuracy_boolean_condition_failed"
+    assert event["user_explanation"]["measured"] == "Hayır — koşul sağlanmadı."
+    assert "Koşul sağlanmadı" in event["user_explanation"]["comparison"]
+
+
+def test_thresholdless_non_boolean_technical_candidate_fails_closed() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    technical = {
+        "status": "technical_accuracy_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "candidate_events": [
+            {
+                "movement_id": "M01",
+                "metric_id": "invalid_numeric_without_threshold",
+                "value": 1.0,
+                "unit": "ratio",
+                "threshold": None,
+                "decision_status": "review_candidate_not_deduction",
+                "score_effect": None,
+                "deduction_points": None,
+            }
+        ],
+    }
+
+    with pytest.raises(ScoringContractError, match="thresholdless.*boolean"):
+        build_decision_evidence_events(
+            _empty_decisions(timeline),
+            spec,
+            timeline,
+            technical_accuracy_diagnostics=technical,
+        )
+
+
+def test_technical_range_and_abs_max_thresholds_keep_typed_limits() -> None:
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    common = {
+        "movement_id": "M01",
+        "phase_or_window": "phase_specific_or_fixation",
+        "unit": "deg",
+        "decision_status": "review_candidate_not_deduction",
+        "score_effect": None,
+        "deduction_points": None,
+    }
+    technical = {
+        "status": "technical_accuracy_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "candidate_events": [
+            {
+                **common,
+                "metric_id": "synthetic_range_metric",
+                "value": 25.0,
+                "threshold": {"operator": "range", "value": [5.0, 20.0]},
+            },
+            {
+                **common,
+                "metric_id": "synthetic_abs_max_metric",
+                "value": -18.0,
+                "threshold": {"operator": "abs_max", "value": 12.0},
+            },
+        ],
+    }
+
+    report = build_decision_evidence_events(
+        _empty_decisions(timeline),
+        spec,
+        timeline,
+        technical_accuracy_diagnostics=technical,
+    )
+
+    range_event, abs_event = report["events"]
+    assert range_event["measurement"]["rule_operator"] == "range"
+    assert range_event["measurement"]["rule_limits"] == [5.0, 20.0]
+    assert "5.00 - 20.00" in range_event["user_explanation"]["expected"]
+    assert abs_event["measurement"]["rule_operator"] == "abs_max"
+    assert abs_event["measurement"]["rule_limits"] == [12.0]
+    assert "mutlak deger" in abs_event["user_explanation"]["expected"]
+    assert "6.00" in abs_event["user_explanation"]["comparison"]
 
 
 def test_annotated_video_preserves_source_timeline_and_inserts_reading_pause(tmp_path: Path) -> None:

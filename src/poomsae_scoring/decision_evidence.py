@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from typing import Any
 
 from src.data_structures import COCO_BODY_JOINTS, COCO_FOOT_JOINTS, coco_hand_joint
@@ -329,6 +330,7 @@ def _diagnostic_event(
             "interval_95": None,
             "rule_operator": screening_rule.get("operator"),
             "rule_limits": _screening_limits(screening_rule),
+            "expected_boolean": screening_rule.get("expected_boolean"),
             "boundary_guard": None,
             "sample_count": candidate.get("sample_count"),
         },
@@ -373,19 +375,26 @@ def _technical_accuracy_diagnostic_event(
     end = _frame(evidence.get("end_frame"), min(segment["end_frame"], fixation + 5))
     anchor = min(max(fixation, start), end)
     threshold = candidate.get("threshold") or {}
+    value = candidate.get("value")
+    unit = candidate.get("unit")
+    if threshold:
+        screening_rule = _technical_screening_rule(threshold)
+    elif isinstance(value, bool) and unit == "bool":
+        screening_rule = {"operator": "bool_true", "expected_boolean": True}
+    else:
+        raise ScoringContractError(
+            "thresholdless technical accuracy candidates must be boolean conditions"
+        )
     adapted = {
         "movement_id": candidate.get("movement_id"),
         "metric_id": candidate.get("metric_id"),
         "criterion_id": candidate.get("criterion_id"),
         "family": candidate.get("rule_family"),
-        "value": candidate.get("value"),
-        "unit": candidate.get("unit"),
+        "value": value,
+        "unit": unit,
         "uncertainty_95": candidate.get("uncertainty"),
         "sample_count": None,
-        "screening_rule": {
-            "operator": threshold.get("operator"),
-            "value": threshold.get("value"),
-        },
+        "screening_rule": screening_rule,
         "measurement_evidence": {
             "scope": evidence.get("scope", candidate.get("phase_or_window")),
             "start_frame": start,
@@ -408,16 +417,44 @@ def _technical_accuracy_diagnostic_event(
     event["criterion_id"] = candidate.get("criterion_id")
     event["provenance"] = candidate.get("provenance")
     event["rule_eligibility"] = candidate.get("rule_eligibility")
-    event["reason"] = "unvalidated_technical_accuracy_screening_threshold_exceeded"
+    event["reason"] = (
+        "unvalidated_technical_accuracy_screening_threshold_exceeded"
+        if threshold
+        else "unvalidated_technical_accuracy_boolean_condition_failed"
+    )
     return event
 
 
 def _screening_limits(screening_rule: dict[str, Any]) -> list[float]:
     if "range" in screening_rule:
         return [float(value) for value in screening_rule["range"]]
-    if "value" in screening_rule:
+    if screening_rule.get("value") is not None:
         return [float(screening_rule["value"])]
     return []
+
+
+def _technical_screening_rule(threshold: dict[str, Any]) -> dict[str, Any]:
+    operator = threshold.get("operator")
+    value = threshold.get("value")
+    if operator == "range":
+        if not isinstance(value, list) or len(value) != 2:
+            raise ScoringContractError("technical accuracy range threshold must contain two limits")
+        limits = [_finite_rule_limit(item) for item in value]
+        if limits[0] > limits[1]:
+            raise ScoringContractError("technical accuracy range threshold is inverted")
+        return {"operator": "range", "range": limits}
+    if operator not in {"max", "min", "abs_max"}:
+        raise ScoringContractError(f"unsupported technical accuracy threshold operator: {operator}")
+    return {"operator": operator, "value": _finite_rule_limit(value)}
+
+
+def _finite_rule_limit(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ScoringContractError("technical accuracy threshold limit must be numeric")
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise ScoringContractError("technical accuracy threshold limit must be finite")
+    return numeric
 
 
 def _diagnostic_explanation(candidate: dict[str, Any], movement: dict[str, Any]) -> dict[str, str]:
@@ -428,7 +465,7 @@ def _diagnostic_explanation(candidate: dict[str, Any], movement: dict[str, Any])
     value = candidate.get("value")
     title, correction = _diagnostic_title_and_correction(metric_id)
     expected = _expected_text(rule.get("operator"), limits, unit)
-    measured = "Ölçüm yapılamadı." if value is None else f"{float(value):.2f} {_unit_label(unit)}"
+    measured = _diagnostic_measured_text(value, unit)
     comparison = _comparison_text(value, None, rule.get("operator"), limits, unit)
     return {
         "title": title,
@@ -607,8 +644,12 @@ def _metric_explanation(metric_id: str) -> tuple[str, str]:
 
 def _expected_text(operator: Any, limits: list[Any], unit: str) -> str:
     label = _unit_label(unit)
+    if operator == "bool_true":
+        return "Olmasi gereken: teknik koşul sağlanmalı."
     if operator == "max" and limits:
         return f"Olmasi gereken: en fazla {float(limits[0]):.2f} {label}."
+    if operator == "abs_max" and limits:
+        return f"Olmasi gereken: mutlak deger en fazla {float(limits[0]):.2f} {label}."
     if operator == "min" and limits:
         return f"Olmasi gereken: en az {float(limits[0]):.2f} {label}."
     if operator == "range" and len(limits) == 2:
@@ -623,6 +664,10 @@ def _comparison_text(
     limits: list[Any],
     unit: str,
 ) -> str:
+    if operator == "bool_true":
+        if not isinstance(value, bool):
+            return "Koşul karşılaştırılamadı; boolean ölçüm yok."
+        return "Koşul sağlandı." if value else "Koşul sağlanmadı; inceleme gerekiyor."
     if value is None or not limits:
         return "Fark hesaplanamadi; gerekli eklem kaniti yetersiz."
     label = _unit_label(unit)
@@ -636,6 +681,12 @@ def _comparison_text(
             suffix = "" if minimum_excess is None else f"; %95'e gore en az {minimum_excess:.2f} fazla"
             return f"Fark: ust sinirdan {difference:.2f} {label} fazla{suffix}."
         return f"Fark: ust sinirin {abs(difference):.2f} {label} altinda."
+    if operator == "abs_max":
+        magnitude = abs(numeric)
+        difference = magnitude - float(limits[0])
+        if difference > 0:
+            return f"Fark: mutlak deger ust sinirdan {difference:.2f} {label} fazla."
+        return f"Fark: mutlak deger ust sinirin {abs(difference):.2f} {label} altinda."
     if operator == "min":
         difference = float(limits[0]) - numeric
         if difference > 0:
@@ -649,6 +700,14 @@ def _comparison_text(
             return f"Fark: ust sinirdan {numeric - high:.2f} {label} fazla."
         return "Fark: olcum hedef araligin icinde."
     return "Fark kaynak operatoru nedeniyle hesaplanamadi."
+
+
+def _diagnostic_measured_text(value: Any, unit: str) -> str:
+    if value is None:
+        return "Ölçüm yapılamadı."
+    if unit == "bool" and isinstance(value, bool):
+        return "Evet — koşul sağlandı." if value else "Hayır — koşul sağlanmadı."
+    return f"{float(value):.2f} {_unit_label(unit)}"
 
 
 def _result_text(decision: dict[str, Any], expected: str) -> str:
@@ -667,6 +726,7 @@ def _result_text(decision: dict[str, Any], expected: str) -> str:
 
 def _unit_label(unit: str) -> str:
     return {
+        "bool": "koşul",
         "deg": "derece",
         "fist_width": "yumruk genişliği",
         "ratio": "oran",

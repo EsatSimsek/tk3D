@@ -214,6 +214,15 @@ teşhisleri · puan yok” bölümünü gösterir. Eşik dışı v3 olayları
 `decision_evidence_events.json` üzerinden mavi diagnostic video olaylarına
 dönüşür; görselleştirme yeniden değerlendirilmez.
 
+Sayısal eşiği olmayan boolean adaylar sayısal `null` limit gibi işlenmez.
+EvidenceEvent içinde `rule_operator=bool_true`, `expected_boolean=true`,
+`rule_limits=[]` ve gerçek boolean ölçüm taşırlar. `false`, yalnız puansız
+inceleme adayıdır; `float(null)` dönüşümü veya sahte `0/1` sayısal eşik yoktur.
+Eşiksiz fakat boolean olmayan bir aday fail-closed sözleşme hatasıdır.
+Sayısal `range` eşikleri iki elemanlı limit dizisi, `abs_max` ise mutlak-değer
+operatörü olarak korunur; sunum adaptörü listeyi veya `null` değeri skaler
+`float` gibi yorumlayamaz.
+
 Aktif kayıt yalnız M01–M06'dır. M07–M18 kontrat/şema/sentetik test kapsamıdır;
 gerçek video kanıtı değildir. Dış 3B ground truth ve hakem kalibrasyonu
 bulunmadığından eşiklerin precision/recall veya resmî hakem uyumu bilinmez.
@@ -222,7 +231,7 @@ bulunmadığından eşiklerin precision/recall veya resmî hakem uyumu bilinmez.
 
 `config/scoring/validation/taegeuk_1_rule_accuracy_validation_v1.yaml`, runtime
 puanlamasından ayrı sentetik mühendislik doğrulamasını tanımlar. Her aktif
-kural pass/boundary/fail/eksik/NaN/±sonsuzluk vakalarından geçer. WholeBody-133
+kural çift yönlü sınır/fail, eksik, yanlış-tip ve NaN/±sonsuzluk vakalarından geçer. WholeBody-133
 fixture üzerinde yüz, el, ayak, kamera ve reprojection kanıt kaybı; dejenere
 geometri; kontrollü fixation drift'i; sağ-sol ayna; BODY-17 sözleşme reddi ve
 session-bound yön davranışı çalıştırılır. 133 landmarkın tamamı ayrı coverage

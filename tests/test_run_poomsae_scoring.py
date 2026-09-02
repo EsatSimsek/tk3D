@@ -16,9 +16,11 @@ from src.poomsae_scoring.application import (
     _load_profile,
     _output_paths,
     _portable_pose_path,
+    _run_stage,
     _transfer_timeline_binding,
 )
 from src.poomsae_scoring import load_poomsae_spec
+from src.run_outputs import initialize_run_state, mark_run_running
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +88,28 @@ def test_one_command_output_contract_includes_integrated_diagnostics(tmp_path: P
     assert outputs["browser_review_video_manifest"].name == "browser_review_video_manifest.json"
     assert outputs["run_history_json"].name == "run_history_report.json"
     assert outputs["run_history_html"].name == "run_history.html"
+
+
+def test_failed_subprocess_stage_marks_existing_run_failed(tmp_path: Path, monkeypatch) -> None:
+    run_root = tmp_path / "runs" / "failed-stage"
+    run_root.mkdir(parents=True)
+    initialize_run_state(run_root, "session-test", "failed-stage")
+    mark_run_running(run_root, "session-test", "failed-stage")
+
+    def fail_stage(*args, **kwargs):
+        raise subprocess.CalledProcessError(7, args[0])
+
+    monkeypatch.setattr(subprocess, "run", fail_stage)
+    with pytest.raises(WorkflowError, match="synthetic stage failed with exit code 7"):
+        _run_stage(
+            "synthetic stage",
+            "scripts/does_not_matter.py",
+            failure_context=(run_root, "session-test", "failed-stage"),
+        )
+
+    state = json.loads((run_root / "run_state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "failed"
+    assert state["error"] == "synthetic stage failed with exit code 7."
 
 
 def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) -> None:
