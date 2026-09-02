@@ -457,3 +457,60 @@ def test_automatic_timeline_draft_is_not_part_of_the_scoring_run() -> None:
     body = draft.read_text(encoding="utf-8")
     assert "hand-labelled" in body  # templates must not come from an automatic timeline
     assert "Review and correct it before scoring uses it." in body
+
+
+def test_anchor_review_sheet_defaults_cover_the_measured_error() -> None:
+    """A window narrower than the measured error would hide the frames worth checking."""
+    source = (ROOT / "scripts" / "build_poomsae_anchor_review_sheet.py").read_text(encoding="utf-8")
+    application = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")
+
+    assert '"--radius-frames"' in source and "default=15" in source
+    assert '"--step-frames"' in source and "default=5" in source
+    # Reviewing a draft is a human step, never part of the scoring run.
+    assert "build_poomsae_anchor_review_sheet" not in application
+
+
+def test_anchor_review_sheet_renders_one_strip_per_movement(tmp_path: Path) -> None:
+    import numpy as np
+
+    cv2 = pytest.importorskip("cv2")
+    spec = load_poomsae_spec(SPEC_PATH)
+    span, movements = 60, 2
+    frame_count = span * movements
+    video = tmp_path / "camera.avi"
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 60.0, (64, 48))
+    if not writer.isOpened():
+        pytest.skip("no MJPG writer available in this OpenCV build")
+    for index in range(frame_count):
+        writer.write(np.full((48, 64, 3), index % 255, dtype=np.uint8))
+    writer.release()
+    if int(cv2.VideoCapture(str(video)).get(cv2.CAP_PROP_FRAME_COUNT)) != frame_count:
+        pytest.skip("this OpenCV build does not report an exact frame count")
+
+    timeline = tmp_path / "timeline.yaml"
+    _prefix_timeline_yaml(timeline, segment_lengths=[span, span], gap_frames=[])
+    payload = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    assert payload["frame_count"] == frame_count
+    # Put every fixation anchor mid-span so the full window fits inside the recording.
+    for segment in payload["segments"]:
+        middle = (segment["start_frame"] + segment["end_frame"]) // 2
+        segment["anchors"][sorted(segment["anchors"], key=segment["anchors"].get)[-1]] = middle
+    timeline.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    output = tmp_path / "sheet.html"
+
+    result = _run_script(
+        "build_poomsae_anchor_review_sheet.py",
+        "--timeline", timeline,
+        "--poomsae-spec", SPEC_PATH,
+        "--camera", f"cam_a={video}",
+        "--output-html", output,
+    )
+
+    assert result.returncode == 0, result.stderr
+    page = output.read_text(encoding="utf-8")
+    for movement in spec["movements"][:movements]:
+        assert movement["movement_id"] in page
+    # Seven thumbnails per movement: -15 to +15 in steps of five.
+    assert page.count("data:image/jpeg;base64,") == 7 * movements
+    assert page.count("class='proposed'") == movements
+    assert "hiçbir kesinti veya puan iddiası taşımaz" in page

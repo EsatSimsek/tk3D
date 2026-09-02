@@ -78,6 +78,36 @@ spec sırasına uyan bir önek verilebilir (`M01,M02,M03`).
 çizelgeden türetilmiş şablon reddedilir, yoksa hizalama kendi ödevini onaylamış
 olur.
 
+## Taslağın gözden geçirilmesi
+
+Taslak bir öneridir ve kare numaraları elle etiketlemeyle birebir tutmaz. Aynı
+kayıtta ölçülen sapma: sınırlarda ortalama 11,3 kare, fixation çapasında
+ortalama 6,8 ve en kötü 13 kare. Ölçüm penceresi ±5 kare olduğu için bu sapma
+ölçümü kaydırmaya yeter; taslak düzeltilmeden puanlamaya girmemelidir.
+
+`scripts/build_poomsae_anchor_review_sheet.py` bu kontrolü videoyu kaydırmadan
+yapılabilir hâle getirir. Her hareketin çapası için ±15 kare aralıkta beşer kare
+adımla yedi kare çıkarır ve hepsini tek bir HTML sayfasında yan yana dizer.
+Önerilen kare kırmızı çerçevelidir; duruşun gerçekten tutulduğu kare başkaysa
+numarası okunup çizelgeye yazılır.
+
+Varsayılan aralık keyfî değildir: ölçülen en kötü sapma 13 karedir, ±15 onu
+kapsar. Adım beş karedir; seçilen kare gerçek çapadan en fazla 2-3 kare şaşar ve
+bu ±5 karelik ölçüm penceresinin içinde kalır.
+
+```powershell
+python scripts/build_poomsae_anchor_review_sheet.py `
+  --timeline <taslak.yaml> `
+  --poomsae-spec config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml `
+  --camera zed_35151067=<video.avi> `
+  --output-html <inceleme.html>
+```
+
+`--camera` tekrarlanabilir; her kamera için ayrı bir şerit çizilir. `--anchor`
+ile başka bir faz çapası, `--radius-frames` ve `--step-frames` ile aralık ve
+sıklık değiştirilebilir. Komut kanonik akışın parçası değildir ve bir test bunu
+korur; sayfa hiçbir kesinti veya puan iddiası taşımaz.
+
 ## Şüphelerin rapora düşmesi
 
 Anomali raporu `scripts/build_poomsae_evidence_events.py` komutuna
