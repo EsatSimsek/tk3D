@@ -172,6 +172,13 @@ gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
 Ayrıntı:
 [`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
+Elle etiketlenmemiş bir kayıt için hareket zaman çizelgesi **önerisi** ayrı bir
+komutla üretilir; kanonik akış bu taslağı kendiliğinden tüketmez. Taslak, tespit
+edilen segmentleri `config/scoring/templates/` altındaki referans duruşlarla
+eşleştirir, şüpheli eşleşmeleri `ambiguous` işaretler ve hizalama anomalilerini
+ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
+[`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
+
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
 kural ile 133-landmark kapsam envanterini, 33 aktif kural için 330
 sınır/eksik/non-finite vakasını ve 12 WholeBody-133 geometri senaryosunu

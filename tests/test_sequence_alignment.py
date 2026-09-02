@@ -596,3 +596,78 @@ def test_automatic_alignment_survives_a_recording_made_in_a_different_spot():
 
     assert timeline["coverage"]["observed_movement_ids"] == ["M01", "M02", "M03"]
     assert [segment["movement_id"] for segment in timeline["segments"]] == ["M01", "M02", "M03"]
+
+
+def test_alignment_keeps_the_detectors_measured_anchors():
+    """The fixation anchor decides which frames get measured; an even spread is worse."""
+    from src.poomsae_scoring.sequence_alignment import build_automatic_timeline_report
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(2)
+    expected = [build_frame(160, 160), build_frame(90, 90)]
+    segments = [
+        {
+            "segment_id": 0,
+            "start_frame": 0,
+            "end_frame": 100,
+            "anchors": {"preparation": 5, "execution": 40, "fixation": 88},
+            "mean_pose": build_frame(160, 160),
+        },
+        {
+            "segment_id": 1,
+            "start_frame": 110,
+            "end_frame": 190,
+            "anchors": {"preparation": 112, "execution": 150, "fixation": 175},
+            "mean_pose": build_frame(90, 90),
+        },
+    ]
+
+    report = build_automatic_timeline_report(
+        segments, expected, spec, frame_count=200, fps=60.0,
+        source_binding={
+            "session_id": "auto-session",
+            "run_id": "auto-run",
+            "pose_file": "outputs/auto/pose.json",
+            "pose_file_sha256": None,
+        },
+        timeline_id="auto-measured-anchors",
+    )
+
+    anchors = [segment["anchors"] for segment in report["timeline"]["segments"]]
+    assert anchors[0] == {"preparation": 5, "execution": 40, "fixation": 88}
+    assert anchors[1] == {"preparation": 112, "execution": 150, "fixation": 175}
+
+
+def test_alignment_falls_back_to_spread_anchors_when_the_measured_ones_do_not_fit():
+    """A segment can end up on a different movement than the detector assumed."""
+    from src.poomsae_scoring.sequence_alignment import build_automatic_timeline_report
+    from src.synthetic_poses import build_frame
+
+    spec = _synthetic_spec(1)
+    expected = [build_frame(160, 160)]
+    segments = [
+        {
+            "segment_id": 0,
+            "start_frame": 0,
+            "end_frame": 100,
+            # Phase names the matched movement does not have: unusable, not forced.
+            "anchors": {"windup": 5, "strike": 40},
+            "mean_pose": build_frame(160, 160),
+        }
+    ]
+
+    report = build_automatic_timeline_report(
+        segments, expected, spec, frame_count=200, fps=60.0,
+        source_binding={
+            "session_id": "auto-session",
+            "run_id": "auto-run",
+            "pose_file": "outputs/auto/pose.json",
+            "pose_file_sha256": None,
+        },
+        timeline_id="auto-spread-anchors",
+    )
+
+    anchors = report["timeline"]["segments"][0]["anchors"]
+    assert set(anchors) == {"preparation", "execution", "fixation"}
+    assert anchors["preparation"] == 0
+    assert anchors["fixation"] == 100

@@ -435,3 +435,25 @@ def test_reference_template_script_rejects_a_pose_of_the_wrong_length(tmp_path: 
 
     assert result.returncode != 0
     assert "do not describe the same recording" in result.stderr
+
+
+def test_evidence_events_script_can_receive_alignment_anomalies() -> None:
+    """Alignment doubts are worthless if they never reach the report."""
+    source = (ROOT / "scripts" / "build_poomsae_evidence_events.py").read_text(encoding="utf-8")
+
+    assert '"--alignment-anomalies"' in source
+    assert "alignment_anomalies=alignment_anomalies" in source
+    # A report built for another timeline must not be attached to this one.
+    assert 'produced for a different timeline' in source
+
+
+def test_automatic_timeline_draft_is_not_part_of_the_scoring_run() -> None:
+    """The draft is a proposal for a person; scoring must never consume it unreviewed."""
+    application = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")
+    draft = ROOT / "scripts" / "build_poomsae_automatic_timeline_draft.py"
+
+    assert draft.is_file()
+    assert "build_poomsae_automatic_timeline_draft" not in application
+    body = draft.read_text(encoding="utf-8")
+    assert "hand-labelled" in body  # templates must not come from an automatic timeline
+    assert "Review and correct it before scoring uses it." in body

@@ -4,7 +4,10 @@ import argparse
 import json
 from pathlib import Path
 
+import sys
+
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from src.artifact_io import sha256_file  # noqa: E402
 
@@ -22,6 +25,13 @@ def main() -> None:
     parser.add_argument("--timeline", required=True)
     parser.add_argument("--wholebody-diagnostics")
     parser.add_argument("--technical-accuracy-diagnostics")
+    parser.add_argument(
+        "--alignment-anomalies",
+        help=(
+            "Alignment anomaly report from the automatic timeline draft. Only meaningful "
+            "for an automatically labelled timeline; a hand-labelled one has no alignment step."
+        ),
+    )
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -34,6 +44,8 @@ def main() -> None:
         paths["wholebody_diagnostics"] = _resolve(args.wholebody_diagnostics)
     if args.technical_accuracy_diagnostics:
         paths["technical_accuracy_diagnostics"] = _resolve(args.technical_accuracy_diagnostics)
+    if args.alignment_anomalies:
+        paths["alignment_anomalies"] = _resolve(args.alignment_anomalies)
     for label, path in paths.items():
         if not path.is_file():
             raise SystemExit(f"Input file is missing ({label}): {path}")
@@ -52,11 +64,20 @@ def main() -> None:
         technical_accuracy = json.loads(
             paths["technical_accuracy_diagnostics"].read_text(encoding="utf-8")
         )
+    alignment_anomalies = None
+    if "alignment_anomalies" in paths:
+        payload = json.loads(paths["alignment_anomalies"].read_text(encoding="utf-8"))
+        if payload.get("timeline_id") != timeline["timeline_id"]:
+            raise SystemExit("alignment anomalies were produced for a different timeline")
+        alignment_anomalies = payload.get("alignment_anomalies")
+        if not isinstance(alignment_anomalies, list):
+            raise SystemExit("alignment anomalies report has no alignment_anomalies list")
     report = build_decision_evidence_events(
         decisions,
         spec,
         timeline,
         diagnostics,
+        alignment_anomalies=alignment_anomalies,
         technical_accuracy_diagnostics=technical_accuracy,
     )
     report["bindings"] = {

@@ -462,7 +462,8 @@ def build_automatic_timeline_report(
         seg_indices = sorted(segments_by_movement[mov_idx])
         start = min(int(segments[idx]["start_frame"]) for idx in seg_indices)
         end = max(int(segments[idx]["end_frame"]) for idx in seg_indices)
-        anchors = _distribute_anchors(movement["phases"], start, end)
+        measured = _measured_anchors(movement, segments[best_by_movement[mov_idx][0]], start, end)
+        anchors = measured if measured is not None else _distribute_anchors(movement["phases"], start, end)
         # Confidence follows the best fragment; a merge cannot make a match stronger.
         pair_cost = best_by_movement[mov_idx][1]
         is_uncertain = mov_idx in uncertain_movement_indices
@@ -678,6 +679,41 @@ def _collect_alignment_anomalies(
             }
         )
     return anomalies
+
+
+def _measured_anchors(
+    movement: dict[str, Any],
+    segment: dict[str, Any],
+    start_frame: int,
+    end_frame: int,
+) -> dict[str, int] | None:
+    """Keep the detector's measured phase anchors when they fit the matched movement.
+
+    Spreading anchors evenly across the span is a last resort. The fixation anchor
+    decides which frames every later measurement samples, and a detector that watched
+    the motion locates it far better than an even split does.
+
+    The measured anchors are only trusted when they name exactly this movement's
+    phases, sit inside the merged span and follow phase order. A segment can end up
+    matched to a different movement than the detector assumed, and that movement may
+    have different phases, so anything that does not fit falls back to the even
+    spread rather than being forced.
+    """
+    anchors = segment.get("anchors")
+    phases = movement["phases"]
+    if not isinstance(anchors, dict) or set(anchors) != set(phases):
+        return None
+    ordered: list[int] = []
+    for phase in phases:
+        frame = anchors[phase]
+        if not isinstance(frame, int) or isinstance(frame, bool):
+            return None
+        if not start_frame <= frame <= end_frame:
+            return None
+        ordered.append(frame)
+    if any(later < earlier for earlier, later in zip(ordered, ordered[1:])):
+        return None
+    return dict(zip(phases, ordered))
 
 
 def _distribute_anchors(phases: list[str], start_frame: int, end_frame: int) -> dict[str, int]:
