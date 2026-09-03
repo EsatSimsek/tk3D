@@ -187,9 +187,9 @@ def _skeleton_frames(pose_path: Path, wanted: set[int], timeline: dict, width: i
 
     This is a fallback for reviewing without the recording at hand. It shows the shape the
     system measured, not the athlete, so a pose-estimation error looks like a correct
-    reading here. Two panels are drawn: the upper one looks along the world's forward
-    axis and shows the posture, the lower one looks down and shows which way the body and
-    feet point, which is what separates one movement of the form from another.
+    reading here. The view looks along the world's forward axis, which is what shows
+    whether the posture has settled. A top-down panel was tried and dropped: at this
+    thumbnail size the joints overlapped and the facing could not be read from it.
     """
     import json
 
@@ -216,7 +216,6 @@ def _skeleton_frames(pose_path: Path, wanted: set[int], timeline: dict, width: i
     body_height = float(np.median(heights)) or 1.0
 
     front_height = int(width * 1.25)
-    top_height = int(width * 0.6)
     scale = (front_height * 0.82) / body_height
 
     images: dict[int, str] = {}
@@ -225,10 +224,8 @@ def _skeleton_frames(pose_path: Path, wanted: set[int], timeline: dict, width: i
         valid = np.all(np.isfinite(joints), axis=-1)
         hips = [index for index in (11, 12) if valid[index]]
         centre = joints[hips].mean(axis=0) if len(hips) == 2 else joints[valid].mean(axis=0) if valid.any() else np.zeros(3)
-        canvas = np.full((front_height + top_height + 2, width, 3), 245, dtype=np.uint8)
-        canvas[front_height : front_height + 2, :] = 200
+        canvas = np.full((front_height, width, 3), 245, dtype=np.uint8)
         _draw_panel(canvas, joints, valid, centre, scale, width, front_height, 0, axes=(0, 2), flip=True)
-        _draw_panel(canvas, joints, valid, centre, scale, width, top_height, front_height + 2, axes=(0, 1), flip=True)
         images[frame] = _encode(canvas, width)
     return images
 
