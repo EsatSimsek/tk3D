@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from src.artifact_contracts import load_run_bound_main_3d_artifact  # noqa: E402
 from src.artifact_io import sha256_file  # noqa: E402

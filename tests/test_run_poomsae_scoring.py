@@ -538,3 +538,81 @@ def test_anchor_review_sheet_renders_one_strip_per_movement(tmp_path: Path) -> N
     assert page.count("data:image/jpeg;base64,") == 7 * movements
     assert page.count("class='proposed'") == movements
     assert "hiçbir kesinti veya puan iddiası taşımaz" in page
+
+
+def test_anchor_review_sheet_can_draw_the_skeleton_without_a_recording(tmp_path: Path) -> None:
+    """The camera files live on the laboratory machine; review must not require them."""
+    import numpy as np
+
+    pytest.importorskip("cv2")
+    span, movements = 60, 2
+    frame_count = span * movements
+    timeline = tmp_path / "timeline.yaml"
+    _prefix_timeline_yaml(timeline, segment_lengths=[span, span], gap_frames=[])
+    payload = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    for segment in payload["segments"]:
+        middle = (segment["start_frame"] + segment["end_frame"]) // 2
+        segment["anchors"][sorted(segment["anchors"], key=segment["anchors"].get)[-1]] = middle
+    timeline.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    body = {
+        0: [0.0, 0.05, 1.72], 1: [-0.03, 0.04, 1.75], 2: [0.03, 0.04, 1.75],
+        3: [-0.07, 0.0, 1.74], 4: [0.07, 0.0, 1.74], 5: [-0.20, 0.0, 1.45],
+        6: [0.20, 0.0, 1.45], 7: [-0.35, 0.05, 1.20], 8: [0.35, 0.05, 1.20],
+        9: [-0.42, 0.15, 1.00], 10: [0.42, 0.15, 1.00], 11: [-0.14, 0.0, 0.95],
+        12: [0.14, 0.0, 0.95], 13: [-0.16, 0.03, 0.52], 14: [0.16, -0.03, 0.52],
+        15: [-0.16, 0.12, 0.06], 16: [0.16, -0.12, 0.06],
+    }
+    points = np.full((frame_count, 133, 3), np.nan)
+    for index in range(frame_count):
+        for joint, value in body.items():
+            points[index, joint] = value
+    pose = tmp_path / "pose.json"
+    pose.write_text(
+        json.dumps({"keypoints_3d_world": np.where(np.isnan(points), None, points).tolist()}),
+        encoding="utf-8",
+    )
+    output = tmp_path / "sheet.html"
+
+    result = _run_script(
+        "build_poomsae_anchor_review_sheet.py",
+        "--timeline", timeline,
+        "--poomsae-spec", SPEC_PATH,
+        "--pose", pose,
+        "--output-html", output,
+    )
+
+    assert result.returncode == 0, result.stderr
+    page = output.read_text(encoding="utf-8")
+    assert page.count("data:image/jpeg;base64,") == 7 * movements
+    # The page must say plainly that a drawn skeleton is not camera evidence.
+    assert "kamera görüntüsü değil" in page
+
+
+def test_anchor_review_sheet_needs_a_camera_or_a_pose_file(tmp_path: Path) -> None:
+    timeline = tmp_path / "timeline.yaml"
+    _prefix_timeline_yaml(timeline, segment_lengths=[30], gap_frames=[])
+
+    result = _run_script(
+        "build_poomsae_anchor_review_sheet.py",
+        "--timeline", timeline,
+        "--poomsae-spec", SPEC_PATH,
+        "--output-html", tmp_path / "sheet.html",
+    )
+
+    assert result.returncode != 0
+    assert "at least one --camera or a --pose" in (result.stdout + result.stderr)
+
+
+def test_diagnostic_scripts_can_run_without_the_package_installed() -> None:
+    """Every script that imports src must put the repository root on the search path."""
+    for name in (
+        "run_technical_accuracy_diagnostics.py",
+        "run_wholebody_poomsae_diagnostics.py",
+        "build_poomsae_evidence_events.py",
+        "build_poomsae_anchor_review_sheet.py",
+        "build_poomsae_automatic_timeline_draft.py",
+        "build_athlete_local_direction_reference.py",
+    ):
+        source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+        assert "sys.path.insert(0, str(ROOT))" in source, name

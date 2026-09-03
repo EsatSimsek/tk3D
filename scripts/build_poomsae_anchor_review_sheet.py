@@ -27,9 +27,16 @@ def main() -> None:
     parser.add_argument(
         "--camera",
         action="append",
-        required=True,
         metavar="CAMERA_ID=VIDEO",
         help="repeatable; one strip per camera is rendered for every movement",
+    )
+    parser.add_argument(
+        "--pose",
+        help=(
+            "Draw the measured skeleton instead of, or alongside, the camera frames. Useful "
+            "where the recording is not at hand, but it shows what the system saw rather than "
+            "what the athlete did."
+        ),
     )
     parser.add_argument("--anchor", default="fixation", help="which phase anchor to review")
     parser.add_argument(
@@ -72,7 +79,9 @@ def main() -> None:
     if output.exists():
         raise SystemExit(f"Output already exists; refusing to overwrite: {output}")
 
-    cameras = [_parse_camera(value) for value in args.camera]
+    if not args.camera and not args.pose:
+        raise SystemExit("give at least one --camera or a --pose file to draw from")
+    cameras = [_parse_camera(value) for value in (args.camera or [])]
     spec = load_poomsae_spec(spec_path)
     timeline = load_movement_timeline(timeline_path, spec)
 
@@ -96,16 +105,25 @@ def main() -> None:
 
     wanted = {frame for row in rows for frame in row["frames"]}
     shots: dict[str, dict[int, str]] = {}
+    strips: list[str] = []
     for camera_id, video_path in cameras:
         if not video_path.is_file():
             raise SystemExit(f"video not found ({camera_id}): {video_path}")
         shots[camera_id] = _grab_frames(video_path, wanted, timeline, args.thumbnail_width)
+        strips.append(camera_id)
+    if args.pose:
+        pose_path = _resolve(args.pose)
+        if not pose_path.is_file():
+            raise SystemExit(f"pose file is missing: {pose_path}")
+        label = "ölçülen iskelet (kamera görüntüsü değil)"
+        shots[label] = _skeleton_frames(pose_path, wanted, timeline, args.thumbnail_width)
+        strips.append(label)
 
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         _render_html(
             rows=rows,
-            cameras=[camera_id for camera_id, _ in cameras],
+            cameras=strips,
             shots=shots,
             timeline=timeline,
             anchor_name=args.anchor,
@@ -117,7 +135,7 @@ def main() -> None:
         encoding="utf-8",
     )
     print(output)
-    print(f"{len(rows)} movement(s), {len(offsets)} frame(s) each, {len(cameras)} camera(s)")
+    print(f"{len(rows)} movement(s), {len(offsets)} frame(s) each, {len(strips)} strip(s)")
     print("Open the page, find the frame where the posture is actually held, and correct the timeline.")
 
 
@@ -154,6 +172,87 @@ def _grab_frames(video_path: Path, wanted: set[int], timeline: dict, width: int)
     if missing:
         raise SystemExit(f"{video_path.name} ended before frame {missing[0]}")
     return images
+
+
+BODY_EDGES = (
+    (0, 1), (0, 2), (1, 3), (2, 4),          # head
+    (5, 6), (5, 11), (6, 12), (11, 12),      # trunk
+    (5, 7), (7, 9), (6, 8), (8, 10),         # arms
+    (11, 13), (13, 15), (12, 14), (14, 16),  # legs
+)
+
+
+def _skeleton_frames(pose_path: Path, wanted: set[int], timeline: dict, width: int) -> dict[int, str]:
+    """Draw the measured skeleton for each wanted frame, from the front and from above.
+
+    This is a fallback for reviewing without the recording at hand. It shows the shape the
+    system measured, not the athlete, so a pose-estimation error looks like a correct
+    reading here. Two panels are drawn: the upper one looks along the world's forward
+    axis and shows the posture, the lower one looks down and shows which way the body and
+    feet point, which is what separates one movement of the form from another.
+    """
+    import json
+
+    import numpy as np
+
+    payload = json.loads(pose_path.read_text(encoding="utf-8"))
+    points = np.asarray(payload.get("keypoints_3d_world"), dtype=float)
+    if points.ndim != 3 or points.shape[1:] != (133, 3):
+        raise SystemExit("pose keypoints_3d_world must have shape [frames, 133, 3]")
+    if points.shape[0] != int(timeline["frame_count"]):
+        raise SystemExit(
+            f"the pose file has {points.shape[0]} frames but the timeline declares "
+            f"{timeline['frame_count']}; they do not describe the same recording"
+        )
+    body = points[:, :17, :]
+    finite = np.all(np.isfinite(body), axis=-1)
+    heights = [
+        float(np.nanmax(body[index, finite[index], 2]) - np.nanmin(body[index, finite[index], 2]))
+        for index in range(body.shape[0])
+        if finite[index].sum() >= 8
+    ]
+    if not heights:
+        raise SystemExit("the pose file carries no frame with enough measured body joints")
+    body_height = float(np.median(heights)) or 1.0
+
+    front_height = int(width * 1.25)
+    top_height = int(width * 0.6)
+    scale = (front_height * 0.82) / body_height
+
+    images: dict[int, str] = {}
+    for frame in sorted(wanted):
+        joints = body[frame]
+        valid = np.all(np.isfinite(joints), axis=-1)
+        hips = [index for index in (11, 12) if valid[index]]
+        centre = joints[hips].mean(axis=0) if len(hips) == 2 else joints[valid].mean(axis=0) if valid.any() else np.zeros(3)
+        canvas = np.full((front_height + top_height + 2, width, 3), 245, dtype=np.uint8)
+        canvas[front_height : front_height + 2, :] = 200
+        _draw_panel(canvas, joints, valid, centre, scale, width, front_height, 0, axes=(0, 2), flip=True)
+        _draw_panel(canvas, joints, valid, centre, scale, width, top_height, front_height + 2, axes=(0, 1), flip=True)
+        images[frame] = _encode(canvas, width)
+    return images
+
+
+def _draw_panel(canvas, joints, valid, centre, scale, width, height, offset, *, axes, flip) -> None:
+    import numpy as np
+
+    horizontal, vertical = axes
+
+    def project(index):
+        x = width / 2 + (joints[index][horizontal] - centre[horizontal]) * scale
+        y = (joints[index][vertical] - centre[vertical]) * scale
+        y = height / 2 - y if flip else height / 2 + y
+        return int(round(x)), int(round(y)) + offset
+
+    for start, end in BODY_EDGES:
+        if valid[start] and valid[end]:
+            cv2.line(canvas, project(start), project(end), (70, 70, 70), 2, cv2.LINE_AA)
+    for index in range(17):
+        if valid[index]:
+            colour = (40, 40, 200) if index in (5, 7, 9, 11, 13, 15) else (200, 90, 40)
+            cv2.circle(canvas, project(index), 3, colour, -1, cv2.LINE_AA)
+    if not np.any(valid):
+        cv2.putText(canvas, "olculemedi", (8, offset + height // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (120, 120, 120), 1)
 
 
 def _encode(frame, width: int) -> str:

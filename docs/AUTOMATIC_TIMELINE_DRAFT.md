@@ -103,6 +103,14 @@ python scripts/build_poomsae_anchor_review_sheet.py `
   --output-html <inceleme.html>
 ```
 
+Kayıt elinizin altında değilse `--camera` yerine `--pose` verebilirsiniz. Bu
+durumda komut kamera karesi yerine ölçülen iskeleti çizer: üstte önden görünüş
+duruşun şeklini, altta yukarıdan görünüş gövdenin ve ayakların hangi yöne
+baktığını gösterir. İskelet sistemin gördüğünü gösterir, sporcunun kendisini
+değil; poz tahmini yanlışsa iskelet de yanlış çizilir ve bu sayfadan anlaşılmaz.
+Sayfa bu uyarıyı şeridin başlığında taşır. İkisi birden verilirse iki şerit de
+çizilir.
+
 `--camera` tekrarlanabilir; her kamera için ayrı bir şerit çizilir. `--anchor`
 ile başka bir faz çapası, `--radius-frames` ve `--step-frames` ile aralık ve
 sıklık değiştirilebilir. Komut kanonik akışın parçası değildir ve bir test bunu
