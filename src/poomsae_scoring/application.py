@@ -350,6 +350,8 @@ def _execute_workflow(
     run_stage(
         "Hareket bazlı teknik uygunluk ve güven füzyonu (puan değil)",
         "scripts/build_poomsae_technical_conformance.py",
+        "--technical-accuracy-diagnostics",
+        outputs["technical_accuracy_diagnostics"],
         "--wholebody-diagnostics",
         outputs["wholebody_diagnostics"],
         "--categorical-diagnostics",

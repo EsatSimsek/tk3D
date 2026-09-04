@@ -588,7 +588,7 @@ tek başına duraklama türeten eski script bu gözlemlerin dar bir alt kümesin
 
 Karar: Taegeuk 1 v3 teknik-doğruluk kuralları için sentetik, sürümlü ve
 makine-okunur ayrı bir validation düzeneği kullanılır. Düzenek 174 kuralın
-durum/evaluator/puan-sızlık envanterini, 33 aktif kuralın eşik sınırlarını ve
+durum/evaluator/puan-sızlık envanterini, 75 aktif kuralın eşik sınırlarını ve
 WholeBody-133 kanıt bozulmalarını doğrular. Runtime analiz artifact'i veya
 source-bound kararları bu düzeneğin çıktısından beslenmez.
 
@@ -621,7 +621,7 @@ bulunması eşiksiz sayısal ölçüme karar yetkisi vermez; bu ölçümler
 `measurement_only` kalır. Boolean kanıt adaptörü beklenen değeri olmayan veya
 zaten sağlayan adayları reddeder; eski artifact'ler yeniden yazılmaz.
 
-Validation kapsamı 440 sınıflandırma ve 18 geometri/kanıt senaryosudur.
+Validation kapsamı 980 sınıflandırma ve 18 geometri/kanıt senaryosudur.
 Kanıt adaptörünün kaynak hash'i de validation manifestine bağlanır.
 Resmî puanlama ve dış doğruluk kapıları değişmez.
 
@@ -636,6 +636,29 @@ içindedir; alt işlem çıkışı yanında dosya, JSON ve KeyboardInterrupt hat
 da başarısız run olarak kaydedilir. Video alt işleminin çıktı ağacı sahipliği
 korunur. Durum kaydı yazılamazsa ilk hata korunur; zorla süreç sonlandırma ve
 güç kesintisine karşı otomatik kurtarma iddiası yoktur.
+
+## AD-031 — Geçici kural taraması bağlama göre genişler, destek ölçümleri gerekçeli kalır
+
+5 Eylül 2026: V3 profil 3.2.0'da aktif geçici tarama envanteri 33'ten 75'e
+çıkarılır. Duruş uzunluğu/genişliği ve ön/arka diz açıları `ap_seogi` ile
+`ap_gubi` kontratından; dirsek açısı ve aktif kol uzaması ise gerçek teknik
+türünden bağlamsal aralık alır. Ayak/kol tarafı, faz sırası ve fixation durumu
+boolean beklentiyle; kalan yeni metrikler birimli ve belirsizlik bantlı geniş
+mühendislik eşikleriyle değerlendirilir. Eşikler profil dışında gömülmez.
+
+Katalogdaki her ölçüm bağımsız sporcu hatası değildir. Kalite göstergeleri,
+kontrat kimlikleri, tekrar/alias ölçümleri ve tekniğe özgü hedefi olmayan
+metrikler dahil 74 kural `measurement_only` kalır; her biri bunun nedenini ve
+varsa aday üreten ana kontrolü taşır. Sekiz pipeline sınırı gözlenemez olarak
+kalır. Eksik veya eşit taraf hareketi doğru kabul edilmez; `null/unmeasurable`
+olarak kapanır.
+
+Kanonik conformance aşaması v3 aday sayılarını ve kural kimliklerini hareket
+kartına taşır ancak eski kanıt güvenini bu adaylara atamaz, daha güçlü hareket
+kimliği uyuşmazlığını ezmez ve skor/kesinti üretmez. Review HTML M01–M18 için
+bütün 174 kuralı ölçüm, bağlamsal beklenti, karar ve kapanma gerekçesiyle
+filtrelenebilir biçimde gösterir. Sentetik kontrat doğrulaması 980 vaka taşır;
+gerçek doğruluk için uzman etiketli dış veri gereksinimi değişmez.
 
 ## Karar değiştirme süreci
 

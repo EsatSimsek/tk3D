@@ -1270,6 +1270,81 @@ def test_technical_conformance_fuses_identity_uncertainty_and_evidence_quality()
     assert by_id["M03"]["conformance_status"] == "consistent_within_measured_scope"
     assert by_id["M03"]["criterion_coverage"]["measurable_count"] == 1
 
+    technical_accuracy = {
+        "status": "technical_accuracy_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "poomsae": poomsae_binding,
+        "numeric_score_enabled": False,
+        "deduction_enabled": False,
+        "movements": [
+            {
+                "movement_id": segment["movement_id"],
+                "rules": [
+                    {
+                        "rule_id": f"TA-{segment['movement_id']}",
+                        "state": "active_diagnostic",
+                        "evaluation": (
+                            "out_of_range"
+                            if segment["movement_id"] == "M03"
+                            else "within_screening_range"
+                        ),
+                        "evaluated": True,
+                        "score_effect": None,
+                        "deduction_points": None,
+                    }
+                ],
+            }
+            for segment in timeline["segments"]
+        ],
+    }
+    augmented = build_technical_conformance(
+        wholebody,
+        categorical,
+        spec,
+        timeline,
+        technical_accuracy,
+    )
+    augmented_by_id = {item["movement_id"]: item for item in augmented["movements"]}
+    assert augmented_by_id["M01"]["conformance_status"] == "mismatch_candidate"
+    assert augmented_by_id["M03"]["conformance_status"] == "review_candidate"
+    assert augmented_by_id["M03"]["reason"] == "temporary_technical_accuracy_review_candidates"
+    assert augmented_by_id["M03"]["temporary_technical_accuracy"] == {
+        "evaluated_count": 1,
+        "candidate_count": 1,
+        "candidate_rule_ids": ["TA-M03"],
+        "measurement_only_count": 0,
+        "score_effect": None,
+    }
+    assert augmented["summary"]["temporary_technical_accuracy_candidate_count"] == 1
+    assert augmented["safety_contract"]["score_claim_allowed"] is False
+    assert augmented["safety_contract"]["automatic_deduction_allowed"] is False
+
+    unsafe = deepcopy(technical_accuracy)
+    unsafe["movements"][0]["rules"][0]["score_effect"] = -0.1
+    with pytest.raises(ScoringContractError, match="not score-neutral"):
+        build_technical_conformance(wholebody, categorical, spec, timeline, unsafe)
+
+    mismatched = deepcopy(technical_accuracy)
+    mismatched["movement_timeline_id"] = "foreign-timeline"
+    with pytest.raises(ScoringContractError, match="binding mismatch"):
+        build_technical_conformance(wholebody, categorical, spec, timeline, mismatched)
+
+    wrong_poomsae = deepcopy(technical_accuracy)
+    wrong_poomsae["poomsae"]["version"] = "foreign-version"
+    with pytest.raises(ScoringContractError, match="Poomsae binding mismatch"):
+        build_technical_conformance(wholebody, categorical, spec, timeline, wrong_poomsae)
+
+    unevaluated_candidate = deepcopy(technical_accuracy)
+    unevaluated_candidate["movements"][2]["rules"][0]["evaluated"] = False
+    with pytest.raises(ScoringContractError, match="candidate must be evaluated"):
+        build_technical_conformance(
+            wholebody,
+            categorical,
+            spec,
+            timeline,
+            unevaluated_candidate,
+        )
+
 
 def test_technical_conformance_rejects_mismatched_categorical_binding() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)

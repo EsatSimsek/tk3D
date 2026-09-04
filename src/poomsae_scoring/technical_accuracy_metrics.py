@@ -99,15 +99,15 @@ def measure_observable_accuracy_metrics(
 
     put("stance_length_leg_ratio", _safe_ratio(stance.get("length"), lead_leg_scale), "leg_length")
     put("stance_width_shoulder_ratio", _safe_ratio(stance.get("width"), shoulder_width), "shoulder_width")
-    stance_match = _range_match(_safe_ratio(stance.get("length"), lead_leg_scale), contract["stance_length_expectation"]) and _range_match(
+    stance_match = _all_known(_range_match(_safe_ratio(stance.get("length"), lead_leg_scale), contract["stance_length_expectation"]), _range_match(
         _safe_ratio(stance.get("width"), shoulder_width), contract["stance_width_expectation"]
-    )
+    ))
     put("expected_stance_type_match", stance_match, "bool")
     lead_displacement = _joint_displacement(arrays, prep_frames, fix_frames, f"{lead}_ankle", lead_leg_scale)
     rear_displacement = _joint_displacement(arrays, prep_frames, fix_frames, f"{rear}_ankle", lead_leg_scale)
     put("lead_leg_side_match", lead in {"left", "right"}, "bool")
     put("moving_foot_side_match", _side_displacement_match(contract["expected_moving_foot"], lead, lead_displacement, rear_displacement), "bool")
-    put("expected_support_or_pivot_foot_match", _side_displacement_match(contract["expected_pivot_or_support_foot"], rear, rear_displacement, lead_displacement), "bool")
+    put("expected_support_or_pivot_foot_match", _side_displacement_match(contract["expected_pivot_or_support_foot"], rear, rear_displacement, lead_displacement, support=True), "bool")
     put("moving_foot_match", result["moving_foot_side_match"]["value"], "bool")
     put("support_or_pivot_foot_match", result["expected_support_or_pivot_foot_match"]["value"], "bool")
     put("pivot_foot_displacement_body_ratio", rear_displacement, "leg_length")
@@ -134,7 +134,7 @@ def measure_observable_accuracy_metrics(
     put("front_knee_flexion_deg", front_knee, "deg")
     put("rear_knee_flexion_deg", rear_knee, "deg")
     knee_expectation = contract["knee_angle_or_alignment_expectation"]
-    knee_match = None if knee_expectation is None else _range_match(front_knee, knee_expectation["front_included_angle_deg"]) and _range_match(rear_knee, knee_expectation["rear_included_angle_deg"])
+    knee_match = None if knee_expectation is None else _all_known(_range_match(front_knee, knee_expectation["front_included_angle_deg"]), _range_match(rear_knee, knee_expectation["rear_included_angle_deg"]))
     put("expected_knee_flexion_range_match", knee_match, "bool")
     put("knee_over_foot_alignment_ratio", _median_scalar(arrays, fix_frames, lambda a, f: _knee_foot_alignment(a, f, lead)), "leg_length")
     put("knee_valgus_varus_proxy_deg", _median_scalar(arrays, fix_frames, lambda a, f: _knee_plane_angle(a, f, lead)), "deg")
@@ -386,9 +386,11 @@ def _kick_metrics(result: dict[str, dict[str, Any]], put: Callable[..., None], a
     landing = int(anchors.get("landing", end))
     put("chamber_knee_height_body_ratio", _knee_height(arrays, chamber, kick_side, leg_scale), "leg_length")
     put("chamber_hip_flexion_deg", _hip_flexion(arrays, chamber, kick_side), "deg")
-    put("chamber_knee_flexion_deg", _leg_angle(arrays, chamber, kick_side), "deg")
+    put("chamber_knee_flexion_deg", _median_scalar(arrays, _window(chamber, start, end, 2), lambda a, f: _leg_angle(a, f, kick_side)) if "preparation" in anchors else None, "deg", reason="missing_kick_preparation_anchor")
     put("support_leg_stability", _joint_span(arrays, np.arange(chamber, apex + 1), f"{support_side}_ankle", leg_scale), "leg_length")
-    put("kick_extension_deg", _leg_angle(arrays, apex, kick_side), "deg")
+    put("kick_extension_deg", _median_scalar(arrays, _window(apex, start, end, 2), lambda a, f: _leg_angle(a, f, kick_side)) if "kick_apex" in anchors or "kick_execution" in anchors else None, "deg", reason="missing_kick_execution_anchor")
+    if not ("preparation" in anchors and ("kick_apex" in anchors or "kick_execution" in anchors)):
+        put("support_leg_stability", None, "leg_length", reason="missing_kick_phase_anchors")
     put("kick_target_height_body_ratio", _ankle_height(arrays, apex, kick_side, leg_scale), "leg_length")
     put("kick_retraction_state", _leg_angle(arrays, rechamber, kick_side) is not None, "bool")
     put("kick_landing_stance_restoration", _pt(arrays, landing, f"{kick_side}_ankle") is not None, "bool")
@@ -456,7 +458,8 @@ def _limb_scale(arrays: dict[str, Any], frame: int, kind: str, side: str | None)
     points = [_pt(arrays, frame, f"{side}_{part}") for part in parts]
     if any(point is None for point in points):
         return None
-    return _positive_norm(points[0] - points[1]) + _positive_norm(points[1] - points[2])
+    first, second = _positive_norm(points[0] - points[1]), _positive_norm(points[1] - points[2])
+    return None if first is None or second is None else first + second
 
 
 def _positive_norm(vector: np.ndarray) -> float | None:
@@ -639,7 +642,9 @@ def _stance_geometry(arrays: dict[str, Any], frames: np.ndarray, lead: str | Non
         if front is None or back is None or lateral is None:
             continue
         lateral = _unit(np.asarray([lateral[0], lateral[1], 0.0]))
-        forward = _unit(np.cross(np.asarray([0.0, 0.0, 1.0]), lateral))
+        if lateral is None:
+            continue
+        forward = _torso_forward(arrays, int(frame))
         delta = front - back
         lead_heel, rear_heel = _foot_part(arrays, int(frame), lead, "heel"), _foot_part(arrays, int(frame), rear, "heel")
         lead_toe, rear_toe = _toe_centre(arrays, int(frame), lead), _toe_centre(arrays, int(frame), rear)
@@ -648,7 +653,7 @@ def _stance_geometry(arrays: dict[str, Any], frames: np.ndarray, lead: str | Non
         rows.append({
             "length": abs(float(np.dot(delta, forward))),
             "width": abs(float(np.dot(delta, lateral))),
-            "crossing_margin": float(np.dot(delta, lateral)),
+            "crossing_margin": float(np.dot(delta, lateral)) * (-1.0 if lead == "left" else 1.0),
             "heel_alignment": abs(float(np.dot(lead_heel - rear_heel, lateral))) if lead_heel is not None and rear_heel is not None else np.nan,
             "toe_alignment": abs(float(np.dot(lead_toe - rear_toe, lateral))) if lead_toe is not None and rear_toe is not None else np.nan,
             "front_back_order_match": float(np.dot(delta, forward)) >= 0.0,
@@ -701,12 +706,18 @@ def _stance_range_error(contract: dict[str, Any], stance: dict[str, Any], leg: f
     return None if length is None or width is None else float(np.hypot(length, width))
 
 
-def _side_displacement_match(expected: str | None, measured_side: str | None, expected_disp: float | None, other_disp: float | None) -> bool | None:
+def _all_known(*values: bool | None) -> bool | None:
+    return None if any(value is None for value in values) else all(values)
+
+
+def _side_displacement_match(expected: str | None, measured_side: str | None, expected_disp: float | None, other_disp: float | None, *, support: bool = False) -> bool | None:
     if expected is None:
-        return True
+        return None
     if expected != measured_side or expected_disp is None or other_disp is None:
         return None
-    return expected_disp >= other_disp
+    if abs(expected_disp - other_disp) <= 1e-8:
+        return None
+    return expected_disp <= other_disp if support else expected_disp >= other_disp
 
 
 def _joint_displacement(arrays: dict[str, Any], before: np.ndarray, after: np.ndarray, joint: str, scale: float | None) -> float | None:
@@ -958,7 +969,10 @@ def _technique_target_error(arrays: dict[str, Any], frames: np.ndarray, contract
         scale = _body_scale(arrays, int(frame)) if component == "height" else _shoulder_width(arrays, int(frame))
         if scale is None:
             continue
-        values.append(abs(float(hand[2] - target[2])) / scale if component == "height" else abs(float(hand[0] - target[0])) / scale)
+        lateral = _orientation_line(arrays, int(frame), "shoulder")
+        if component != "height" and lateral is None:
+            continue
+        values.append(abs(float(hand[2] - target[2])) / scale if component == "height" else abs(float(np.dot(hand - target, lateral))) / scale)
     return None if len(values) < 3 else float(np.median(values))
 
 

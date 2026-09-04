@@ -1,10 +1,10 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **4 Eylül 2026**
+Son doğrulama tarihi: **5 Eylül 2026**
 
 Dal: **`main`**
 
-Temel commit: **`fdce4d0`**. Güncel teslim commit'i için `git rev-parse HEAD`.
+Temel commit: **`3cac492`**. Güncel teslim commit'i için `git rev-parse HEAD`.
 
 Teslim kapsamı: **karar doğruluğu, run lifecycle ve review bağlama değişiklikleri;
 `outputs/` validation run'ları Git dışıdır**
@@ -39,8 +39,8 @@ durumlarla açıkça korunur.
 
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
-kontrata çözülür; 174 kurallık envanter 33 `active_diagnostic`, 116
-`measurement_only`, 17 `blocked_missing_reference` ve 8
+kontrata çözülür. 5 Eylül 2026 tarihli profil 3.2.0 ile 174 kurallık envanter
+75 `active_diagnostic`, 74 `measurement_only`, 17 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kural taşır. Aktif kayıt kanıtı yine
 yalnız M01–M06'dır. Geçici adaylar source-bound karar, Accuracy skoru,
 Presentation veya readiness'i değiştiremez.
@@ -99,20 +99,23 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 
 ## 4. Güncel test ve kalite kapısı
 
-4 Eylül 2026 karar doğruluğu ve inceleme güvenilirliği kapısı:
+5 Eylül 2026 geçici kural genişletme ve inceleme görünürlüğü kapısı:
 
 - Ruff ve `git diff --check`: temiz;
-- push öncesi son tam pytest: **`370 passed in 57.11s`**;
+- tam pytest: **`371 passed in 59.26s`**;
 - review bağlama ve gerçek JavaScript kayıt/JSON import-export handler testi:
   **`8 passed in 1.43s`** (Node, minimal DOM; gerçek video oynatımı testi değil);
-- validation: **174/174** kural, **133/133** landmark, **440/440** sınıflandırma,
+- validation: **174/174** kural, **133/133** landmark, **980/980** sınıflandırma,
   **18/18** geometri/uçtan uca kanıt senaryosu geçti;
 - bağımsız validation CLI artifact'leri:
-  `outputs/validation/runs/correctness-hardening-20260904-r1/`;
-- teknik profil 3.1.0: 14 boolean koşul açık beklenen değer taşır. Yanlış yön
+  `outputs/validation/runs/expanded-rules-20260905-r1/`;
+- teknik profil 3.2.0: 20 boolean koşul açık beklenen değer taşır. Yanlış yön
   durumunun beklenen değeri `false`; dejenere yüz yönü `null` kalır;
-- 17 referans-bağlı ölçütün 11'i tanımlı eşik/beklenen boolean ile
-  değerlendirilebilir; sayısal eşiksiz altısı `measurement_only` kalır;
+- 17 referans-bağlı ölçütün 13'ü tanımlı eşik/beklenen boolean ile
+  değerlendirilebilir; sayısal eşiksiz dördü `measurement_only` kalır;
+- 75 aktif kuralın 42'si yeni geçici taramadır. Duruş uzunluğu/genişliği ve
+  diz açıları `ap_seogi`/`ap_gubi`; dirsek ve kol uzaması teknik türü bağlamına
+  göre eşik alır. 74 destek ölçümünün tamamı neden/ana-kontrol metni taşır;
 - hata/kesinti testleri snapshot, video çözümleme, işlem başlatma, video alt
   işlem hatası, durum yazma hatası ve mevcut run'ı koruma yollarını kapsar;
 - şema-2 review JSON'ları analiz run'ı, kaynak pose, timeline, rapor/girdi
@@ -227,15 +230,18 @@ Ana session'ın `latest_run.json` işaretçisi smoke için değiştirilmedi.
 
 Son yerel regresyon:
 
-`outputs/poomsae_1_zed2i_20260731_trimmed/runs/correctness-hardening-20260904-r1/`
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/benim-denemem-21/`
 
 - run `completed`; M01–M06 seçili kapsamı 6/6;
-- 174 kural, 46 puansız teknik aday, toplam 66 EvidenceEvent;
-- önceki `benim-denemem-17-fix-r1` run'ında 50 teknik aday/70 event vardı.
-  M03 yanlış-yön boolean kararı artık `out_of_range`; M05 uygun-yön kararı
-  artık `within_screening_range`. Sayı azalması tek başına kalite iddiası değildir;
+- 174 kural, 82 puansız teknik aday; 36 ayrı metrik en az bir aday üretti;
+- gözlenen uygulanabilir satırlarda 246 geçici aralık-içi, 23 sınır-belirsiz,
+  82 aralık-dışı, 302 yalnız-ölçüm ve 335 değerlendirilemeyen sonuç oluştu;
+- önceki `benim-denemem-20` run'ındaki 46 adaydan 82 adaya çıkış, 42 yeni geçici
+  taramanın etkinleşmesinden kaynaklanır; sayı artışı tek başına doğruluk iddiası değildir;
+- review HTML 18 hareket × 174 = 3132 kural satırını ölçüm, beklenti, bağlam,
+  durum ve gerekçeyle gösterir; arama/durum filtresi bulunur;
 - teknik adayların skor etkisi 0; kaynak-bağlı kararlar ve Presentation
-  içerikleri provenance `bindings` dışında önceki run ile eşittir;
+  sahipliği değişmez;
 - provisional gözlenen-kapsam toplamı 0,4; tam Accuracy `null`;
 - readiness raporu önceki run ile aynıdır; resmî puanlama kapalıdır;
 - işaretli video, şema-2 review HTML/manifest, run history ve ana özet üretildi;

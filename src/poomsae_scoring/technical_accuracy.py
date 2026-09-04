@@ -80,6 +80,8 @@ TOP_LEVEL_KEYS = {
     "threshold_policy",
     "thresholds",
     "boolean_expectations",
+    "technique_screening_thresholds",
+    "measurement_only_reasons",
     "stance_contracts",
     "technique_contracts",
     "metric_catalog",
@@ -135,6 +137,64 @@ ACTIVE_EVALUATORS = {
     "expected_stance_contract_resolved",
     "expected_active_side_contract_resolved",
 }
+
+
+ADDITIONAL_ACTIVE_EVALUATORS = {
+    "torso_forward_backward_lean_deg",
+    "shoulder_pelvis_roll_difference_deg",
+    "shoulder_height_asymmetry_body_ratio",
+    "pelvis_height_asymmetry_body_ratio",
+    "torso_translation_after_fixation_body_ratio",
+    "pelvis_translation_after_fixation_body_ratio",
+    "body_height_change_during_fixation_ratio",
+    "moving_foot_side_match",
+    "expected_support_or_pivot_foot_match",
+    "stance_length_leg_ratio",
+    "stance_width_shoulder_ratio",
+    "inter_foot_yaw_difference_deg",
+    "foot_crossing_margin_body_ratio",
+    "front_knee_flexion_deg",
+    "rear_knee_flexion_deg",
+    "knee_over_foot_alignment_ratio",
+    "lower_body_fixation_dispersion",
+    "chamber_knee_flexion_deg",
+    "support_leg_stability",
+    "kick_extension_deg",
+    "active_arm_side_match",
+    "shoulder_elevation_body_ratio",
+    "elbow_flexion_deg",
+    "active_arm_extension_ratio",
+    "reaction_hand_target_distance_body_ratio",
+    "reaction_elbow_position_error_body_ratio",
+    "arm_target_overshoot_body_ratio",
+    "wrist_flexion_extension_proxy_deg",
+    "wrist_radial_ulnar_deviation_proxy_deg",
+    "fist_target_height_error_body_ratio",
+    "fist_target_lateral_error_body_ratio",
+    "chamber_precedes_execution",
+    "head_torso_settle_offset",
+    "late_post_fixation_correction",
+    "premature_next_movement_transition",
+    "fixation_pose_stability",
+    "step_length_error_body_ratio",
+    "step_width_error_body_ratio",
+    "post_landing_adjustment",
+    "knee_fixation_dispersion",
+    "stance_width_after_fixation_change",
+    "stance_length_after_fixation_change",
+}
+ACTIVE_EVALUATORS |= ADDITIONAL_ACTIVE_EVALUATORS
+ADDITIONAL_BOOLEAN_EVALUATORS = {
+    "moving_foot_side_match", "expected_support_or_pivot_foot_match", "active_arm_side_match",
+    "chamber_precedes_execution", "premature_next_movement_transition", "fixation_pose_stability",
+}
+STANCE_RANGE_KEYS = {
+    "stance_length_leg_ratio": ("length_leg_ratio", "leg_length", 0.03),
+    "stance_width_shoulder_ratio": ("width_shoulder_ratio", "shoulder_width", 0.05),
+    "front_knee_flexion_deg": ("front_knee_included_angle_deg", "deg", 2.0),
+    "rear_knee_flexion_deg": ("rear_knee_included_angle_deg", "deg", 2.0),
+}
+TECHNIQUE_RANGE_METRICS = {"elbow_flexion_deg", "active_arm_extension_ratio"}
 
 
 def load_technical_accuracy_profile(path: str | Path) -> dict[str, Any]:
@@ -247,7 +307,8 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
         "expected_stance_contract_resolved",
         "expected_active_side_contract_resolved",
     }
-    missing_thresholds = active - set(data["thresholds"]) - thresholdless_active
+    thresholdless_active |= ADDITIONAL_BOOLEAN_EVALUATORS
+    missing_thresholds = active - set(data["thresholds"]) - thresholdless_active - set(STANCE_RANGE_KEYS) - TECHNIQUE_RANGE_METRICS
     if missing_thresholds:
         raise ScoringContractError(f"active rules lack configured thresholds: {sorted(missing_thresholds)}")
     unknown_thresholds = set(data["thresholds"]) - set(metric_family)
@@ -265,6 +326,30 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
         raise ScoringContractError("boolean_expectations values must be booleans")
     if boolean_metrics & set(data["thresholds"]):
         raise ScoringContractError("boolean rules cannot have numeric thresholds")
+    contextual = data["technique_screening_thresholds"]
+    if not isinstance(contextual, dict) or set(contextual) != TECHNIQUE_RANGE_METRICS:
+        raise ScoringContractError("technique_screening_thresholds inventory mismatch")
+    for metric, mapping in contextual.items():
+        if not isinstance(mapping, dict) or set(mapping) != {"arae_makki", "momtong_jireugi", "momtong_an_makki", "eolgul_makki"}:
+            raise ScoringContractError("technique screening must cover the four arm techniques")
+        for threshold in mapping.values():
+            _exact_keys(threshold, THRESHOLD_KEYS, "contextual threshold")
+            values = threshold["value"]
+            expected_unit = "deg" if metric == "elbow_flexion_deg" else "arm_length"
+            if threshold["operator"] != "range" or threshold["unit"] != expected_unit:
+                raise ScoringContractError("contextual threshold must be a typed range")
+            if not isinstance(values, list) or len(values) != 2:
+                raise ScoringContractError("contextual range needs two limits")
+            low, high = [_finite(value, "contextual limit") for value in values]
+            if low > high:
+                raise ScoringContractError("contextual range is inverted")
+            threshold["uncertainty_band"] = _nonnegative(threshold["uncertainty_band"], "contextual uncertainty")
+    support = data["measurement_only_reasons"]
+    remaining = set(metric_family) - active - direction - not_observable
+    if not isinstance(support, dict) or set(support) != remaining:
+        raise ScoringContractError("every measurement-only metric must have an explicit reason")
+    for reason in support.values():
+        _nonempty(reason, "measurement-only reason")
 
     _validate_contract_tables(data["stance_contracts"], data["technique_contracts"])
     reasons = data["skip_reason_codes"]
@@ -761,10 +846,6 @@ def _movement_measurements(
         "wrist_forearm_alignment_deg": "wrist_forearm_alignment_deg",
         "active_hand_stance_settle_offset": "hand_foot_settle_difference_sec",
         "active_arm_target_height_body_ratio": "executing_wrist_height_torso_ratio",
-        "elbow_flexion_deg": "executing_elbow_deg",
-        "reaction_hand_target_distance_body_ratio": "reaction_hand_hip_distance_ratio",
-        "stance_length_leg_ratio": "stance_span_ratio",
-        "front_knee_flexion_deg": "front_knee_deg",
     }
     result = measure_observable_accuracy_metrics(
         arrays,
@@ -891,6 +972,7 @@ def _evaluate_rule(
     direction: dict[str, Any] | None,
     profile: dict[str, Any],
 ) -> dict[str, Any]:
+    rule = _contextual_rule(rule, contract)
     base = _result_base(rule, contract)
     if segment is None:
         return {**base, "measured": False, "evaluated": False, "state": "blocked_missing_reference", "evaluation": "not_evaluated", "value": None, "quality_status": "blocked", "skip_or_block_reason": "movement_not_present_in_timeline"}
@@ -917,7 +999,7 @@ def _evaluate_rule(
     direction_bound_evaluable = rule["status"] == "blocked_missing_reference" and direction is not None
     has_screening = rule["threshold"] is not None or rule.get("expected_boolean") is not None
     if (rule["status"] != "active_diagnostic" and not direction_bound_evaluable) or not has_screening:
-        return {**base, **measurement, "measured": True, "evaluated": False, "state": "measurement_only", "evaluation": "measurement_only", "skip_or_block_reason": None}
+        return {**base, **measurement, "measured": True, "evaluated": False, "state": "measurement_only", "evaluation": "measurement_only", "skip_or_block_reason": rule.get("screening_exclusion_reason") or "no_contextual_screening_target"}
     evaluation = evaluate_temporary_threshold(
         measurement["value"], rule["threshold"], expected_boolean=rule.get("expected_boolean"),
     )
@@ -954,6 +1036,8 @@ def _result_base(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str, An
         "criterion_id": rule["criterion_id"],
         "rule_family": rule["rule_family"],
         "applies": True,
+        "screening_exclusion_reason": rule.get("screening_exclusion_reason"),
+        "threshold_context": rule.get("threshold_context"),
         "expected_value_or_range": rule["expected_value_or_range"],
         "expected_boolean": rule.get("expected_boolean"),
         "threshold": rule["threshold"],
@@ -995,7 +1079,17 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         status = "measurement_only"
     threshold = deepcopy(profile["thresholds"].get(metric_id))
     expected_boolean = profile["boolean_expectations"].get(metric_id)
+    contextual_thresholds = {}
+    if metric_id in STANCE_RANGE_KEYS:
+        key, context_unit, uncertainty = STANCE_RANGE_KEYS[metric_id]
+        contextual_thresholds = {name: {"operator": "range", "value": stance[key],
+                                  "unit": context_unit, "uncertainty_band": uncertainty}
+                                 for name, stance in profile["stance_contracts"].items()}
+    elif metric_id in TECHNIQUE_RANGE_METRICS:
+        contextual_thresholds = deepcopy(profile["technique_screening_thresholds"][metric_id])
     unit = "bool" if expected_boolean is not None else threshold["unit"] if threshold else _unit_for(metric_id)
+    if contextual_thresholds:
+        unit = next(iter(contextual_thresholds.values()))["unit"]
     return {
         "rule_id": f"TK3D-T1-V3-{metric_id.upper().replace('_', '-')}",
         "metric_id": metric_id,
@@ -1009,6 +1103,8 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "aggregation": "robust_window_median_or_explicit_state",
         "expected_value_or_range": expected_boolean if threshold is None else threshold["value"],
         "expected_boolean": expected_boolean,
+        "contextual_thresholds": contextual_thresholds,
+        "screening_exclusion_reason": profile["measurement_only_reasons"].get(metric_id),
         "threshold": threshold,
         "uncertainty_band": None if threshold is None else threshold["uncertainty_band"],
         "unit": unit,
@@ -1040,7 +1136,21 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
     }
 
 
+def _contextual_rule(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
+    contexts = rule.get("contextual_thresholds", {})
+    if not contexts:
+        return rule
+    key = next((name for name in contexts if contract["stance_type"].endswith("_" + name)
+                or name in contract["technique_types"]), None)
+    threshold = contexts.get(key)
+    return {**rule, "threshold": threshold, "threshold_context": key,
+            "expected_value_or_range": None if threshold is None else threshold["value"],
+            "unit": rule["unit"] if threshold is None else threshold["unit"]}
+
+
 def _rule_applies(rule: dict[str, Any], contract: dict[str, Any]) -> bool:
+    if rule["metric_id"] in {"moving_foot_side_match", "expected_support_or_pivot_foot_match"} and contract["expected_moving_foot"] is None:
+        return False
     if rule["rule_family"] == "kick" and "ap_chagi" not in contract["technique_types"]:
         return False
     return contract["movement_id"] in rule["applicable_movements"]
@@ -1162,6 +1272,13 @@ def _required_landmarks(metric_id: str) -> list[int]:
         return sorted(set(arms + palm_points + torso))
     if metric_id == "active_hand_stance_settle_offset":
         return sorted(set(arms + legs + torso))
+    if metric_id in {"reaction_hand_target_distance_body_ratio", "arm_target_overshoot_body_ratio",
+                     "late_post_fixation_correction", "premature_next_movement_transition"}:
+        return sorted(set(arms + palm_points + torso))
+    if metric_id in {"fist_target_height_error_body_ratio", "fist_target_lateral_error_body_ratio"}:
+        return sorted(set(arms + palm_points + torso + legs + brow_and_chin))
+    if metric_id == "fixation_pose_stability":
+        return sorted(set(arms + palm_points + torso + legs))
     if any(token in metric_id for token in ("foot", "stance", "knee", "leg", "landing", "pivot")):
         return sorted(set(legs + feet + torso))
     if any(token in metric_id for token in ("arm", "elbow", "wrist", "hand", "fist", "chamber")):

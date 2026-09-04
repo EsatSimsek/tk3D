@@ -62,10 +62,54 @@ def test_review_import_is_bound_and_requires_attributed_labels(mutation):
 
 def test_review_html_embeds_content_binding_and_valid_javascript(tmp_path):
     spec, timeline = _inputs()
+    technical_accuracy = {
+        "status": "technical_accuracy_diagnostics_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "summary": {"temporary_candidate_count": 1, "rule_count": 2},
+        "movements": [
+            {
+                "movement_id": "M01",
+                "movement_label": "Test movement",
+                "summary": {
+                    "applicable_rule_count": 2,
+                    "measured_rule_count": 2,
+                    "in_range_rule_count": 0,
+                    "temporary_candidate_count": 1,
+                    "blocked_count": 0,
+                    "unmeasurable_count": 0,
+                },
+                "rules": [
+                    {
+                        "rule_id": "TA-CANDIDATE",
+                        "metric_id": "stance_length_leg_ratio",
+                        "rule_family": "stance",
+                        "value": 1.2,
+                        "unit": "leg_length",
+                        "threshold": {"operator": "range", "value": [0.2, 0.6], "uncertainty_band": 0.03},
+                        "threshold_context": "ap_seogi",
+                        "state": "active_diagnostic",
+                        "evaluation": "out_of_range",
+                    },
+                    {
+                        "rule_id": "TA-SUPPORT",
+                        "metric_id": "valid_sample_ratio",
+                        "rule_family": "quality",
+                        "value": 0.91,
+                        "unit": "ratio",
+                        "threshold": None,
+                        "state": "measurement_only",
+                        "evaluation": "measurement_only",
+                        "screening_exclusion_reason": "Kanıt kalitesidir; sporcu hatası değildir.",
+                    },
+                ],
+            }
+        ],
+    }
     rendered = build_review_html(
         spec, timeline, {"timeline": {"timeline_id": timeline["timeline_id"]}},
         {"movement_timeline": {"timeline_id": timeline["timeline_id"]}},
         {"a": "a.mp4", "b": "b.mp4"}, analysis_run_id="analysis-a",
+        technical_accuracy_diagnostics_report=technical_accuracy,
     )
     data = json.loads(re.search(r'<script id="review-data" type="application/json">(.*?)</script>', rendered, re.S)[1])
     assert data["review_binding"]["analysis_run_id"] == "analysis-a"
@@ -73,6 +117,11 @@ def test_review_html_embeds_content_binding_and_valid_javascript(tmp_path):
     assert "schema_version:2, binding:data.review_binding" in rendered
     assert "validReviews(payload.reviews)" in rendered
     assert "Tarayıcı kaydı kullanılamıyor" in rendered
+    assert 'id="technical-rule-filter"' in rendered
+    assert '<option value="">Tüm durumlar</option><option value="out_of_range">' in rendered
+    assert 'data-technical-rule="TA-CANDIDATE" data-technical-state="out_of_range"' in rendered
+    assert "stance_length_leg_ratio" in rendered and "ap_seogi" in rendered
+    assert "Kanıt kalitesidir; sporcu hatası değildir." in rendered
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is optional; binding assertions above still ran")

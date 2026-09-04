@@ -497,6 +497,24 @@ def build_review_html(
     updateReviewStatus('İncelemeler temizlendi');
   }};
   const metricFilter = document.getElementById('metric-filter');
+  const technicalFilter = document.getElementById('technical-rule-filter');
+  const technicalState = document.getElementById('technical-rule-state');
+  const filterTechnical = () => {{
+    const query = technicalFilter.value.trim().toLocaleLowerCase('tr');
+    let visible = 0;
+    document.querySelectorAll('[data-technical-movement]').forEach(group => {{
+      let count = 0;
+      group.querySelectorAll('[data-technical-rule]').forEach(row => {{
+        const matches = (!query || row.textContent.toLocaleLowerCase('tr').includes(query)) &&
+          (!technicalState.value || row.dataset.technicalState === technicalState.value);
+        row.hidden = !matches; if (matches) {{ count++; visible++; }}
+      }});
+      group.hidden = count === 0;
+      if ((query || technicalState.value) && count) group.open = true;
+    }});
+    document.getElementById('technical-rule-filter-status').textContent = `${{visible}} kural-hareket satırı`;
+  }};
+  if (technicalFilter) {{ technicalFilter.addEventListener('input', filterTechnical); technicalState.addEventListener('change', filterTechnical); }}
   if (metricFilter) metricFilter.addEventListener('input', () => {{
     const query = metricFilter.value.trim().toLocaleLowerCase('tr');
     const section = document.getElementById('wholebody-diagnostics');
@@ -859,6 +877,13 @@ def _technical_movement_card(movement: dict[str, Any], fps: float) -> str:
     ) or "<li><span>Hareket/duruş kimlik kontrolü yok.</span></li>"
     criteria = "".join(_technical_criterion_row(item) for item in movement.get("criteria", []))
     anchor_frame = int(movement.get("anchor_frame", 0))
+    temporary = movement.get("temporary_technical_accuracy", {})
+    temporary_text = "" if not temporary else (
+        f'<p>Yeni geçici kurallar: {int(temporary.get("evaluated_count", 0))} değerlendirildi · '
+        f'{int(temporary.get("candidate_count", 0))} puansız aday · '
+        '<a href="#technical-accuracy-diagnostics" onclick="event.stopPropagation()">Kural ayrıntılarına git</a>. '
+        'Yukarıdaki güven eski ölçüt katmanına aittir; geçici kurallara hakem güveni atanmamıştır.</p>'
+    )
     return f'''<article class="wb-movement-block" onclick="this.classList.toggle('open')">
       <div class="wb-movement-hdr">
         <div><span class="wb-mid">{_escape(movement.get("movement_id"))}</span><span class="wb-mname">{_escape(movement.get("display_name"))}</span></div>
@@ -867,7 +892,7 @@ def _technical_movement_card(movement: dict[str, Any], fps: float) -> str:
       </div>
       <p>Birleşik kanıt güveni %{confidence * 100:.0f} · ölçülebilir {int(coverage.get("measurable_count", 0))}/{int(coverage.get("expected_count", 0))} ·
       eşikle değerlendirilebilir {int(coverage.get("threshold_evaluable_count", 0))} · {_escape(_technical_reason_label(movement.get("reason")))}</p>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">{aspects}</div>
+      {temporary_text}<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">{aspects}</div>
       <div class="wb-collapse" style="margin-top:12px"><h3>Hareket ve duruş kimliği</h3><ul>{identities}</ul>
       <h3>Beklenen teknik ölçütler</h3><div class="wb-metrics-grid">{criteria}</div></div>
     </article>'''
@@ -976,14 +1001,62 @@ def _technical_accuracy_html(report: dict[str, Any] | None) -> tuple[str, str]:
             "</tr>"
         )
     table = "".join(movement_rows)
+    details = "".join(_technical_rule_details(movement) for movement in report.get("movements", []))
     section = f'''<section class="section" id="technical-accuracy-diagnostics">
       <h2>Kapsamlı teknik doğruluk teşhisleri · puan yok</h2>
       <p>Geçici mühendislik eşikleri yalnız inceleme adayı üretir. Baş yönelimi gerçek göz bakışı değildir; M07–M18 mevcut videoda ölçülmüş sayılmaz.</p>
       <div class="metric-table-wrap"><table class="metric-table"><thead><tr>
         <th>Hareket</th><th>Kontrat</th><th>Uygulanır</th><th>Ölçüldü</th><th>Aralıkta</th><th>Puansız aday</th><th>Bloke</th><th>Ölçülemez</th>
       </tr></thead><tbody>{table}</tbody></table></div>
+      <h3>Her kuralın ölçümü ve kararı</h3>
+      <p>Aralıkta = yalnız geçici mühendislik eşiği içinde. Destek ölçümleri bağımsız hata üretmez; nedenleri son sütundadır. Tekrar eden ölçümlerin ana kontrolü belirtilir.</p>
+      <div class="toolbar"><input id="technical-rule-filter" aria-label="Teknik kural ara" placeholder="Kural, hareket veya gerekçe ara">
+      <select id="technical-rule-state" aria-label="Teknik kural durumu"><option value="">Tüm durumlar</option><option value="out_of_range">Puansız aday</option><option value="within_screening_range">Aralıkta</option><option value="boundary_uncertain">Sınır belirsiz</option><option value="measurement_only">Yalnız ölçüm</option><option value="unmeasurable">Ölçülemedi</option><option value="blocked_missing_reference">Referans eksik</option><option value="not_observable_with_current_pipeline">Gözlenemez</option><option value="not_applicable">Uygulanmaz</option></select>
+      <span id="technical-rule-filter-status" aria-live="polite">Hareketi açarak tüm kuralları inceleyin</span></div>
+      {details}
     </section>'''
     return stat, section
+
+
+def _technical_rule_details(movement: dict[str, Any]) -> str:
+    labels = {"out_of_range": "Puansız hata adayı", "within_screening_range": "Geçici aralıkta",
+              "boundary_uncertain": "Sınır belirsiz", "measurement_only": "Yalnız ölçüm",
+              "unmeasurable": "Ölçülemedi", "blocked_missing_reference": "Referans eksik",
+              "not_observable_with_current_pipeline": "Gözlenemez", "not_applicable": "Uygulanmaz"}
+    reasons = {"movement_not_present_in_timeline": "Bu hareket mevcut kayıtta yok.",
+               "insufficient_valid_samples": "Yeterli geçerli örnek yok.",
+               "required_landmark_group_quality_below_minimum": "Gerekli eklem kanıtı kalite sınırının altında.",
+               "insufficient_valid_landmark_evidence": "Ölçüm için yeterli/geçerli eklem geometrisi yok.",
+               "missing_athlete_local_direction_binding": "Oturuma bağlı sporcu yön referansı yok.",
+               "no_contextual_screening_target": "Bu teknik için sayısal hedef henüz tanımlı değil.",
+               "measurement_not_observable": "Mevcut pose hattından ölçülemez."}
+    def value_text(value):
+        if value is None:
+            return "—"
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, (int, float)):
+            return f"{value:.4g}"
+        return str(value)
+
+    rows = []
+    for rule in movement.get("rules", []):
+        evaluation = rule.get("evaluation")
+        state = evaluation if evaluation in labels else rule.get("state")
+        threshold = rule.get("threshold")
+        expectation = value_text(rule.get("expected_boolean"))
+        if threshold:
+            expectation = f'{threshold["operator"]} {threshold["value"]} ± {threshold["uncertainty_band"]}'
+        reason = rule.get("skip_or_block_reason") or rule.get("screening_exclusion_reason") or ""
+        reason = reasons.get(reason, reason)
+        context = rule.get("threshold_context") or ""
+        cells = (rule.get("metric_id"), rule.get("rule_family"), value_text(rule.get("value")),
+                 rule.get("unit"), expectation, context, labels.get(state, state), reason)
+        rows.append(f'<tr data-technical-rule="{_escape(rule.get("rule_id"))}" data-technical-state="{_escape(state)}">' +
+                    "".join(f'<td>{_escape(cell)}</td>' for cell in cells) + '</tr>')
+    movement_id = _escape(movement.get("movement_id"))
+    return f'''<details data-technical-movement="{movement_id}"><summary>{movement_id} · {_escape(movement.get("movement_label"))} · {len(rows)} kural</summary>
+      <div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Kural</th><th>Aile</th><th>Ölçüm</th><th>Birim</th><th>Geçici beklenti</th><th>Teknik/duruş bağlamı</th><th>Karar</th><th>Neden / ana kontrol</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div></details>'''
 
 
 def _presentation_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str]:

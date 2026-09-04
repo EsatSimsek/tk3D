@@ -25,7 +25,10 @@ from src.poomsae_scoring.technical_accuracy import (
     validate_athlete_local_direction_reference,
     validate_technical_accuracy_profile,
 )
-from src.poomsae_scoring.technical_accuracy_metrics import measure_observable_accuracy_metrics
+from src.poomsae_scoring.technical_accuracy_metrics import (
+    _side_displacement_match,
+    measure_observable_accuracy_metrics,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -40,8 +43,8 @@ def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
 
     assert len(rules) == 174
     assert {rule["metric_id"] for rule in rules if rule["status"] == "active_diagnostic"} == ACTIVE_EVALUATORS
-    assert sum(rule["status"] == "active_diagnostic" for rule in rules) == 33
-    assert sum(rule["status"] == "measurement_only" for rule in rules) == 116
+    assert sum(rule["status"] == "active_diagnostic" for rule in rules) == 75
+    assert sum(rule["status"] == "measurement_only" for rule in rules) == 74
     assert sum(rule["status"] == "blocked_missing_reference" for rule in rules) == 17
     assert sum(rule["status"] == "not_observable_with_current_pipeline" for rule in rules) == 8
     for rule in rules:
@@ -58,6 +61,33 @@ def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
         else:
             assert rule["measurement_evaluator_status"] == "implemented"
             assert rule["measurement_evaluator_id"]
+        if rule["status"] == "active_diagnostic":
+            assert (
+                rule["threshold"] is not None
+                or rule["expected_boolean"] is not None
+                or rule["contextual_thresholds"]
+            )
+
+    measurement_only = {
+        rule["metric_id"]: rule for rule in rules if rule["status"] == "measurement_only"
+    }
+    assert set(measurement_only) == set(profile["measurement_only_reasons"])
+    assert all(rule["screening_exclusion_reason"].strip() for rule in measurement_only.values())
+    assert not {
+        "valid_sample_ratio",
+        "median_confidence",
+        "median_camera_support",
+        "median_reprojection_error_px",
+    } & ACTIVE_EVALUATORS
+
+
+def test_side_displacement_match_is_polarity_correct_and_fail_closed_on_ties() -> None:
+    assert _side_displacement_match("left", "left", 0.4, 0.1) is True
+    assert _side_displacement_match("left", "left", 0.1, 0.4) is False
+    assert _side_displacement_match("left", "left", 0.1, 0.4, support=True) is True
+    assert _side_displacement_match("left", "left", 0.4, 0.1, support=True) is False
+    assert _side_displacement_match("left", "left", 0.2, 0.2) is None
+    assert _side_displacement_match(None, None, 0.2, 0.1) is None
 
 
 @pytest.mark.parametrize(
@@ -101,9 +131,9 @@ def test_boolean_profile_requires_explicit_typed_expectations(mutation) -> None:
 def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior() -> None:
     profile = load_technical_accuracy_profile(PROFILE_PATH)
     rules = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}
-    boolean_rules = ACTIVE_EVALUATORS - set(profile["thresholds"])
+    boolean_rules = ACTIVE_EVALUATORS & set(profile["boolean_expectations"])
 
-    for metric_id in ACTIVE_EVALUATORS - boolean_rules:
+    for metric_id in ACTIVE_EVALUATORS & set(profile["thresholds"]):
         threshold = rules[metric_id]["threshold"]
         operator = threshold["operator"]
         value = threshold["value"]
@@ -115,7 +145,7 @@ def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior(
         elif operator == "min":
             passing = value + uncertainty + 1.0
             boundary = value
-            failing = max(0.0, value - uncertainty - 1.0)
+            failing = value - uncertainty - 1.0
         else:
             passing = max(0.0, value - uncertainty - 1e-3)
             boundary = value
@@ -130,8 +160,9 @@ def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior(
         assert evaluate_temporary_threshold("5", threshold) == "unmeasurable"
         assert evaluate_temporary_threshold(True, threshold) == "unmeasurable"
     for metric_id in boolean_rules:
-        assert evaluate_temporary_threshold(True, None) == "within_screening_range", metric_id
-        assert evaluate_temporary_threshold(False, None) == "out_of_range", metric_id
+        expected = profile["boolean_expectations"][metric_id]
+        assert evaluate_temporary_threshold(expected, None, expected_boolean=expected) == "within_screening_range", metric_id
+        assert evaluate_temporary_threshold(not expected, None, expected_boolean=expected) == "out_of_range", metric_id
         assert evaluate_temporary_threshold(None, None) == "unmeasurable", metric_id
         assert evaluate_temporary_threshold("true", None) == "unmeasurable", metric_id
 
@@ -212,6 +243,18 @@ def test_real_scope_shape_report_keeps_m07_m18_blocked_and_every_candidate_score
     assert report["summary"]["landmarks_declared_by_active_rule_count"] == 51
     assert report["summary"]["implemented_measurement_evaluator_rule_count"] == 166
     assert report["summary"]["evaluator_not_implemented_rule_count"] == 0
+    observed_by_id = {movement["movement_id"]: movement for movement in report["movements"]}
+    m01_rules = {rule["metric_id"]: rule for rule in observed_by_id["M01"]["rules"]}
+    m02_rules = {rule["metric_id"]: rule for rule in observed_by_id["M02"]["rules"]}
+    m05_rules = {rule["metric_id"]: rule for rule in observed_by_id["M05"]["rules"]}
+    assert m01_rules["stance_length_leg_ratio"]["threshold_context"] == "ap_seogi"
+    assert m01_rules["stance_length_leg_ratio"]["threshold"]["value"] == [0.2, 0.6]
+    assert m05_rules["stance_length_leg_ratio"]["threshold_context"] == "ap_gubi"
+    assert m05_rules["stance_length_leg_ratio"]["threshold"]["value"] == [0.45, 0.95]
+    assert m01_rules["elbow_flexion_deg"]["threshold_context"] == "arae_makki"
+    assert m01_rules["elbow_flexion_deg"]["threshold"]["value"] == [150, 180]
+    assert m02_rules["elbow_flexion_deg"]["threshold_context"] == "momtong_jireugi"
+    assert m02_rules["elbow_flexion_deg"]["threshold"]["value"] == [155, 180]
     assert not any(
         row["blocking_reason"] == "evaluator_not_implemented"
         for row in report["coverage_matrix"]

@@ -1,6 +1,6 @@
 schema_version: 3
 profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
-version: 3.1.0
+version: 3.2.0
 status: diagnostic_only_unvalidated
 poomsae_id: taegeuk_1_jang
 required_keypoint_count: 133
@@ -42,6 +42,12 @@ boolean_expectations:
   expected_direction_change_match: true
   rotation_direction_sign_match: true
   expected_direction_contract_resolved: true
+  moving_foot_side_match: true
+  expected_support_or_pivot_foot_match: true
+  active_arm_side_match: true
+  chamber_precedes_execution: true
+  premature_next_movement_transition: false
+  fixation_pose_stability: true
 thresholds:
   head_target_yaw_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
   head_torso_relative_yaw_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
@@ -75,6 +81,123 @@ thresholds:
   reaction_hand_fixation_stability: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: arm_length}
   active_hand_stance_settle_offset: {operator: abs_max, value: 0.20, uncertainty_band: 0.02, unit: sec}
   head_torso_settle_offset: {operator: abs_max, value: 0.20, uncertainty_band: 0.02, unit: sec}
+  torso_forward_backward_lean_deg: {operator: abs_max, value: 15, uncertainty_band: 2, unit: deg}
+  shoulder_pelvis_roll_difference_deg: {operator: abs_max, value: 12, uncertainty_band: 2, unit: deg}
+  shoulder_height_asymmetry_body_ratio: {operator: abs_max, value: 0.1, uncertainty_band: 0.02, unit: body_ratio}
+  pelvis_height_asymmetry_body_ratio: {operator: abs_max, value: 0.1, uncertainty_band: 0.02, unit: body_ratio}
+  torso_translation_after_fixation_body_ratio: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: body_ratio}
+  pelvis_translation_after_fixation_body_ratio: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: body_ratio}
+  body_height_change_during_fixation_ratio: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: body_ratio}
+  inter_foot_yaw_difference_deg: {operator: max, value: 45, uncertainty_band: 5, unit: deg}
+  foot_crossing_margin_body_ratio: {operator: min, value: 0, uncertainty_band: 0.02, unit: body_ratio}
+  knee_over_foot_alignment_ratio: {operator: max, value: 0.3, uncertainty_band: 0.05, unit: leg_length}
+  lower_body_fixation_dispersion: {operator: max, value: 0.04, uncertainty_band: 0.01, unit: leg_length}
+  chamber_knee_flexion_deg: {operator: max, value: 100, uncertainty_band: 5, unit: deg}
+  support_leg_stability: {operator: max, value: 0.05, uncertainty_band: 0.01, unit: leg_length}
+  kick_extension_deg: {operator: min, value: 150, uncertainty_band: 5, unit: deg}
+  shoulder_elevation_body_ratio: {operator: abs_max, value: 0.15, uncertainty_band: 0.03, unit: torso_length}
+  reaction_hand_target_distance_body_ratio: {operator: max, value: 0.45, uncertainty_band: 0.05, unit: body_ratio}
+  reaction_elbow_position_error_body_ratio: {operator: max, value: 0.65, uncertainty_band: 0.05, unit: arm_length}
+  arm_target_overshoot_body_ratio: {operator: max, value: 0.1, uncertainty_band: 0.02, unit: arm_length}
+  wrist_flexion_extension_proxy_deg: {operator: abs_max, value: 20, uncertainty_band: 2, unit: deg}
+  wrist_radial_ulnar_deviation_proxy_deg: {operator: abs_max, value: 15, uncertainty_band: 2, unit: deg}
+  fist_target_height_error_body_ratio: {operator: max, value: 0.35, uncertainty_band: 0.05, unit: torso_length}
+  fist_target_lateral_error_body_ratio: {operator: max, value: 0.5, uncertainty_band: 0.05, unit: shoulder_width}
+  late_post_fixation_correction: {operator: max, value: 0.08, uncertainty_band: 0.02, unit: arm_length}
+  step_length_error_body_ratio: {operator: max, value: 0.1, uncertainty_band: 0.03, unit: leg_length}
+  step_width_error_body_ratio: {operator: max, value: 0.15, uncertainty_band: 0.05, unit: shoulder_width}
+  post_landing_adjustment: {operator: max, value: 0.04, uncertainty_band: 0.01, unit: leg_length}
+  knee_fixation_dispersion: {operator: max, value: 0.04, uncertainty_band: 0.01, unit: leg_length}
+  stance_width_after_fixation_change: {operator: max, value: 0.06, uncertainty_band: 0.02, unit: shoulder_width}
+  stance_length_after_fixation_change: {operator: max, value: 0.06, uncertainty_band: 0.02, unit: leg_length}
+  front_foot_target_yaw_error_deg: {operator: max, value: 40, uncertainty_band: 5, unit: deg}
+  rear_foot_target_yaw_error_deg: {operator: max, value: 40, uncertainty_band: 5, unit: deg}
+technique_screening_thresholds:
+  elbow_flexion_deg:
+    arae_makki: {operator: range, value: [150, 180], uncertainty_band: 3, unit: deg}
+    momtong_jireugi: {operator: range, value: [155, 180], uncertainty_band: 3, unit: deg}
+    momtong_an_makki: {operator: range, value: [60, 120], uncertainty_band: 3, unit: deg}
+    eolgul_makki: {operator: range, value: [70, 130], uncertainty_band: 3, unit: deg}
+  active_arm_extension_ratio:
+    arae_makki: {operator: range, value: [0.80, 1.00], uncertainty_band: 0.03, unit: arm_length}
+    momtong_jireugi: {operator: range, value: [0.85, 1.00], uncertainty_band: 0.03, unit: arm_length}
+    momtong_an_makki: {operator: range, value: [0.40, 0.85], uncertainty_band: 0.03, unit: arm_length}
+    eolgul_makki: {operator: range, value: [0.45, 0.90], uncertainty_band: 0.03, unit: arm_length}
+measurement_only_reasons:
+  head_turn_completion_state: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
+  head_late_turn_state: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
+  head_orientation_unmeasurable_reason: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  head_face_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  torso_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  expected_stance_type_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: stance_length_leg_ratio / stance_width_shoulder_ratio'
+  lead_leg_side_match: 'Bildirilen taraf/kontrat kimliğidir; bağımsız görüntüden doğru taraf tespiti değildir.'
+  heel_alignment_error_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  toe_alignment_error_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  foot_landing_position_error_body_ratio: 'Farklı ölçeklerin birleşik göstergesi; bağımsız karar stance_length_leg_ratio ve stance_width_shoulder_ratio ile verilir.'
+  pivot_foot_displacement_body_ratio: 'Dönüşte izin verilen hareket tekniğe bağlıdır; destek tarafı kontrol edilir, toplam yer değiştirmeye evrensel sınır konmaz.'
+  support_foot_displacement_body_ratio: 'Dönüşte izin verilen hareket tekniğe bağlıdır; destek tarafı kontrol edilir, toplam yer değiştirmeye evrensel sınır konmaz.'
+  stance_depth_or_pelvis_height_leg_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  stance_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  expected_knee_flexion_range_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: front_knee_flexion_deg / rear_knee_flexion_deg'
+  knee_valgus_varus_proxy_deg: 'Normal diz bükülmesinden teknik sapmayı ayıran düzlem referansı eksik; diz açısı ve ayak hizası ayrı değerlendirilir.'
+  hip_knee_ankle_plane_deviation_ratio: 'Normal diz bükülmesinden teknik sapmayı ayıran düzlem referansı eksik; diz açısı ve ayak hizası ayrı değerlendirilir.'
+  lead_leg_identity_match: 'Bildirilen taraf/kontrat kimliğidir; bağımsız görüntüden doğru taraf tespiti değildir.'
+  rear_leg_identity_match: 'Bildirilen taraf/kontrat kimliğidir; bağımsız görüntüden doğru taraf tespiti değildir.'
+  lower_body_left_right_swap_state: 'Bildirilen taraf/kontrat kimliğidir; bağımsız görüntüden doğru taraf tespiti değildir.'
+  pelvis_height_stance_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: front_knee_flexion_deg'
+  lower_body_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  chamber_knee_height_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  chamber_hip_flexion_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  kick_target_height_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  kick_direction_error_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  kick_retraction_state: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  kick_landing_stance_restoration: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  reaction_or_chamber_arm_side_match: 'Bildirilen taraf/kontrat kimliğidir; bağımsız görüntüden doğru taraf tespiti değildir.'
+  shoulder_abduction_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  shoulder_flexion_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  elbow_target_angle_error_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  active_arm_target_height_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  active_arm_target_lateral_offset_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  active_arm_target_depth_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  active_hand_target_distance_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  upper_body_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  fist_or_hand_orientation_proxy_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  fist_target_depth_error_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
+  hand_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  preparation_pose_observed: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: required_phase_coverage'
+  preparation_side_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: active_arm_side_match'
+  chamber_pose_observed: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  active_technique_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: active_hand_fixation_stability'
+  stance_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: stance_length_leg_ratio / stance_width_shoulder_ratio'
+  head_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
+  torso_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: torso_fixation_orientation_dispersion_p95_deg'
+  reaction_hand_reaches_target_by_fixation: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  final_pose_geometry_conformance: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  phase_evidence_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  moving_foot_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: moving_foot_side_match'
+  support_or_pivot_foot_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: expected_support_or_pivot_foot_match'
+  landing_position_error_body_ratio: 'Farklı ölçeklerin birleşik göstergesi; bağımsız karar stance_length_leg_ratio ve stance_width_shoulder_ratio ile verilir.'
+  landing_stance_type_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: stance_length_leg_ratio / stance_width_shoulder_ratio'
+  head_turn_settled_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
+  torso_turn_settled_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: torso_fixation_orientation_dispersion_p95_deg'
+  pelvis_or_stance_turn_settled_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: pelvis_fixation_orientation_dispersion_p95_deg'
+  pivot_foot_excess_displacement: 'Dönüşte izin verilen hareket tekniğe bağlıdır; destek tarafı kontrol edilir, toplam yer değiştirmeye evrensel sınır konmaz.'
+  transition_foot_crossing: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: foot_crossing_margin_body_ratio'
+  transition_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  head_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
+  torso_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: torso_fixation_orientation_dispersion_p95_deg'
+  pelvis_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: pelvis_fixation_orientation_dispersion_p95_deg'
+  active_hand_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: active_hand_fixation_stability'
+  reaction_hand_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: reaction_hand_fixation_stability'
+  front_foot_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: foot_fixation_slip_body_ratio'
+  rear_foot_fixation_dispersion: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: foot_fixation_slip_body_ratio'
+  body_height_fixation_drift: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: body_height_change_during_fixation_ratio'
+  torso_translation_after_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: torso_translation_after_fixation_body_ratio'
+  pelvis_translation_after_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: pelvis_translation_after_fixation_body_ratio'
+  late_balance_recovery_proxy: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: pelvis_translation_after_fixation_body_ratio'
+  fixation_evidence_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  final_geometry_consistent_with_declared_movement: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: stance_length_leg_ratio / stance_width_shoulder_ratio'
+  movement_completion_state: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: required_phase_coverage'
 stance_contracts:
   ap_seogi:
     length_leg_ratio: [0.20, 0.60]
@@ -370,6 +493,48 @@ active_rules:
   - expected_technique_contract_resolved
   - expected_stance_contract_resolved
   - expected_active_side_contract_resolved
+  - torso_forward_backward_lean_deg
+  - shoulder_pelvis_roll_difference_deg
+  - shoulder_height_asymmetry_body_ratio
+  - pelvis_height_asymmetry_body_ratio
+  - torso_translation_after_fixation_body_ratio
+  - pelvis_translation_after_fixation_body_ratio
+  - body_height_change_during_fixation_ratio
+  - moving_foot_side_match
+  - expected_support_or_pivot_foot_match
+  - stance_length_leg_ratio
+  - stance_width_shoulder_ratio
+  - inter_foot_yaw_difference_deg
+  - foot_crossing_margin_body_ratio
+  - front_knee_flexion_deg
+  - rear_knee_flexion_deg
+  - knee_over_foot_alignment_ratio
+  - lower_body_fixation_dispersion
+  - chamber_knee_flexion_deg
+  - support_leg_stability
+  - kick_extension_deg
+  - active_arm_side_match
+  - shoulder_elevation_body_ratio
+  - elbow_flexion_deg
+  - active_arm_extension_ratio
+  - reaction_hand_target_distance_body_ratio
+  - reaction_elbow_position_error_body_ratio
+  - arm_target_overshoot_body_ratio
+  - wrist_flexion_extension_proxy_deg
+  - wrist_radial_ulnar_deviation_proxy_deg
+  - fist_target_height_error_body_ratio
+  - fist_target_lateral_error_body_ratio
+  - chamber_precedes_execution
+  - head_torso_settle_offset
+  - late_post_fixation_correction
+  - premature_next_movement_transition
+  - fixation_pose_stability
+  - step_length_error_body_ratio
+  - step_width_error_body_ratio
+  - post_landing_adjustment
+  - knee_fixation_dispersion
+  - stance_width_after_fixation_change
+  - stance_length_after_fixation_change
 direction_bound_rules:
   - head_target_yaw_error_deg
   - head_turn_direction_sign_match

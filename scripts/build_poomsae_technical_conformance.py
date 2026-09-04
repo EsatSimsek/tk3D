@@ -19,6 +19,7 @@ def main() -> None:
     )
     parser.add_argument("--wholebody-diagnostics", required=True)
     parser.add_argument("--categorical-diagnostics", required=True)
+    parser.add_argument("--technical-accuracy-diagnostics")
     parser.add_argument("--poomsae-spec", required=True)
     parser.add_argument("--timeline", required=True)
     parser.add_argument("--output", required=True)
@@ -31,6 +32,7 @@ def main() -> None:
         _read_json(_resolve(args.categorical_diagnostics)),
         spec,
         timeline,
+        technical_accuracy_diagnostics=(None if not args.technical_accuracy_diagnostics else _read_json(_resolve(args.technical_accuracy_diagnostics))),
     )
     output = _resolve(args.output)
     if output.exists():

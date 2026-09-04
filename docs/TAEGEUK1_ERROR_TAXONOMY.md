@@ -334,9 +334,9 @@ yalnız doğrulanmamış adayın otomatik puan kesmesine engel olur.
 
 ## 7. Kapsamlı geçici teknik-doğruluk katmanı
 
-31 Ağustos 2026 itibarıyla v3 profil, yukarıdaki taksonomiyi 174 ayrı
+5 Eylül 2026 itibarıyla v3 profil, yukarıdaki taksonomiyi 174 ayrı
 makine-okunur kurala ve M01–M18 hareket kontratına dönüştürür. Durum dağılımı
-33 `active_diagnostic`, 116 `measurement_only`, 17
+75 `active_diagnostic`, 74 `measurement_only`, 17
 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kuraldır. Çalışma anındaki eksik veya
 dejenere kanıt ayrıca `unmeasurable` olur.
@@ -345,6 +345,9 @@ Pipeline sınırındaki 8 özellik hariç 166 kuralın tamamında ölçüm evalu
 yolu vardır. 133 landmarkın tamamı kural envanterine bağlı, 51'i aktif eşikli
 kuralların zorunlu landmark kümesindedir. Ayrıntılı el/ayak/yüz ölçümü `%75`
 landmark-grup kalite kapısını geçmezse fail-closed kapanır.
+Yalnız ölçümde kalan 74 destek/kalite/alias metriğinin her biri nedenini ve
+varsa ana karar kontrolünü açıkça taşır; bunlar sırf katalogda bulunduğu için
+bağımsız sporcu hatasına dönüştürülmez.
 
 Mutlak baş, torso, pelvis, stance, ayak ve adım yönü sporcu-yerel session/pose
 bağlı referans olmadan değerlendirilmez. Bağıl geometri çalışmaya devam eder;

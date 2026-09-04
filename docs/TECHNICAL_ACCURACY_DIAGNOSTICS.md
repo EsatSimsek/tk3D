@@ -1,6 +1,6 @@
 # Taegeuk 1 Kapsamlı Teknik Doğruluk Teşhisleri
 
-Son güncelleme: **31 Ağustos 2026**
+Son güncelleme: **5 Eylül 2026**
 
 Bu belge, `technical_accuracy_diagnostic` kategorisindeki v3 Taegeuk 1
 doğruluk katmanını tanımlar. Katman, mevcut WholeBody-133 ölçüm mimarisini ve
@@ -64,8 +64,8 @@ Profil düzeyinde 174 kuralın durumu:
 
 | Durum | Sayı | Anlam |
 | --- | ---: | --- |
-| `active_diagnostic` | 33 | Ölçüm ve geçici eşik değerlendiricisi var |
-| `measurement_only` | 116 | Ölçüm var; güvenli karar yetkisi veya sayısal hedef yok |
+| `active_diagnostic` | 75 | Ölçüm ve geçici eşik/boolean değerlendiricisi var |
+| `measurement_only` | 74 | Ölçüm var; bağımsız karar hedefi yok, açık gerekçe taşır |
 | `blocked_missing_reference` | 17 | Sporcu-yerel mutlak yön bağı olmadan kapanır |
 | `not_observable_with_current_pipeline` | 8 | Mevcut pose/video kanıtından iddia edilemez |
 
@@ -78,6 +78,11 @@ Pipeline sınırı olan 8 kural dışında kalan 166 kuralın tamamı
 `blocked_missing_reference`; var olan evaluator içindeki yetersiz gerçek
 landmark kanıtı ise `unmeasurable` olur. `evaluator_not_implemented` gözlenen
 M01–M06 kapsamında sıfırdır.
+
+`measurement_only` kurallarının her biri `measurement_only_reasons` içinde
+kalma nedenini taşır. Kalite/kanıt yeterliliği ölçümleri sporcu hatası değildir;
+alias veya birleşik metrikler ana kararı tekrar üretmez; tekniğe özgü hedefi
+olmayan ham ölçümlere evrensel eşik uydurulmaz.
 
 ## Hareket kontratları
 
@@ -151,7 +156,8 @@ ground-reaction force, darbe gücü veya kas gerilimi ölçülmez.
 
 ## Eşik ve karar politikası
 
-Bütün sayısal değerler v3 YAML içindeki `thresholds` alanındadır; evaluator
+Bütün sayısal değerler v3 YAML içindeki `thresholds`, duruş kontratları veya
+`technique_screening_thresholds` alanındadır; evaluator
 fonksiyonlarına gömülü eşik yoktur. Her eşik birim, operatör, belirsizlik bandı
 ve ortak provenance politikasını taşır. Başlıca istek-bağlı geçici değerler:
 
@@ -166,7 +172,13 @@ ve ortak provenance politikasını taşır. Başlıca istek-bağlı geçici değ
 - wrist-forearm `20°`, fist yön `25°`;
 - bileşen settle farkı `0,20 s`.
 
-Ap-seogi ve ap-gubi duruş/diz aralıkları YAML kontratında ayrı tutulur. Bunlar
+Yeni aktif geçici taramalara ayrıca torso/pelvis ötelemesi, gövde yüksekliği,
+ayak çaprazlama/yaw, diz-ayak hizası, alt gövde/iniş/fixation kararlılığı,
+aktif/reaction kol ve el hedef proxy'leri ile bilek sapmaları dahildir.
+Ap-seogi ve ap-gubi duruş uzunluğu, genişliği ve diz aralıkları YAML kontratında
+ayrı tutulur. Dirsek açısı ve aktif kol uzaması `arae_makki`,
+`momtong_jireugi`, `momtong_an_makki` ve `eolgul_makki` için ayrı geniş geçici
+aralıklar kullanır. Bunlar
 mevcut sporcunun videosundan ayarlanmadı. Tarihsel kaynak-bağlı arka ayak,
 arae-makki, momtong-an-makki ve eolgul geometrileri v3 tarafından yeniden
 kesintiye çevrilmez; karar sahipliği source-bound katmanındadır.
@@ -209,8 +221,10 @@ Her ölçüm en az 3 geçerli örneğe ek olarak profilin varsayılan `%75` zoru
 landmark-grup kapsamını geçmelidir. Bu kapı hareket/pencere kanıtına uygulanır;
 birkaç tesadüfi geçerli el veya ayak örneği aday üretmeye yetmez.
 
-HTML ayrı “Kapsamlı teknik doğruluk
-teşhisleri · puan yok” bölümünü gösterir. Eşik dışı v3 olayları
+HTML ayrı “Kapsamlı teknik doğruluk teşhisleri · puan yok” bölümünü gösterir.
+M01–M18 için bütün kural satırları ölçüm, birim, geçici beklenti,
+teknik/duruş bağlamı, karar ve kapanma/ana-kontrol gerekçesiyle açılır; metin ve
+durum filtresi bulunur. Eşik dışı v3 olayları
 `decision_evidence_events.json` üzerinden mavi diagnostic video olaylarına
 dönüşür; görselleştirme yeniden değerlendirilmez.
 
@@ -243,3 +257,9 @@ manifesti taşır. Ayrıntılı protokol ve komut:
 Harness başarısı yalnız yazılım sözleşmesinin doğrulandığını gösterir. Gerçek
 teknik hata doğruluğu için kural başına uzman etiketli video, kör hakem
 karşılaştırması ve precision/recall analizi hâlâ gereklidir.
+
+5 Eylül 2026 gerçek bağlı-pose regresyonu `benim-denemem-21` run'ında baştan
+sona tamamlandı. Gözlenen M01–M06 için 82 puansız aday, 246 geçici aralık-içi,
+23 sınır-belirsiz, 302 yalnız-ölçüm ve 335 değerlendirilemeyen satır oluştu.
+Bu dağılım eşiklerin doğruluğunu değil, yeni kuralların gerçekten yürüdüğünü ve
+kanıt eksik olduğunda kapandığını gösterir.

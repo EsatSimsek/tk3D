@@ -1,11 +1,18 @@
 # M01–M06 Teknik Uygunluk Motoru
 
-Son güncelleme: **23 Ağustos 2026**
+Son güncelleme: **5 Eylül 2026**
 
 `src/poomsae_scoring/technical_conformance.py`, doğrulanmış hareket zaman
 çizelgesini, WholeBody-133 ölçümlerini ve kategorik yanlış hareket/duruş
 teşhislerini tek bir hareket bazlı raporda birleştirir. Bu rapor hakem puanı,
 resmî uygunluk kararı veya otomatik kesinti değildir.
+
+Kanonik uygulama ayrıca v3 teknik-doğruluk raporunu bu katmana bağlar. Hareket
+bazında değerlendirilen geçici kural sayısı, aday sayısı ve kural kimlikleri
+`temporary_technical_accuracy` altında görünür. En az bir v3 adayı bulunan,
+önceden uyumlu veya ölçülemez görünen hareket `review_candidate` olur; daha
+güçlü `mismatch_candidate` sonucu ezilmez. V3 adayları birleşik güven hesabına
+katılmaz ve `score_effect=null` kalır.
 
 ## Hareket sonucu
 

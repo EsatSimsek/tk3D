@@ -441,7 +441,12 @@ def _inventory_row(rule: dict[str, Any]) -> dict[str, Any]:
 
 def _classification_rows(profile: dict[str, Any], cases: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for rule in profile["resolved_rules"]:
+    variants = [
+        {**rule, "threshold": threshold, "threshold_context": context}
+        for rule in profile["resolved_rules"]
+        for context, threshold in (rule.get("contextual_thresholds") or {"default": rule["threshold"]}).items()
+    ]
+    for rule in variants:
         if rule["status"] not in {"active_diagnostic", "blocked_missing_reference"}:
             continue
         if rule["threshold"] is None and rule.get("expected_boolean") is None:
@@ -457,6 +462,7 @@ def _classification_rows(profile: dict[str, Any], cases: list[str]) -> list[dict
                 {
                     "rule_id": rule["rule_id"],
                     "metric_id": rule["metric_id"],
+                    "threshold_context": rule["threshold_context"],
                     "expected_boolean": rule.get("expected_boolean"),
                     "operator": None if rule["threshold"] is None else rule["threshold"]["operator"],
                     "case_id": case,

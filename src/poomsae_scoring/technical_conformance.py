@@ -27,6 +27,7 @@ def build_technical_conformance(
     categorical_diagnostics: dict[str, Any],
     poomsae_spec: dict[str, Any],
     movement_timeline: dict[str, Any],
+    technical_accuracy_diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fuse movement identity, geometry and control evidence without scoring."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -67,6 +68,48 @@ def build_technical_conformance(
             )
         )
 
+    if technical_accuracy_diagnostics is not None:
+        technical = technical_accuracy_diagnostics
+        if (
+            technical.get("status") != "technical_accuracy_diagnostics_only"
+            or technical.get("movement_timeline_id") != timeline["timeline_id"]
+        ):
+            raise ScoringContractError("technical accuracy conformance binding mismatch")
+        expected_poomsae = {"poomsae_id": spec["poomsae_id"], "version": spec["version"]}
+        technical_poomsae = technical.get("poomsae")
+        if not isinstance(technical_poomsae, dict) or any(
+            technical_poomsae.get(key) != value for key, value in expected_poomsae.items()
+        ):
+            raise ScoringContractError("technical accuracy Poomsae binding mismatch")
+        if technical.get("numeric_score_enabled") is not False or technical.get("deduction_enabled") is not False:
+            raise ScoringContractError("technical accuracy must remain score-neutral")
+        by_id = _unique_by_movement(technical.get("movements"), "technical accuracy")
+        if not set(by_id).issubset(movement_specs):
+            raise ScoringContractError("technical accuracy references unknown movement")
+        for report in reports:
+            if report["movement_id"] not in by_id:
+                raise ScoringContractError("technical accuracy movement is missing")
+            rules = by_id[report["movement_id"]].get("rules")
+            if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+                raise ScoringContractError("technical accuracy rules must be a list of mappings")
+            if any(rule.get("score_effect") is not None or rule.get("deduction_points") is not None for rule in rules):
+                raise ScoringContractError("technical accuracy rule is not score-neutral")
+            if any(rule.get("evaluation") == "out_of_range" and rule.get("evaluated") is not True for rule in rules):
+                raise ScoringContractError("technical accuracy candidate must be evaluated")
+            candidates = [rule for rule in rules if rule.get("evaluation") == "out_of_range"]
+            report["temporary_technical_accuracy"] = {
+                "evaluated_count": sum(bool(rule.get("evaluated")) for rule in rules),
+                "candidate_count": len(candidates),
+                "candidate_rule_ids": [rule["rule_id"] for rule in candidates],
+                "measurement_only_count": sum(rule.get("state") == "measurement_only" for rule in rules),
+                "score_effect": None,
+            }
+            if candidates:
+                report["review_required"] = True
+                if report["conformance_status"] in {"consistent_within_measured_scope", "not_measurable"}:
+                    report["conformance_status"] = "review_candidate"
+                    report["reason"] = "temporary_technical_accuracy_review_candidates"
+
     status_ids = (
         "mismatch_candidate",
         "review_candidate",
@@ -82,6 +125,7 @@ def build_technical_conformance(
         "movement_timeline_id": timeline["timeline_id"],
         "recording_scope": timeline["coverage"]["recording_scope"],
         "summary": {
+            "temporary_technical_accuracy_candidate_count": sum(item.get("temporary_technical_accuracy", {}).get("candidate_count", 0) for item in reports),
             "movement_count": len(reports),
             **{
                 f"{status}_count": sum(item["conformance_status"] == status for item in reports)

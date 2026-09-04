@@ -164,7 +164,10 @@ V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurall
 makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
 kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i
 aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
-ölçülür; M07–M18 kontrat/sentetik kapsamdır. Geçici adaylar skor ve kesintiyi değiştirmez.
+ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.0'da 75 kural geçici
+tarama kararı üretir; 74 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
+kalır. Her kuralın ölçümü, geçici beklentisi, bağlamı, kararı veya kapanma
+nedeni HTML inceleme ekranında aranabilir. Geçici adaylar skor ve kesintiyi değiştirmez.
 Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
 yorumlanır. Sporcu-yerel yön referansı her run'da açılış duruşundan türetilir ve
 oturum/pose hash'ine bağlanır; türetilemezse 17 yön kuralı fail-closed kalır ve
@@ -180,18 +183,19 @@ ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 33 aktif ve 11 referans-bağlı
-değerlendirilebilir kural için 440 sınır/eksik/non-finite vakasını ve
+kural ile 133-landmark kapsam envanterini, 75 aktif ve 13 referans-bağlı
+değerlendirilebilir metriğin bağlamsal varyantları için 980 sınır/eksik/non-finite
+vakasını ve
 18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
 hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
 Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
 yorum sınırları:
 [`docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md`](docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md).
 
-Teknik profil `3.1.0`, boolean kuralların beklenen sonucunu
+Teknik profil `3.2.0`, boolean kuralların beklenen sonucunu
 `boolean_expectations` içinde açıkça tanımlar. Yanlış yön koşulunun beklenen
 değeri `false` olur; ölçülemeyen yön `null` kalır ve hata adayı üretmez.
-Yön referansı bulunması, sayısal eşiği olmayan altı ölçüme karar yetkisi vermez.
+Yön referansı bulunması, sayısal eşiği olmayan dört ölçüme karar yetkisi vermez.
 Eski profil kopyaları yeni zorunlu alan olmadan çalıştırılamaz; yeni run'da
 güncel profil kullanılmalıdır. Tarihsel çıktılar otomatik değiştirilmez.
 
