@@ -1,6 +1,6 @@
 schema_version: 3
 profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
-version: 3.0.0
+version: 3.1.0
 status: diagnostic_only_unvalidated
 poomsae_id: taegeuk_1_jang
 required_keypoint_count: 133
@@ -27,6 +27,21 @@ threshold_policy:
   version_date: '2026-08-30'
   rationale: Broad screening values requested for geometry debugging; not WT or Kukkiwon judging tolerances.
   no_score_semantics: true
+boolean_expectations:
+  required_phase_coverage: true
+  movement_contract_exists: true
+  movement_timeline_segment_exists: true
+  expected_movement_order: true
+  movement_phase_order: true
+  expected_technique_contract_resolved: true
+  expected_stance_contract_resolved: true
+  expected_active_side_contract_resolved: true
+  head_turn_direction_sign_match: true
+  head_wrong_direction_stable_state: false
+  front_back_foot_order_match: true
+  expected_direction_change_match: true
+  rotation_direction_sign_match: true
+  expected_direction_contract_resolved: true
 thresholds:
   head_target_yaw_error_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}
   head_torso_relative_yaw_deg: {operator: max, value: 25.0, uncertainty_band: 2.0, unit: deg}

@@ -28,6 +28,7 @@ def main() -> None:
     parser.add_argument("--presentation-diagnostics")
     parser.add_argument("--automatic-segmentation")
     parser.add_argument("--run-history-url")
+    parser.add_argument("--analysis-run-id", help="Analysis run identity (distinct from the source pose run).")
     parser.add_argument("--video-a", required=True)
     parser.add_argument("--video-a-label", default="Kamera A")
     parser.add_argument("--video-b", required=True)
@@ -140,6 +141,7 @@ def main() -> None:
         if label in videos:
             raise SystemExit(f"Video label is repeated: {label}")
         videos[label] = _relative_url(path, output.parent)
+    input_records = {label: {"path": str(path), "sha256": _sha256(path)} for label, path in inputs.items()}
     rendered = build_review_html(
         spec,
         timeline,
@@ -156,6 +158,8 @@ def main() -> None:
         args.run_history_url,
         automatic_segmentation,
         technical_accuracy_diagnostics_report=technical_accuracy_diagnostics,
+        analysis_run_id=args.analysis_run_id or str(output),
+        review_input_hashes={label: record["sha256"] for label, record in input_records.items()},
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -166,7 +170,7 @@ def main() -> None:
         "schema_version": 1,
         "artifact_type": "poomsae_synchronized_review",
         "output": {"path": str(output), "sha256": _sha256(output)},
-        "inputs": {label: {"path": str(path), "sha256": _sha256(path)} for label, path in inputs.items()},
+        "inputs": input_records,
         "scoring_status": evidence.get("scoring_status"),
         "accuracy_score": evidence.get("accuracy_score"),
         "partial_engineering_trial_score": (

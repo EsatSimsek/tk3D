@@ -8,6 +8,7 @@ import numpy as np
 
 from src.data_structures import COCO_BODY_JOINTS, COCO_WHOLEBODY_KEYPOINTS
 from src.poomsae_scoring.contracts import ScoringContractError, load_yaml_mapping
+from src.poomsae_scoring.decision_evidence import build_decision_evidence_events
 from src.poomsae_scoring.technical_accuracy import (
     build_technical_accuracy_diagnostics,
     evaluate_temporary_threshold,
@@ -337,6 +338,7 @@ def build_rule_accuracy_validation(
         {**row, "passed": row["declared_rule_count"] > 0}
         for row in baseline["landmark_inventory"]
     ]
+    scenarios.extend(_direction_semantic_scenarios(base_pose, poomsae_spec, movement_timeline, profile, wholebody))
     passed = all(row["passed"] for row in inventory + landmarks + classifications + scenarios)
     state_counts = {
         state: sum(row["configured_state"] == state for row in inventory)
@@ -440,15 +442,22 @@ def _inventory_row(rule: dict[str, Any]) -> dict[str, Any]:
 def _classification_rows(profile: dict[str, Any], cases: list[str]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for rule in profile["resolved_rules"]:
-        if rule["status"] != "active_diagnostic":
+        if rule["status"] not in {"active_diagnostic", "blocked_missing_reference"}:
+            continue
+        if rule["threshold"] is None and rule.get("expected_boolean") is None:
             continue
         for case in cases:
             value, expected, applicable = _classification_input(rule["threshold"], case)
-            actual = evaluate_temporary_threshold(value, rule["threshold"]) if applicable else "not_applicable"
+            if rule.get("expected_boolean") is False and isinstance(value, bool):
+                value = not value
+            actual = evaluate_temporary_threshold(
+                value, rule["threshold"], expected_boolean=rule.get("expected_boolean"),
+            ) if applicable else "not_applicable"
             rows.append(
                 {
                     "rule_id": rule["rule_id"],
                     "metric_id": rule["metric_id"],
+                    "expected_boolean": rule.get("expected_boolean"),
                     "operator": None if rule["threshold"] is None else rule["threshold"]["operator"],
                     "case_id": case,
                     "input_value": value if isinstance(value, (bool, int, float)) and np.isfinite(value) else None,
@@ -670,14 +679,74 @@ def _evaluate_geometry_expectation(
         )
         return passed, {"checked_rule_count": len(direction_rows)}
     if expectation == "direction_rules_evaluated_when_measurable":
+        configured = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}
         passed = bool(direction_rows) and not any(
             row["blocking_reason"] == "missing_athlete_local_direction_binding" for row in direction_rows
-        ) and all(row["measured"] and row["evaluated"] for row in direction_rows)
+        ) and all(
+            row["measured"] and row["evaluated"] == (
+                configured[row["metric_id"]]["threshold"] is not None
+                or configured[row["metric_id"]].get("expected_boolean") is not None
+            ) for row in direction_rows
+        )
         return passed, {
             "checked_rule_count": len(direction_rows),
             "evaluated_rule_count": sum(row["measured"] and row["evaluated"] for row in direction_rows),
         }
     return False, {"error": "expected ScoringContractError was not raised"}
+
+
+def _direction_semantic_scenarios(base_pose, spec, timeline, profile, wholebody) -> list[dict[str, Any]]:
+    """Independent geometric truth cases, including the final event adapter."""
+    rows = []
+    reference = _direction_reference(timeline)
+    # M01 is semantic left: forward +X makes its target +Y.
+    reference["initial_forward_vector"] = [1.0, 0.0, 0.0]
+    metric = "head_wrong_direction_stable_state"
+    for angle in (0, 89, 91, -91, 180, None):
+        pose = deepcopy(base_pose)
+        points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+        if angle is None:
+            points[:, 23:91, :] = [0.0, 0.0, 1.75]
+        else:
+            radians = np.deg2rad(angle)
+            points[:, 50:59, 0] = 0.03 * np.sin(radians)
+            points[:, 50:59, 1] = 0.03 * np.cos(radians)
+        pose["keypoints_3d_world"] = points.tolist()
+        report = build_technical_accuracy_diagnostics(
+            pose, spec, timeline, profile, wholebody, direction_reference=reference,
+        )
+        rules = _movement_rule_map(report, "M01")
+        rule = rules[metric]
+        angle_rule = rules["head_target_yaw_error_deg"]
+        expected = None if angle is None else abs(angle) > 90
+        events = build_decision_evidence_events(
+            {"status": "source_bound_accuracy_decisions", "timeline_id": timeline["timeline_id"],
+             "numeric_decisions": [], "categorical_decisions": []},
+            spec, timeline, technical_accuracy_diagnostics=report,
+        )["events"]
+        selected = [event for event in events if event["movement_id"] == "M01" and event.get("rule_id") == rule["rule_id"]]
+        passed = rule["value"] is expected and bool(selected) == (expected is True)
+        if angle is None:
+            passed &= all(rules[key]["state"] == "unmeasurable" and not rules[key]["evaluated"]
+                          for key in (metric, "head_target_yaw_error_deg", "head_turn_direction_sign_match"))
+        else:
+            passed &= angle_rule["value"] is not None and bool(np.isclose(angle_rule["value"], abs(angle)))
+            passed &= rule["evaluation"] == ("out_of_range" if expected else "within_screening_range")
+        passed &= all(event["measurement"]["expected_boolean"] is False
+                      and event["measurement"]["rule_limits"] == []
+                      and event["measurement"]["rule_operator"] == "bool_false"
+                      and event.get("deduction_points") is None for event in selected)
+        rows.append({
+            "scenario_id": f"head_direction_geometry_to_event_{angle}",
+            "fixture_mutation": "synthetic_head_yaw_or_collapsed_face",
+            "expectation": "geometric_truth_and_score_neutral_event",
+            "target_metrics": [metric, "head_target_yaw_error_deg", "head_turn_direction_sign_match"],
+            "passed": bool(passed),
+            "details": {"input_yaw_deg": angle, "measured_yaw_deg": angle_rule["value"],
+                        "expected_wrong_direction": expected, "actual_wrong_direction": rule["value"],
+                        "evaluation": rule["evaluation"], "event_count": len(selected)},
+        })
+    return rows
 
 
 def _mutate_pose(

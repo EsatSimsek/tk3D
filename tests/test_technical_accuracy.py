@@ -77,6 +77,27 @@ def test_v3_profile_rejects_invalid_configuration(mutator, match: str) -> None:
         validate_technical_accuracy_profile(raw)
 
 
+@pytest.mark.parametrize("expected", [True, False])
+@pytest.mark.parametrize("value", [True, False, None, 0, 1, "true", float("nan"), float("inf")])
+def test_boolean_truth_table_preserves_unknown_and_rejects_numeric_coercion(expected, value) -> None:
+    actual = evaluate_temporary_threshold(value, None, expected_boolean=expected)
+    target = "unmeasurable" if type(value) is not bool else "within_screening_range" if value == expected else "out_of_range"
+    assert actual == target
+
+
+@pytest.mark.parametrize("mutation", ["missing", "numeric", "threshold_overlap"])
+def test_boolean_profile_requires_explicit_typed_expectations(mutation) -> None:
+    raw = _raw_profile()
+    if mutation == "missing":
+        raw["boolean_expectations"].pop("head_wrong_direction_stable_state")
+    elif mutation == "numeric":
+        raw["boolean_expectations"]["head_wrong_direction_stable_state"] = 0
+    else:
+        raw["thresholds"]["head_wrong_direction_stable_state"] = raw["thresholds"]["head_target_yaw_error_deg"]
+    with pytest.raises(ScoringContractError, match="boolean"):
+        validate_technical_accuracy_profile(raw)
+
+
 def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior() -> None:
     profile = load_technical_accuracy_profile(PROFILE_PATH)
     rules = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}

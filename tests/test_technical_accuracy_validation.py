@@ -116,8 +116,8 @@ def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_repo
     for row in rows:
         by_metric.setdefault(row["metric_id"], set()).add(row["case_id"])
 
-    assert len(by_metric) == 33
-    assert len(rows) == 330
+    assert len(by_metric) == 44  # 33 active plus 11 reference-bound configured screens.
+    assert len(rows) == 440
     assert all(cases == expected_cases for cases in by_metric.values())
     assert all(row["passed"] for row in rows)
     assert all(
@@ -132,13 +132,13 @@ def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_repo
 
 def test_geometry_scenarios_cover_fail_closed_sensitivity_and_symmetry(validation_report: dict) -> None:
     scenarios = {row["scenario_id"]: row for row in validation_report["geometry_scenarios"]}
-    assert len(scenarios) == 12
+    assert len(scenarios) == 18
     assert all(row["passed"] for row in scenarios.values())
     assert scenarios["body17_contract_rejected"]["details"]["raised"] == "ScoringContractError"
     assert scenarios["left_right_mirror"]["details"]["mirror_involution"] is True
     assert scenarios["left_right_mirror"]["details"]["nonzero_baseline_metrics"] is True
     assert all(scenarios["left_right_mirror"]["details"]["mirror_involution_by_array"].values())
-    assert scenarios["valid_direction_binding"]["details"]["evaluated_rule_count"] == 17
+    assert scenarios["valid_direction_binding"]["details"]["evaluated_rule_count"] == 11
     for scenario_id in (
         "missing_face_evidence",
         "missing_hand_evidence",
@@ -199,7 +199,8 @@ def test_cli_writes_atomic_hashed_artifact_set_and_refuses_reuse(tmp_path: Path,
     manifest = json.loads((output_dir / "validation_manifest.json").read_text(encoding="utf-8"))
     assert report["status"] == "passed"
     assert len(report["input_files"]) == 4
-    assert len(report["implementation_files"]) == 4
+    assert len(report["implementation_files"]) == 5
+    assert "decision_evidence" in report["implementation_files"]
     assert len(manifest["artifacts"]) == 5
     assert all(len(row["sha256"]) == 64 and row["size_bytes"] > 0 for row in manifest["artifacts"])
     assert not list(tmp_path.glob(".*.partial-*"))

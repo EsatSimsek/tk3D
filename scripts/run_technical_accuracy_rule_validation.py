@@ -15,6 +15,7 @@ import numpy as np
 import src.poomsae_scoring.technical_accuracy as technical_accuracy_module
 import src.poomsae_scoring.technical_accuracy_metrics as technical_accuracy_metrics_module
 import src.poomsae_scoring.technical_accuracy_validation as validation_module
+import src.poomsae_scoring.decision_evidence as decision_evidence_module
 from src.poomsae_scoring import (
     build_rule_accuracy_validation,
     load_movement_timeline,
@@ -75,6 +76,7 @@ def main() -> int:
     }
     implementation_paths = {
         "validation_core": Path(validation_module.__file__).resolve(),
+        "decision_evidence": Path(decision_evidence_module.__file__).resolve(),
         "technical_accuracy_core": Path(technical_accuracy_module.__file__).resolve(),
         "technical_accuracy_metrics": Path(technical_accuracy_metrics_module.__file__).resolve(),
         "validation_cli": Path(__file__).resolve(),

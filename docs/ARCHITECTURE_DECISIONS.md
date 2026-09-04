@@ -612,6 +612,31 @@ gerekir. Sentetik fixture, gerçek hata doğruluğunun yerine kullanılamaz.
 Ayrıntı:
 [`TECHNICAL_ACCURACY_RULE_VALIDATION.md`](TECHNICAL_ACCURACY_RULE_VALIDATION.md).
 
+## AD-030 — Açık boolean anlamı, bilinmeyen durum ve run-bağlı insan incelemesi
+
+4 Eylül 2026: Teknik profil 3.1.0 bütün boolean kurallar için açık beklenen
+değer taşır. Olumsuz anlamlı `head_wrong_direction_stable_state` için `false`
+beklenir. Kaynak açı ölçülemiyorsa türetilen boolean da `null` olur. Referans
+bulunması eşiksiz sayısal ölçüme karar yetkisi vermez; bu ölçümler
+`measurement_only` kalır. Boolean kanıt adaptörü beklenen değeri olmayan veya
+zaten sağlayan adayları reddeder; eski artifact'ler yeniden yazılmaz.
+
+Validation kapsamı 440 sınıflandırma ve 18 geometri/kanıt senaryosudur.
+Kanıt adaptörünün kaynak hash'i de validation manifestine bağlanır.
+Resmî puanlama ve dış doğruluk kapıları değişmez.
+
+İnsan incelemesi şema 2 kullanır: analiz run'ı kaynak pose run'ından ayrılır;
+timeline, raporlar ve CLI girdi dosyası hash'lerinden içerik kimliği türetilir.
+LocalStorage ve JSON içe aktarma bu kimliğe bağlıdır. Her etiket inceleyen ve
+zaman taşır. Eski veya başka içeriğe ait etiketler otomatik taşınmaz. Bu
+provenance bağı kriptografik bir hakem kimlik doğrulaması değildir.
+
+Poomsae uygulamasının run-başlatma sonrası bütün yürütmesi ortak hata sınırı
+içindedir; alt işlem çıkışı yanında dosya, JSON ve KeyboardInterrupt hataları
+da başarısız run olarak kaydedilir. Video alt işleminin çıktı ağacı sahipliği
+korunur. Durum kaydı yazılamazsa ilk hata korunur; zorla süreç sonlandırma ve
+güç kesintisine karşı otomatik kurtarma iddiası yoktur.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

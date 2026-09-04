@@ -157,7 +157,8 @@ def test_thresholdless_boolean_technical_candidate_becomes_typed_no_score_event(
                 "criterion_id": "technical_accuracy.head_orientation.head_wrong_direction_stable_state",
                 "rule_family": "head_orientation",
                 "phase_or_window": "phase_specific_or_fixation",
-                "value": False,
+                "value": True,
+                "expected_boolean": False,
                 "unit": "bool",
                 "threshold": None,
                 "uncertainty": None,
@@ -181,15 +182,23 @@ def test_thresholdless_boolean_technical_candidate_becomes_typed_no_score_event(
     assert report["summary"]["technical_accuracy_review_candidate_count"] == 1
     event = report["events"][0]
     assert event["event_kind"] == "technical_accuracy_diagnostic_review_candidate"
-    assert event["measurement"]["value"] is False
+    assert event["measurement"]["value"] is True
     assert event["measurement"]["unit"] == "bool"
-    assert event["measurement"]["rule_operator"] == "bool_true"
+    assert event["measurement"]["rule_operator"] == "bool_false"
     assert event["measurement"]["rule_limits"] == []
-    assert event["measurement"]["expected_boolean"] is True
+    assert event["measurement"]["expected_boolean"] is False
     assert event["deduction_points"] is None
     assert event["reason"] == "unvalidated_technical_accuracy_boolean_condition_failed"
-    assert event["user_explanation"]["measured"] == "Hayır — koşul sağlanmadı."
+    assert event["user_explanation"]["measured"] == "Evet — hata koşulu mevcut."
     assert "Koşul sağlanmadı" in event["user_explanation"]["comparison"]
+    assert "bulunmamalı" in event["user_explanation"]["expected"]
+    candidate = technical["candidate_events"][0]
+    candidate.pop("expected_boolean")
+    with pytest.raises(ScoringContractError, match="expected_boolean"):
+        build_decision_evidence_events(_empty_decisions(timeline), spec, timeline, technical_accuracy_diagnostics=technical)
+    candidate["expected_boolean"] = True
+    with pytest.raises(ScoringContractError, match="already satisfies"):
+        build_decision_evidence_events(_empty_decisions(timeline), spec, timeline, technical_accuracy_diagnostics=technical)
 
 
 def test_thresholdless_non_boolean_technical_candidate_fails_closed() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import hashlib
 import json
 from typing import Any
 
@@ -9,6 +10,42 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+
+
+def build_review_binding(
+    timeline: dict[str, Any], reports: dict[str, Any], analysis_run_id: str | None = None,
+) -> dict[str, Any]:
+    """Content-address labels; source-pose run and analysis run are distinct."""
+    def digest(payload: Any) -> str:
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    binding = {
+        "schema_version": 2,
+        "analysis_run_id": analysis_run_id,
+        "timeline_id": timeline["timeline_id"],
+        "source_binding": timeline["source_binding"],
+        "timeline_sha256": digest(timeline),
+        "report_sha256": {name: digest(report) for name, report in reports.items()},
+    }
+    return {**binding, "review_id": digest(binding)}
+
+
+def validate_review_export(
+    payload: dict[str, Any], binding: dict[str, Any], event_ids: set[str],
+) -> dict[str, Any]:
+    """Reject legacy or foreign labels; human labels never authorize scoring."""
+    if not isinstance(payload, dict) or payload.get("schema_version") != 2 or payload.get("binding") != binding:
+        raise ScoringContractError("review export binding mismatch or unsupported schema")
+    reviews = payload.get("reviews")
+    if not isinstance(reviews, dict) or not set(reviews).issubset(event_ids):
+        raise ScoringContractError("review export contains unknown events")
+    for item in reviews.values():
+        if not isinstance(item, dict) or item.get("decision") not in {"confirmed", "rejected", "uncertain"}:
+            raise ScoringContractError("invalid review decision")
+        if not all(isinstance(item.get(key), str) and item[key].strip() for key in ("reviewer", "reviewed_at")):
+            raise ScoringContractError("review decision requires reviewer and timestamp")
+    return payload
 
 
 def build_review_html(
@@ -27,6 +64,8 @@ def build_review_html(
     run_history_url: str | None = None,
     automatic_segmentation_report: dict[str, Any] | None = None,
     technical_accuracy_diagnostics_report: dict[str, Any] | None = None,
+    analysis_run_id: str | None = None,
+    review_input_hashes: dict[str, str] | None = None,
 ) -> str:
     """Build a self-contained, synchronized two-camera review page."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -100,6 +139,15 @@ def build_review_html(
         for source in spec["source_documents"]
     )
     page_data = {
+        "review_binding": build_review_binding(timeline, {
+            "spec": spec, "evidence": evidence_report, "readiness": readiness_report,
+            "decisions": accuracy_decisions_report, "events": decision_evidence_report,
+            "technical_accuracy": technical_accuracy_diagnostics_report,
+            "wholebody": wholebody_diagnostics_report, "categorical": categorical_diagnostics_report,
+            "presentation": presentation_diagnostics_report, "conformance": technical_conformance_report,
+            "segmentation": automatic_segmentation_report, "engineering_trial": engineering_trial_report,
+            "video_sources": video_sources, "input_file_hashes": review_input_hashes,
+        }, analysis_run_id),
         "timeline_id": timeline["timeline_id"],
         "fps": timeline["fps"],
         "segments": [
@@ -277,12 +325,18 @@ def build_review_html(
   const data = JSON.parse(document.getElementById('review-data').textContent);
   const videos = [...document.querySelectorAll('video')];
   const cards = [...document.querySelectorAll('.movement')];
-  const reviewKey = `tk3d-review-${{data.timeline_id}}`;
+  const reviewKey = `tk3d-review-v2-${{data.review_binding.review_id}}`;
   let reviewSelections = {{}};
+  const eventIds = new Set([...document.querySelectorAll('[data-review-event]')].map(button => button.dataset.reviewEvent));
+  const validReviews = reviews => reviews && typeof reviews === 'object' && !Array.isArray(reviews) &&
+    Object.entries(reviews).every(([id, item]) => eventIds.has(id) && item &&
+      ['confirmed','rejected','uncertain'].includes(item.decision) &&
+      typeof item.reviewer === 'string' && item.reviewer.trim() &&
+      typeof item.reviewed_at === 'string' && item.reviewed_at.trim());
   try {{
     const stored = JSON.parse(localStorage.getItem(reviewKey) || '{{}}');
-    if (stored && typeof stored === 'object' && !Array.isArray(stored)) reviewSelections = stored;
-  }} catch (error) {{ localStorage.removeItem(reviewKey); }}
+    if (validReviews(stored)) reviewSelections = stored;
+  }} catch (error) {{ /* Storage may be disabled; keep in-memory review available. */ }}
   let syncingSeek = false;
   let seekTimer = null;
   let desiredSeekTime = null;
@@ -393,12 +447,14 @@ def build_review_html(
   cards.forEach(card => card.addEventListener('click', () => seekAll(Number(card.dataset.start))));
   document.querySelectorAll('[data-review-event]').forEach(button => {{
     const eventId = button.dataset.reviewEvent;
-    if (reviewSelections[eventId] === button.dataset.reviewValue) button.classList.add('selected');
+    if (reviewSelections[eventId]?.decision === button.dataset.reviewValue) button.classList.add('selected');
     button.addEventListener('click', event => {{
-      event.stopPropagation(); reviewSelections[eventId] = button.dataset.reviewValue;
-      localStorage.setItem(reviewKey, JSON.stringify(reviewSelections));
+      event.stopPropagation();
+      const reviewer = document.getElementById('reviewer-name').value.trim();
+      if (!reviewer) {{ updateReviewStatus('Önce inceleyen adını/kodunu girin.'); return; }}
+      reviewSelections[eventId] = {{decision:button.dataset.reviewValue, reviewer, reviewed_at:new Date().toISOString()}};
       document.querySelectorAll(`[data-review-event="${{eventId}}"]`).forEach(item => item.classList.toggle('selected', item === button));
-      updateReviewStatus('İnceleme kaydedildi.');
+      persistReviews();
     }});
   }});
   const reviewStatus = document.getElementById('review-status');
@@ -408,15 +464,35 @@ def build_review_html(
     reviewStatus.textContent = `${{message || 'Kayıtlı inceleme'}} · ${{count}} karar`;
   }};
   const exportButton = document.getElementById('export-review');
+  const persistReviews = () => {{
+    try {{ localStorage.setItem(reviewKey, JSON.stringify(reviewSelections)); updateReviewStatus('İnceleme kaydedildi.'); }}
+    catch (error) {{ updateReviewStatus('Tarayıcı kaydı kullanılamıyor; kaybetmemek için JSON indirin.'); }}
+  }};
   if (exportButton) exportButton.onclick = () => {{
-    const payload = {{schema_version:1, timeline_id:data.timeline_id, created_at:new Date().toISOString(), reviews:reviewSelections}};
+    const payload = {{schema_version:2, binding:data.review_binding, created_at:new Date().toISOString(), reviews:reviewSelections}};
     const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)], {{type:'application/json'}}));
-    link.download = `tk3d-review-${{data.timeline_id}}.json`; document.body.appendChild(link); link.click(); link.remove();
+    link.download = `tk3d-review-${{data.review_binding.review_id}}.json`; document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(link.href), 1000); updateReviewStatus('JSON indirildi');
+  }};
+  const importReview = document.getElementById('import-review');
+  if (importReview) importReview.onchange = async () => {{
+    try {{
+      if (!importReview.files.length) return;
+      const payload = JSON.parse(await importReview.files[0].text());
+      const canonical = value => JSON.stringify(value, (key, item) => item && typeof item === 'object' && !Array.isArray(item)
+        ? Object.fromEntries(Object.entries(item).sort(([a],[b]) => a.localeCompare(b))) : item);
+      if (payload.schema_version !== 2 || canonical(payload.binding) !== canonical(data.review_binding) || !validReviews(payload.reviews))
+        throw new Error('Bu dosya aynı run, kanıt ve kural sürümüne ait değil veya etiketler geçersiz.');
+      reviewSelections = payload.reviews;
+      document.querySelectorAll('[data-review-event]').forEach(button => button.classList.toggle('selected', reviewSelections[button.dataset.reviewEvent]?.decision === button.dataset.reviewValue));
+      persistReviews();
+    }} catch (error) {{ updateReviewStatus(`İçe aktarılamadı: ${{error.message}}`); }}
+    finally {{ importReview.value = ''; }}
   }};
   const clearReview = document.getElementById('clear-review');
   if (clearReview) clearReview.onclick = () => {{
-    Object.keys(reviewSelections).forEach(key => delete reviewSelections[key]); localStorage.removeItem(reviewKey);
+    Object.keys(reviewSelections).forEach(key => delete reviewSelections[key]);
+    try {{ localStorage.removeItem(reviewKey); }} catch (error) {{ /* In-memory clearing remains available. */ }}
     document.querySelectorAll('[data-review-event].selected').forEach(item => item.classList.remove('selected'));
     updateReviewStatus('İncelemeler temizlendi');
   }};
@@ -1080,7 +1156,7 @@ def _decision_evidence_html(
       <p style="margin-bottom:12px">{len(events)} karar · {int(summary.get("confirmed_deduction_candidate_count", 0))} küçük hata ·
       {int(summary.get("boundary_uncertain_count", 0))} sınır-belirsiz · {int(summary.get("not_measurable_count", 0))} ölçülemedi.
       Kararı videoda inceleyip kendi kontrolünü kaydedebilirsin.</p>
-      <div class="toolbar" style="margin-bottom:10px"><button type="button" id="export-review">İnceleme kararlarını JSON indir</button><button type="button" id="clear-review">Kayıtlı incelemeleri temizle</button><span id="review-status" aria-live="polite">Kayıtlı inceleme · 0 karar</span></div>
+      <div class="toolbar" style="margin-bottom:10px"><label>İnceleyen adı/kodu <input id="reviewer-name" maxlength="120" autocomplete="off"></label><button type="button" id="export-review">İnceleme kararlarını JSON indir</button><label>İnceleme JSON yükle <input id="import-review" type="file" accept=".json,application/json"></label><button type="button" id="clear-review">Kayıtlı incelemeleri temizle</button><span id="review-status" aria-live="polite">Kayıtlı inceleme · 0 karar</span></div>
       <ul>{rows}</ul></section>'''
     return stat, section
 

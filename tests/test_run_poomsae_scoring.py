@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -21,6 +22,7 @@ from src.poomsae_scoring.application import (
 )
 from src.poomsae_scoring import load_poomsae_spec
 from src.run_outputs import initialize_run_state, mark_run_running
+from src.poomsae_scoring import application
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,6 +112,91 @@ def test_failed_subprocess_stage_marks_existing_run_failed(tmp_path: Path, monke
     state = json.loads((run_root / "run_state.json").read_text(encoding="utf-8"))
     assert state["status"] == "failed"
     assert state["error"] == "synthetic stage failed with exit code 7."
+
+
+@pytest.mark.parametrize("error", [OSError("disk full"), ValueError("invalid JSON"), KeyboardInterrupt()])
+@pytest.mark.parametrize("failure_at", ["snapshot", "video_resolution", "subprocess"])
+def test_workflow_marks_all_analysis_failures_and_cancellation_failed(tmp_path, monkeypatch, error, failure_at):
+    profile = {key: str(tmp_path / key) for key in application._PATH_KEYS}
+    profile["output_root"] = str(tmp_path)
+    profile["videos"] = []
+    monkeypatch.setattr(application, "_resolve_profile", lambda value: tmp_path / "profile.yaml")
+    monkeypatch.setattr(application, "_load_profile", lambda path: profile)
+    monkeypatch.setattr(application, "_verify_profile_bindings", lambda *args: None)
+    monkeypatch.setattr(application, "load_session", lambda path: SimpleNamespace(session_id="session-test"))
+    monkeypatch.setattr(application, "_read_json", lambda path: {"session_id": "session-test"})
+    marker = tmp_path / "session-test" / "latest_run.json"
+    marker.parent.mkdir()
+    marker.write_text('{"run_id":"previous-success"}', encoding="utf-8")
+    original_marker = marker.read_bytes()
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(application, "_snapshot_configuration", fail if failure_at == "snapshot" else lambda **kwargs: {})
+    monkeypatch.setattr(application, "_resolve_videos", fail if failure_at == "video_resolution" else lambda videos: [])
+    monkeypatch.setattr(application.subprocess, "run", fail)
+    with pytest.raises(type(error)) as caught:
+        application.run_workflow(profile_value="test", process_video=False, requested_run_id="failure-test")
+    assert caught.value is error
+    state = json.loads((marker.parent / "runs/failure-test/run_state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "failed"
+    assert type(error).__name__ in state["error"]
+    assert marker.read_bytes() == original_marker
+
+
+def test_lifecycle_write_failure_preserves_original_exception_and_existing_run(tmp_path, monkeypatch):
+    profile = {key: str(tmp_path / key) for key in application._PATH_KEYS}
+    profile["output_root"] = str(tmp_path)
+    monkeypatch.setattr(application, "_resolve_profile", lambda value: tmp_path / "profile.yaml")
+    monkeypatch.setattr(application, "_load_profile", lambda path: profile)
+    monkeypatch.setattr(application, "_verify_profile_bindings", lambda *args: None)
+    monkeypatch.setattr(application, "load_session", lambda path: SimpleNamespace(session_id="session-test"))
+    monkeypatch.setattr(application, "_read_json", lambda path: {"session_id": "session-test"})
+    original = ValueError("original analysis failure")
+
+    def fail_snapshot(**kwargs):
+        raise original
+
+    def fail_state(*args):
+        raise OSError("state storage unavailable")
+
+    monkeypatch.setattr(application, "_snapshot_configuration", fail_snapshot)
+    monkeypatch.setattr(application, "mark_run_failed", fail_state)
+    with pytest.raises(ValueError) as caught:
+        application.run_workflow(profile_value="test", process_video=False, requested_run_id="failure-test")
+    assert caught.value is original
+    assert "Could not persist" in original.__notes__[0]
+    state_path = tmp_path / "session-test/runs/failure-test/run_state.json"
+    previous_state = state_path.read_bytes()
+    with pytest.raises(WorkflowError, match="already exists"):
+        application.run_workflow(profile_value="test", process_video=False, requested_run_id="failure-test")
+    assert state_path.read_bytes() == previous_state
+
+
+def test_video_subprocess_failure_is_recorded_after_child_creates_run(tmp_path, monkeypatch):
+    profile = {key: str(tmp_path / key) for key in application._PATH_KEYS}
+    profile.update(output_root=str(tmp_path), processing={"stride": 1, "smoothing_window": 3, "progress_every": 10})
+    monkeypatch.setattr(application, "_resolve_profile", lambda value: tmp_path / "profile.yaml")
+    monkeypatch.setattr(application, "_load_profile", lambda path: profile)
+    monkeypatch.setattr(application, "_verify_profile_bindings", lambda *args: None)
+    monkeypatch.setattr(application, "_verify_process_inputs", lambda *args: None)
+    monkeypatch.setattr(application, "load_session", lambda path: SimpleNamespace(session_id="session-test"))
+    monkeypatch.setattr(application, "_read_json", lambda path: {"session_id": "session-test"})
+    run_root = tmp_path / "session-test/runs/video-failure"
+
+    def child(command, **kwargs):
+        if "run_vitpose_multiview_3d.py" in command[1]:
+            assert not run_root.exists()
+            run_root.mkdir(parents=True)
+            raise subprocess.CalledProcessError(9, command)
+
+    monkeypatch.setattr(application.subprocess, "run", child)
+    with pytest.raises(WorkflowError, match="exit code 9"):
+        application.run_workflow(profile_value="test", process_video=True, requested_run_id="video-failure")
+    state = json.loads((run_root / "run_state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "failed"
+    assert not (run_root.parent.parent / "latest_run.json").exists()
 
 
 def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) -> None:

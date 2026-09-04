@@ -1,13 +1,13 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **2 Eylül 2026**
+Son doğrulama tarihi: **4 Eylül 2026**
 
 Dal: **`main`**
 
-HEAD: **bu belgenin bulunduğu teslim commit'i (`git rev-parse HEAD`)**
+Temel commit: **`fdce4d0`**. Güncel teslim commit'i için `git rev-parse HEAD`.
 
-Çalışma ağacı: **teslim commit'i dışında beklenen repository değişikliği yok;
-yerel `outputs/` validation run'ları Git dışıdır**
+Teslim kapsamı: **karar doğruluğu, run lifecycle ve review bağlama değişiklikleri;
+`outputs/` validation run'ları Git dışıdır**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -98,6 +98,31 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+4 Eylül 2026 karar doğruluğu ve inceleme güvenilirliği kapısı:
+
+- Ruff ve `git diff --check`: temiz;
+- push öncesi son tam pytest: **`370 passed in 57.11s`**;
+- review bağlama ve gerçek JavaScript kayıt/JSON import-export handler testi:
+  **`8 passed in 1.43s`** (Node, minimal DOM; gerçek video oynatımı testi değil);
+- validation: **174/174** kural, **133/133** landmark, **440/440** sınıflandırma,
+  **18/18** geometri/uçtan uca kanıt senaryosu geçti;
+- bağımsız validation CLI artifact'leri:
+  `outputs/validation/runs/correctness-hardening-20260904-r1/`;
+- teknik profil 3.1.0: 14 boolean koşul açık beklenen değer taşır. Yanlış yön
+  durumunun beklenen değeri `false`; dejenere yüz yönü `null` kalır;
+- 17 referans-bağlı ölçütün 11'i tanımlı eşik/beklenen boolean ile
+  değerlendirilebilir; sayısal eşiksiz altısı `measurement_only` kalır;
+- hata/kesinti testleri snapshot, video çözümleme, işlem başlatma, video alt
+  işlem hatası, durum yazma hatası ve mevcut run'ı koruma yollarını kapsar;
+- şema-2 review JSON'ları analiz run'ı, kaynak pose, timeline, rapor/girdi
+  hash'lerine bağlıdır. İnceleyen/zaman olmadan etiket kaydedilmez; eski veya
+  başka run'a ait JSON içe alınmaz;
+- gerçek bağlı pose üzerinden analiz yeniden çalıştırıldı (yeni model
+  inference yok); aşağıdaki run başarıyla tamamlandı. İnsan/hakem pilotu ve
+  faz düzenleme editörü bu teslimde tamamlanmış değildir.
+
+### Önceki doğrulamalar (tarihsel)
 
 2 Eylül 2026 boolean technical-accuracy EvidenceEvent ve lifecycle düzeltmesi:
 
@@ -200,7 +225,26 @@ Ana session'ın `latest_run.json` işaretçisi smoke için değiştirilmedi.
 
 ## 6. Son CURRENT_ACTIVE Poomsae sonucu
 
-Son yerel teknik-doğruluk regresyon run'ı:
+Son yerel regresyon:
+
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/correctness-hardening-20260904-r1/`
+
+- run `completed`; M01–M06 seçili kapsamı 6/6;
+- 174 kural, 46 puansız teknik aday, toplam 66 EvidenceEvent;
+- önceki `benim-denemem-17-fix-r1` run'ında 50 teknik aday/70 event vardı.
+  M03 yanlış-yön boolean kararı artık `out_of_range`; M05 uygun-yön kararı
+  artık `within_screening_range`. Sayı azalması tek başına kalite iddiası değildir;
+- teknik adayların skor etkisi 0; kaynak-bağlı kararlar ve Presentation
+  içerikleri provenance `bindings` dışında önceki run ile eşittir;
+- provisional gözlenen-kapsam toplamı 0,4; tam Accuracy `null`;
+- readiness raporu önceki run ile aynıdır; resmî puanlama kapalıdır;
+- işaretli video, şema-2 review HTML/manifest, run history ve ana özet üretildi;
+- analiz-only run olduğu için `latest_run.json` önceki uygun multiview
+  `post-polish-full-regression-20260828-021518` run'ını göstermeye devam eder.
+
+### 31 Ağustos 2026 karşılaştırması (tarihsel)
+
+Önceki teknik-doğruluk regresyon run'ı:
 
 `outputs/poomsae_1_zed2i_20260731_trimmed/runs/taegeuk1-comprehensive-active-metrics-20260831-r2/`
 

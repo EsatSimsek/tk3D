@@ -293,12 +293,12 @@ def _direction_metrics(result: dict[str, dict[str, Any]], put: Callable[..., Non
     for metric_id, vector in vectors.items():
         put(metric_id, _horizontal_angle(vector, target), "deg")
     direction_ok = result["stance_axis_target_yaw_error_deg"]["value"]
-    put("expected_direction_change_match", direction_ok is not None and direction_ok <= 25.0, "bool")
-    put("rotation_direction_sign_match", direction_ok is not None and direction_ok <= 90.0, "bool")
+    put("expected_direction_change_match", None if direction_ok is None else direction_ok <= 25.0, "bool")
+    put("rotation_direction_sign_match", None if direction_ok is None else direction_ok <= 90.0, "bool")
     put("step_direction_error_deg", direction_ok, "deg")
     head_error = result["head_target_yaw_error_deg"]["value"]
-    put("head_turn_direction_sign_match", head_error is not None and head_error <= 90.0, "bool")
-    put("head_wrong_direction_stable_state", head_error is not None and head_error > 90.0, "bool")
+    put("head_turn_direction_sign_match", None if head_error is None else head_error <= 90.0, "bool")
+    put("head_wrong_direction_stable_state", None if head_error is None else head_error > 90.0, "bool")
     put("expected_direction_contract_resolved", True, "bool")
 
 

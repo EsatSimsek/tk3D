@@ -127,6 +127,34 @@ def run_workflow(
     if run_root.exists():
         raise WorkflowError(f"Output run already exists; refusing to overwrite: {run_root}")
 
+    try:
+        return _execute_workflow(
+            profile_path=profile_path, profile=profile, paths=paths, session=session,
+            run_id=run_id, run_root=run_root, process_video=process_video,
+            profiler=profiler, run_stage=run_stage,
+        )
+    except (Exception, KeyboardInterrupt) as exc:
+        # A video subprocess owns creation of its output tree. Do not pre-create it.
+        # Only mutate this newly requested run, never a pre-existing run.
+        if run_root.exists():
+            try:
+                if not (run_root / "run_state.json").exists():
+                    initialize_run_state(run_root, session.session_id, run_id)
+                mark_run_failed(
+                    run_root, session.session_id, run_id,
+                    f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__,
+                )
+            except Exception as state_error:
+                # Disk failure must not replace the original error/cancellation.
+                exc.add_note(f"Could not persist failed run state: {state_error}")
+        raise
+
+
+def _execute_workflow(
+    *, profile_path: Path, profile: dict[str, Any], paths: dict[str, Path],
+    session: Any, run_id: str, run_root: Path, process_video: bool,
+    profiler: PerformanceCollector | None, run_stage: Any,
+) -> Path:
     if process_video:
         _verify_process_inputs(paths["session"], session.session_id, paths["output_root"])
         run_stage(
@@ -177,10 +205,6 @@ def run_workflow(
             (run_root / directory).mkdir(parents=True, exist_ok=False)
         initialize_run_state(run_root, session.session_id, run_id)
     mark_run_running(run_root, session.session_id, run_id)
-    run_stage = partial(
-        run_stage,
-        failure_context=(run_root, session.session_id, run_id),
-    )
 
     config_paths = _snapshot_configuration(
         run_root=run_root,
@@ -442,6 +466,8 @@ def run_workflow(
         outputs["automatic_segmentation"],
         "--run-history-url",
         "run_history.html",
+        "--analysis-run-id",
+        run_id,
         "--video-a",
         browser_videos[0]["path"],
         "--video-a-label",

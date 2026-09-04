@@ -79,6 +79,7 @@ TOP_LEVEL_KEYS = {
     "quality_gates",
     "threshold_policy",
     "thresholds",
+    "boolean_expectations",
     "stance_contracts",
     "technique_contracts",
     "metric_catalog",
@@ -252,6 +253,18 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
     unknown_thresholds = set(data["thresholds"]) - set(metric_family)
     if unknown_thresholds:
         raise ScoringContractError(f"thresholds reference unknown metrics: {sorted(unknown_thresholds)}")
+    boolean_metrics = thresholdless_active | {
+        "head_turn_direction_sign_match", "head_wrong_direction_stable_state",
+        "front_back_foot_order_match", "expected_direction_change_match",
+        "rotation_direction_sign_match", "expected_direction_contract_resolved",
+    }
+    expectations = data["boolean_expectations"]
+    if not isinstance(expectations, dict) or set(expectations) != boolean_metrics:
+        raise ScoringContractError("boolean_expectations must explicitly cover every boolean rule")
+    if any(type(value) is not bool for value in expectations.values()):
+        raise ScoringContractError("boolean_expectations values must be booleans")
+    if boolean_metrics & set(data["thresholds"]):
+        raise ScoringContractError("boolean rules cannot have numeric thresholds")
 
     _validate_contract_tables(data["stance_contracts"], data["technique_contracts"])
     reasons = data["skip_reason_codes"]
@@ -691,13 +704,15 @@ def resolve_movement_accuracy_contracts(spec_payload: dict[str, Any], profile_pa
     return contracts
 
 
-def evaluate_temporary_threshold(value: Any, threshold: dict[str, Any] | None) -> str:
+def evaluate_temporary_threshold(
+    value: Any, threshold: dict[str, Any] | None, *, expected_boolean: bool | None = True,
+) -> str:
     if value is None:
         return "unmeasurable"
     if threshold is None:
-        if not isinstance(value, (bool, np.bool_)):
+        if not isinstance(value, (bool, np.bool_)) or type(expected_boolean) is not bool:
             return "unmeasurable"
-        return "within_screening_range" if bool(value) else "out_of_range"
+        return "within_screening_range" if bool(value) == expected_boolean else "out_of_range"
     if isinstance(value, (bool, np.bool_)) or not isinstance(
         value, (int, float, np.integer, np.floating)
     ):
@@ -900,9 +915,16 @@ def _evaluate_rule(
             "skip_or_block_reason": reason,
         }
     direction_bound_evaluable = rule["status"] == "blocked_missing_reference" and direction is not None
-    if rule["status"] != "active_diagnostic" and not direction_bound_evaluable:
+    has_screening = rule["threshold"] is not None or rule.get("expected_boolean") is not None
+    if (rule["status"] != "active_diagnostic" and not direction_bound_evaluable) or not has_screening:
         return {**base, **measurement, "measured": True, "evaluated": False, "state": "measurement_only", "evaluation": "measurement_only", "skip_or_block_reason": None}
-    evaluation = evaluate_temporary_threshold(measurement["value"], rule["threshold"])
+    evaluation = evaluate_temporary_threshold(
+        measurement["value"], rule["threshold"], expected_boolean=rule.get("expected_boolean"),
+    )
+    if evaluation == "unmeasurable":
+        return {**base, "measured": False, "evaluated": False, "state": "unmeasurable",
+                "evaluation": "not_evaluated", "value": None, "quality_status": "unmeasurable",
+                "skip_or_block_reason": "invalid_measurement_type_or_value"}
     decision = profile["policy"]["decision_status"] if evaluation == "out_of_range" else "no_candidate"
     return {
         **base,
@@ -933,6 +955,7 @@ def _result_base(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str, An
         "rule_family": rule["rule_family"],
         "applies": True,
         "expected_value_or_range": rule["expected_value_or_range"],
+        "expected_boolean": rule.get("expected_boolean"),
         "threshold": rule["threshold"],
         "uncertainty": None if rule["threshold"] is None else rule["threshold"]["uncertainty_band"],
         "unit": rule["unit"],
@@ -971,7 +994,8 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
     else:
         status = "measurement_only"
     threshold = deepcopy(profile["thresholds"].get(metric_id))
-    unit = threshold["unit"] if threshold else _unit_for(metric_id)
+    expected_boolean = profile["boolean_expectations"].get(metric_id)
+    unit = "bool" if expected_boolean is not None else threshold["unit"] if threshold else _unit_for(metric_id)
     return {
         "rule_id": f"TK3D-T1-V3-{metric_id.upper().replace('_', '-')}",
         "metric_id": metric_id,
@@ -983,7 +1007,8 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "applicable_techniques": ["all_declared_taegeuk_1_techniques"],
         "evaluation_phase": "phase_specific_or_fixation",
         "aggregation": "robust_window_median_or_explicit_state",
-        "expected_value_or_range": None if threshold is None else threshold["value"],
+        "expected_value_or_range": expected_boolean if threshold is None else threshold["value"],
+        "expected_boolean": expected_boolean,
         "threshold": threshold,
         "uncertainty_band": None if threshold is None else threshold["uncertainty_band"],
         "unit": unit,

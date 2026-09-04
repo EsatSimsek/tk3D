@@ -180,12 +180,33 @@ ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 33 aktif kural için 330
-sınır/eksik/non-finite vakasını ve 12 WholeBody-133 geometri senaryosunu
+kural ile 133-landmark kapsam envanterini, 33 aktif ve 11 referans-bağlı
+değerlendirilebilir kural için 440 sınır/eksik/non-finite vakasını ve
+18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
 hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
 Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
 yorum sınırları:
 [`docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md`](docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md).
+
+Teknik profil `3.1.0`, boolean kuralların beklenen sonucunu
+`boolean_expectations` içinde açıkça tanımlar. Yanlış yön koşulunun beklenen
+değeri `false` olur; ölçülemeyen yön `null` kalır ve hata adayı üretmez.
+Yön referansı bulunması, sayısal eşiği olmayan altı ölçüme karar yetkisi vermez.
+Eski profil kopyaları yeni zorunlu alan olmadan çalıştırılamaz; yeni run'da
+güncel profil kullanılmalıdır. Tarihsel çıktılar otomatik değiştirilmez.
+
+İnceleme ekranında önce inceleyen adını/kodunu girin; Doğru/Yanlış/Belirsiz
+düğmeleri **gösterilen sistem kararının doğruluğunu** etiketler. JSON dışa/içe
+aktarma şema 2 kullanır: analiz run kimliği, kaynak pose, timeline ve girdi/rapor
+hash'leri bağlanır; her etikette inceleyen ve zaman bulunur. Eski şema 1 veya
+başka run'a ait etiketler otomatik aktarılmaz. Tarayıcı depolaması kapalıysa
+JSON indirin; yalnız bellekteki seçimler sayfa kapanınca kaybolur. Bu etiketler
+puanlamaya otomatik girmez ve tek başına hakem doğrulaması değildir.
+
+Analiz başladıktan sonraki Python hataları ve kullanıcı kesintisi run'ı
+`failed` yapar; önceki başarılı run korunur. Disk yazımı da başarısızsa ilk hata
+korunur ve durum dosyasının yazılamadığı ek hata notunda belirtilir. Ani güç
+kesintisi/işlemin zorla öldürülmesi bu korumanın dışındadır.
 
 Önemli Poomsae çıktıları:
 

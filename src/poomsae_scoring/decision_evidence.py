@@ -380,7 +380,12 @@ def _technical_accuracy_diagnostic_event(
     if threshold:
         screening_rule = _technical_screening_rule(threshold)
     elif isinstance(value, bool) and unit == "bool":
-        screening_rule = {"operator": "bool_true", "expected_boolean": True}
+        expected = candidate.get("expected_boolean")
+        if type(expected) is not bool:
+            raise ScoringContractError("technical accuracy expected_boolean must be boolean")
+        if value == expected:
+            raise ScoringContractError("boolean review candidate already satisfies its expectation")
+        screening_rule = {"operator": "bool_true" if expected else "bool_false", "expected_boolean": expected}
     else:
         raise ScoringContractError(
             "thresholdless technical accuracy candidates must be boolean conditions"
@@ -466,6 +471,8 @@ def _diagnostic_explanation(candidate: dict[str, Any], movement: dict[str, Any])
     title, correction = _diagnostic_title_and_correction(metric_id)
     expected = _expected_text(rule.get("operator"), limits, unit)
     measured = _diagnostic_measured_text(value, unit)
+    if rule.get("operator") == "bool_false" and isinstance(value, bool):
+        measured = "Evet — hata koşulu mevcut." if value else "Hayır — hata koşulu yok."
     comparison = _comparison_text(value, None, rule.get("operator"), limits, unit)
     return {
         "title": title,
@@ -646,6 +653,8 @@ def _expected_text(operator: Any, limits: list[Any], unit: str) -> str:
     label = _unit_label(unit)
     if operator == "bool_true":
         return "Olmasi gereken: teknik koşul sağlanmalı."
+    if operator == "bool_false":
+        return "Olmasi gereken: hata koşulu bulunmamalı (false)."
     if operator == "max" and limits:
         return f"Olmasi gereken: en fazla {float(limits[0]):.2f} {label}."
     if operator == "abs_max" and limits:
@@ -664,10 +673,10 @@ def _comparison_text(
     limits: list[Any],
     unit: str,
 ) -> str:
-    if operator == "bool_true":
+    if operator in {"bool_true", "bool_false"}:
         if not isinstance(value, bool):
             return "Koşul karşılaştırılamadı; boolean ölçüm yok."
-        return "Koşul sağlandı." if value else "Koşul sağlanmadı; inceleme gerekiyor."
+        return "Koşul sağlandı." if value == (operator == "bool_true") else "Koşul sağlanmadı; inceleme gerekiyor."
     if value is None or not limits:
         return "Fark hesaplanamadi; gerekli eklem kaniti yetersiz."
     label = _unit_label(unit)

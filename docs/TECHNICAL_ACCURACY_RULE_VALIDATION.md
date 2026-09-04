@@ -1,6 +1,6 @@
 # Teknik Doğruluk Kural Doğrulama Düzeneği
 
-Son güncelleme: **31 Ağustos 2026**
+Son güncelleme: **4 Eylül 2026**
 
 Bu düzenek, Taegeuk 1 v3 teknik-doğruluk sisteminin yazılım davranışını
 tekrarlanabilir sentetik vakalarla doğrular. Kuralın biomekanik olarak doğru
@@ -16,16 +16,23 @@ kanıtlamaz. Çıktının durumu bu nedenle
 2. **133 landmark envanteri:** 0–132 arasındaki her noktanın en az bir kural
    sözleşmesine bağlı olduğu ayrıca doğrulanır. Bu kontrol landmark başına
    bağımsız aktif hata kuralı bulunduğu anlamına gelmez.
-3. **33 aktif kuralın eşik sınıflandırması:** Her aktif kural için `pass`,
+3. **44 değerlendirilebilir kuralın eşik sınıflandırması:** 33 aktif ve
+   11 referans-bağlı kurala `pass`,
    üst/ana `boundary`, karşı taraf `opposite_boundary`, üst/ana `fail`, karşı
    taraf `opposite_fail`, `missing`, `nan`, `positive_infinity`,
-   `negative_infinity` ve `wrong_type` çalıştırılır. Böylece toplam 330
+   `negative_infinity` ve `wrong_type` çalıştırılır. Böylece toplam 440
    sınıflandırma vakası oluşur. Range operatörünün iki sınırı ve `abs_max`
    operatörünün pozitif/negatif yönü ayrı sınanır. Tek taraflı veya boolean
    kontratta uygulanamayan karşı sınır açıkça `not_applicable` kaydedilir.
+   Boolean kararlar profilin açık `boolean_expectations` değerine göre
+   karşılaştırılır; `false` beklenen hata-yok koşulu da sınanır.
 4. **WholeBody-133 geometri senaryoları:** Tam fixture; yüz/el/ayak kanıtının
    kaybı; kamera ve reprojection kapıları; dejenere yüz; fixation sonrası
    kontrollü drift; sağ-sol ayna; BODY-17 reddi ve yön bağı davranışı sınanır.
+   Yapılandırılmış 12 senaryoya ek altı zorunlu geometri → karar → EvidenceEvent
+   vakası vardır: 0°, 89°, 91°, -91°, 180° baş yönü ve dejenere yüz.
+   Ölçülen açılar bilinen fixture açısıyla karşılaştırılır; ters yön adayının
+   `expected_boolean=false`, boş sayısal limit ve puansız kanıt taşıması gerekir.
 5. **Artifact güvenliği:** JSON yazımı `allow_nan=false` ile yapılır. NaN ve
    sonsuzluk test girdileri ham sayı olarak artifact'e yazılmaz; tür etiketi ve
    `null` değerle temsil edilir. Dört config girdisinin mutlak yolu ve SHA-256
@@ -63,8 +70,8 @@ Rapor ancak aşağıdakilerin hepsi doğruysa `status=passed` olur:
 
 - 174 envanter satırının tamamı kendi durum sözleşmesini geçer;
 - 133 landmark satırının tamamı en az bir açık kural bağı taşır;
-- 330 aktif-kural vakasının tamamı beklenen sınıfa düşer;
-- yapılandırılmış 12 geometri senaryosunun tamamı geçer;
+- 440 sınıflandırma vakasının tamamı beklenen sınıfa düşer;
+- 12 yapılandırılmış ve 6 zorunlu uçtan uca senaryonun tamamı geçer;
 - BODY-17 girdisi kabul edilmez, eksik kanıt aday üretmez ve yön kuralları
   session-bound referans olmadan açılmaz;
 - kontrollü drift ilgili metrikleri baz çizginin üstüne taşır ve ayna işlemi
@@ -73,8 +80,9 @@ Rapor ancak aşağıdakilerin hepsi doğruysa `status=passed` olur:
   geri döner;
 - eksik kanıt senaryosundaki her hedef, bozulmadan önce baz çizgide ölçülebilir
   olmalıdır; zaten ölçülemeyen bir metrik yanlış başarı üretemez;
-- geçerli session-bound bağ verildiğinde 17 yön kuralının tamamı ölçülür ve
-  değerlendirilir.
+- geçerli session-bound bağ verildiğinde sentetik fixture'daki 17 yön kuralı
+  ölçülür; yalnız açık eşik/beklenen boolean değeri bulunan 11'i değerlendirilir.
+  Diğer altısı `measurement_only` kalır; bunlara eşik uydurulmaz.
 
 `passed`, “yazılım bu tanımlı kontratlarda beklenen biçimde davrandı” demektir.
 Rapor bunu ayrı `readiness` nesnesiyle korur:
@@ -92,3 +100,23 @@ Rapor bunu ayrı `readiness` nesnesiyle korur:
 Bu dış doğrulamalar yapılana kadar hiçbir harness sonucu resmî Accuracy puanı,
 WT/Kukkiwon uyumu, üretim kalibrasyonu veya bilimsel ground-truth doğruluğu
 olarak sunulamaz.
+
+## Sonraki gerçek veri pilotu — insan etiketi gerekir
+
+Önce baş hedef yönü, yanlış yön durumu, gövde eğimi, bilek/önkol hizası,
+ayak kayması ve el/duruş yerleşme farkı gibi 6 ölçüt seçilir. Her biri için
+uygun, uygunsuz ve ölçülemeyen örnekler toplanır. Mümkün olduğunda farklı
+oturum/sporcular kullanılır; aynı klibin komşu kareleri bağımsız örnek veya
+ayrı eğitim/test bölümü sayılmaz.
+
+İnceleme ekranındaki şema-2 JSON kayıtları run/kanıt hash'i, inceleyen ve zaman
+ile toplanır. Bunlar yalnız gösterilen adayları etiketlediğinden aday listesi
+üzerinden tek başına recall hesaplanamaz: kaçırılan hatalar için aday olmayan
+hareket/pencereler de sistem kararından bağımsız, kör biçimde etiketlenmelidir.
+Önceden ayrılmış oturumlarda kural başına TP/FP/FN/TN, örnek sayısı,
+ölçülememe oranı ve hakem uyuşmazlığı raporlanır; örneği olmayan oran `null`
+kalır. Uyuşmazlıklar zorla tek doğru etikete çevrilmez. Eşik ayarı yapılan
+oturumlar bağımsız değerlendirme kümesi olarak tekrar kullanılmaz.
+
+Bu pilot henüz gerçekleştirilmedi; sentetik sonuçlar insan etiketi yerine
+konulamaz. Faz düzeltme/onay editörü ayrı sonraki çalışma olarak kalır.
