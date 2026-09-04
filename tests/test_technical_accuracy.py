@@ -506,3 +506,155 @@ def _synthetic_wholebody(timeline: dict) -> dict:
             for segment in timeline["segments"]
         ],
     }
+
+
+JUDGE_SIGNATURE = {
+    "origin": "judge_supplied_validated_threshold",
+    "judge_name": "Test Referee",
+    "judge_credential": "WT international poomsae referee, 1st class",
+    "decision_date": "2026-09-04",
+    "approval_reference": "TK3D-JUDGE-REVIEW-2026-09-04-torso-lean",
+    "score_effect": "deduction_candidate",
+    "deduction_points": 0.1,
+}
+JUDGE_METRIC = "torso_lean_p95_deg"
+
+
+def _judge_signed_profile(
+    *,
+    metric_id: str = JUDGE_METRIC,
+    value: float | None = None,
+    declare: bool = True,
+    sign: bool = True,
+    **signature_overrides,
+) -> dict:
+    raw = _raw_profile()
+    if sign:
+        raw["thresholds"][metric_id]["judge_source"] = {**JUDGE_SIGNATURE, **signature_overrides}
+    if value is not None:
+        raw["thresholds"][metric_id]["value"] = value
+    if declare:
+        raw["judge_validated_rules"] = [metric_id]
+    return raw
+
+
+def test_unsigned_profile_cannot_produce_any_score_effect() -> None:
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    report = build_technical_accuracy_diagnostics(
+        _synthetic_pose(timeline["frame_count"]), spec, timeline, profile, _synthetic_wholebody(timeline)
+    )
+
+    assert profile["judge_validated_rules"] == []
+    assert report["numeric_score_enabled"] is False
+    assert report["deduction_enabled"] is False
+    assert report["deductions"] == []
+    assert report["scoring_status"] == "not_scored_diagnostic_candidates_only"
+    assert report["summary"]["judge_validated_rule_count"] == 0
+    assert report["summary"]["score_effect_count"] == 0
+    assert all(rule["judge_source"] is None for rule in report["rule_inventory"])
+    assert any("no threshold carries a referee signature" in line.lower() for line in report["limitations"])
+
+
+def test_judge_signed_threshold_scores_and_names_the_referee_that_authorised_it() -> None:
+    profile = validate_technical_accuracy_profile(_judge_signed_profile(value=0.0))
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    report = build_technical_accuracy_diagnostics(
+        _synthetic_pose(timeline["frame_count"]), spec, timeline, profile, _synthetic_wholebody(timeline)
+    )
+
+    assert report["numeric_score_enabled"] is True
+    assert report["deduction_enabled"] is True
+    assert report["scoring_status"] == "judge_validated_deduction_candidates_present"
+    assert report["summary"]["judge_validated_rule_count"] == 1
+    assert report["deductions"]
+    assert report["summary"]["deduction_effect_count"] == len(report["deductions"])
+
+    for deduction in report["deductions"]:
+        assert deduction["metric_id"] == JUDGE_METRIC
+        assert deduction["provenance"] == "judge_supplied_validated_threshold"
+        assert deduction["judge_name"] == JUDGE_SIGNATURE["judge_name"]
+        assert deduction["judge_credential"] == JUDGE_SIGNATURE["judge_credential"]
+        assert deduction["decision_date"] == JUDGE_SIGNATURE["decision_date"]
+        assert deduction["approval_reference"] == JUDGE_SIGNATURE["approval_reference"]
+        assert deduction["deduction_points"] == JUDGE_SIGNATURE["deduction_points"]
+        assert deduction["decision_status"] == "judge_validated_deduction"
+
+    # One signed rule must not turn the rest of the profile into a scoring rule.
+    for rule in report["rule_inventory"]:
+        if rule["metric_id"] == JUDGE_METRIC:
+            continue
+        assert rule["judge_source"] is None
+        assert rule["origin"] == "self_authored_temporary_accuracy_rule"
+        assert rule["score_effect"] is None
+        assert rule["numeric_score_enabled"] is False
+    for candidate in report["candidate_events"]:
+        if candidate["metric_id"] == JUDGE_METRIC:
+            continue
+        assert candidate["decision_status"] == "review_candidate_not_deduction"
+        assert candidate["score_effect"] is None
+
+    # The diagnostic layer still refuses to claim an official accuracy score.
+    assert report["accuracy_score"] is None
+    assert report["total_score"] is None
+    assert report["official_accuracy_claim_allowed"] is False
+
+
+@pytest.mark.parametrize(
+    ("factory", "match"),
+    [
+        (lambda: _judge_signed_profile(declare=False), "signed_without_declaration"),
+        (lambda: _judge_signed_profile(sign=False), "declared_without_signature"),
+        (
+            lambda: _judge_signed_profile(metric_id="foot_landing_position_error_body_ratio"),
+            "must also be active diagnostics",
+        ),
+        (lambda: _judge_signed_profile(origin="self_authored_temporary_accuracy_rule"), "origin must be"),
+        (lambda: _judge_signed_profile(judge_name="  "), "judge_name must be a non-empty string"),
+        (lambda: _judge_signed_profile(approval_reference=""), "approval_reference must be a non-empty string"),
+        (lambda: _judge_signed_profile(decision_date="04.09.2026"), "must be an ISO date"),
+        (lambda: _judge_signed_profile(score_effect="full_deduction"), "score_effect must be one of"),
+        (lambda: _judge_signed_profile(deduction_points=0), "deduction_points must be positive"),
+    ],
+)
+def test_judge_signature_is_rejected_unless_complete_declared_and_active(factory, match: str) -> None:
+    with pytest.raises(ScoringContractError, match=match):
+        validate_technical_accuracy_profile(factory())
+
+
+def test_judge_signature_cannot_carry_unknown_or_missing_fields() -> None:
+    raw = _judge_signed_profile()
+    raw["thresholds"][JUDGE_METRIC]["judge_source"]["signed_by_engineer"] = True
+    with pytest.raises(ScoringContractError, match="keys must be exactly"):
+        validate_technical_accuracy_profile(raw)
+
+    raw = _judge_signed_profile()
+    del raw["thresholds"][JUDGE_METRIC]["judge_source"]["judge_credential"]
+    with pytest.raises(ScoringContractError, match="keys must be exactly"):
+        validate_technical_accuracy_profile(raw)
+
+    raw = _raw_profile()
+    raw["thresholds"][JUDGE_METRIC]["reviewed"] = True
+    with pytest.raises(ScoringContractError, match="has invalid keys"):
+        validate_technical_accuracy_profile(raw)
+
+
+def test_profile_level_score_lock_survives_a_judge_signature() -> None:
+    """A referee signs one threshold, not the whole profile's no-score semantics."""
+    for key, value in (
+        ("numeric_score_enabled", True),
+        ("deduction_enabled", True),
+        ("provenance", "judge_supplied_validated_threshold"),
+        ("score_effect", "deduction_candidate"),
+    ):
+        raw = _judge_signed_profile()
+        raw["policy"][key] = value
+        with pytest.raises(ScoringContractError, match="preserve exact no-score semantics"):
+            validate_technical_accuracy_profile(raw)
+
+    raw = _judge_signed_profile()
+    raw["threshold_policy"]["origin"] = "judge_supplied_validated_threshold"
+    with pytest.raises(ScoringContractError, match="self-authored and score-neutral"):
+        validate_technical_accuracy_profile(raw)

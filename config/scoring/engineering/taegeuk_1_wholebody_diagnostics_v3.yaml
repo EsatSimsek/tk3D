@@ -382,6 +382,11 @@ not_observable_rules:
   - impact_power
   - muscle_tension
   - hand_shape_observability
+# Rules whose threshold carries a recorded referee signature. These are the only
+# rules allowed to carry a deduction. The list must match the thresholds that
+# actually carry a judge_source block; a mismatch either way is rejected.
+# Empty means no referee has signed anything yet, so nothing here can change a score.
+judge_validated_rules: []
 failure_behavior: emit_state_and_reason_without_candidate
 skip_reason_codes:
   - insufficient_valid_samples

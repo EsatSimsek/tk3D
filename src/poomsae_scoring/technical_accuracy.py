@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,7 @@ TOP_LEVEL_KEYS = {
     "active_rules",
     "direction_bound_rules",
     "not_observable_rules",
+    "judge_validated_rules",
     "failure_behavior",
     "skip_reason_codes",
     "disclaimer",
@@ -99,6 +101,19 @@ QUALITY_KEYS = {
 }
 THRESHOLD_KEYS = {"operator", "value", "uncertainty_band", "unit"}
 OPERATORS = {"max", "abs_max", "min", "range"}
+JUDGE_THRESHOLD_ORIGIN = "judge_supplied_validated_threshold"
+JUDGE_SOURCE_KEYS = {
+    "origin",
+    "judge_name",
+    "judge_credential",
+    "decision_date",
+    "approval_reference",
+    "score_effect",
+    "deduction_points",
+}
+JUDGE_SCORE_EFFECTS = {"deduction_candidate"}
+JUDGE_DECISION_STATUS = "judge_validated_deduction"
+JUDGE_RULE_ELIGIBILITY = "judge_validated_threshold"
 ACTIVE_EVALUATORS = {
     "head_torso_relative_yaw_deg",
     "head_roll_relative_shoulders_deg",
@@ -192,7 +207,15 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
         _nonempty(metric_id, "threshold metric id")
         if not isinstance(threshold, dict):
             raise ScoringContractError(f"threshold {metric_id} must be a mapping")
-        _exact_keys(threshold, THRESHOLD_KEYS, f"threshold {metric_id}")
+        missing = THRESHOLD_KEYS - set(threshold)
+        unexpected = set(threshold) - THRESHOLD_KEYS - {"judge_source"}
+        if missing or unexpected:
+            raise ScoringContractError(
+                f"threshold {metric_id} has invalid keys: "
+                f"missing={sorted(missing)}, unexpected={sorted(unexpected)}"
+            )
+        if "judge_source" in threshold:
+            threshold["judge_source"] = _validate_judge_source(threshold["judge_source"], metric_id)
         if threshold["operator"] not in OPERATORS:
             raise ScoringContractError(f"invalid threshold operator for {metric_id}")
         if threshold["unit"] not in UNITS:
@@ -252,6 +275,24 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
     unknown_thresholds = set(data["thresholds"]) - set(metric_family)
     if unknown_thresholds:
         raise ScoringContractError(f"thresholds reference unknown metrics: {sorted(unknown_thresholds)}")
+
+    judge_declared = _id_set(data["judge_validated_rules"], metric_family, "judge_validated_rules")
+    judge_signed = {
+        metric_id
+        for metric_id, threshold in data["thresholds"].items()
+        if "judge_source" in threshold
+    }
+    if judge_declared != judge_signed:
+        raise ScoringContractError(
+            "judge-validated rule list and signed thresholds differ: "
+            f"declared_without_signature={sorted(judge_declared - judge_signed)}, "
+            f"signed_without_declaration={sorted(judge_signed - judge_declared)}"
+        )
+    judge_inactive = judge_declared - active
+    if judge_inactive:
+        raise ScoringContractError(
+            f"judge-validated rules must also be active diagnostics: {sorted(judge_inactive)}"
+        )
 
     _validate_contract_tables(data["stance_contracts"], data["technique_contracts"])
     reasons = data["skip_reason_codes"]
@@ -513,7 +554,7 @@ def build_technical_accuracy_diagnostics(
             result = _evaluate_rule(rule, contract, segment, measurements, direction, profile) if applies else _not_applicable(rule, contract)
             results.append(result)
             coverage.append(_coverage_row(result, applies))
-            if result["decision_status"] == profile["policy"]["decision_status"]:
+            if result["decision_status"] != "no_candidate":
                 candidates.append(result)
         counts = Counter(result["state"] for result in results if result["applies"])
         movement_reports.append(
@@ -540,18 +581,25 @@ def build_technical_accuracy_diagnostics(
 
     state_counts = Counter(row["state"] for row in coverage if row["applies"])
     landmark_inventory = _build_landmark_inventory(rules)
+    judge_rules = [rule for rule in rules if rule["judge_source"] is not None]
+    judge_deductions = [_judge_deduction(result) for result in candidates if result["score_effect"]]
+    scored = bool(judge_rules)
     return _json_safe(
         {
             "schema_version": 1,
             "status": "technical_accuracy_diagnostics_only",
             "category": "technical_accuracy_diagnostic",
-            "scoring_status": "not_scored_diagnostic_candidates_only",
+            "scoring_status": (
+                "judge_validated_deduction_candidates_present"
+                if scored
+                else "not_scored_diagnostic_candidates_only"
+            ),
             "accuracy_score": None,
             "presentation_score": None,
             "total_score": None,
-            "deductions": [],
-            "numeric_score_enabled": False,
-            "deduction_enabled": False,
+            "deductions": judge_deductions,
+            "numeric_score_enabled": scored,
+            "deduction_enabled": scored,
             "official_accuracy_claim_allowed": False,
             "movement_timeline_id": timeline["timeline_id"],
             "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"], "status": spec["status"]},
@@ -588,9 +636,10 @@ def build_technical_accuracy_diagnostics(
                     row["active_diagnostic_rule_count"] > 0 for row in landmark_inventory
                 ),
                 "coverage_state_counts": dict(state_counts),
-                "temporary_candidate_count": len(candidates),
-                "score_effect_count": 0,
-                "deduction_effect_count": 0,
+                "temporary_candidate_count": sum(1 for result in candidates if result["score_effect"] is None),
+                "judge_validated_rule_count": len(judge_rules),
+                "score_effect_count": len(judge_deductions),
+                "deduction_effect_count": len(judge_deductions),
             },
             "rule_inventory": rules,
             "landmark_inventory": landmark_inventory,
@@ -603,7 +652,13 @@ def build_technical_accuracy_diagnostics(
                 "head_orientation_proxy is not actual eye gaze or visual attention.",
                 "pelvis/body-centre proxies are not centre of mass, pressure, or weight distribution.",
                 "WholeBody hand, face, and foot points do not have the same depth/global-optimizer validation as BODY-17.",
-                "Temporary thresholds are unvalidated engineering hypotheses and cannot change any score or deduction.",
+                "Self-authored thresholds are unvalidated engineering hypotheses and cannot change any score or deduction.",
+                (
+                    f"{len(judge_rules)} threshold(s) carry a recorded referee signature and are the only "
+                    "rules in this report allowed to carry a deduction."
+                    if scored
+                    else "No threshold carries a referee signature, so no rule in this report can carry a deduction."
+                ),
             ],
         }
     )
@@ -903,7 +958,9 @@ def _evaluate_rule(
     if rule["status"] != "active_diagnostic" and not direction_bound_evaluable:
         return {**base, **measurement, "measured": True, "evaluated": False, "state": "measurement_only", "evaluation": "measurement_only", "skip_or_block_reason": None}
     evaluation = evaluate_temporary_threshold(measurement["value"], rule["threshold"])
-    decision = profile["policy"]["decision_status"] if evaluation == "out_of_range" else "no_candidate"
+    out_of_range = evaluation == "out_of_range"
+    decision = rule["decision_status"] if out_of_range else "no_candidate"
+    applied_effect = rule["score_effect"] if out_of_range else None
     return {
         **base,
         **measurement,
@@ -912,6 +969,8 @@ def _evaluate_rule(
         "state": "active_diagnostic",
         "evaluation": evaluation,
         "decision_status": decision,
+        "score_effect": applied_effect,
+        "deduction_points": rule["deduction_points"] if applied_effect else None,
         "skip_or_block_reason": None,
     }
 
@@ -939,10 +998,11 @@ def _result_base(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str, An
         "decision_status": "no_candidate",
         "rule_eligibility": rule["rule_eligibility"],
         "provenance": rule["origin"],
+        "judge_source": rule["judge_source"],
         "score_effect": None,
         "deduction_points": None,
-        "deduction_enabled": False,
-        "numeric_score_enabled": False,
+        "deduction_enabled": rule["deduction_enabled"],
+        "numeric_score_enabled": rule["numeric_score_enabled"],
     }
 
 
@@ -972,6 +1032,7 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         status = "measurement_only"
     threshold = deepcopy(profile["thresholds"].get(metric_id))
     unit = threshold["unit"] if threshold else _unit_for(metric_id)
+    judge = (threshold or {}).get("judge_source")
     return {
         "rule_id": f"TK3D-T1-V3-{metric_id.upper().replace('_', '-')}",
         "metric_id": metric_id,
@@ -992,16 +1053,17 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "required_reference_frame": "athlete_local_direction" if metric_id in direction else "gravity_relative_or_body_relative",
         "evidence_quality_requirements": ["exact_133_points", "finite_required_landmarks", "camera_and_reprojection_gate", "minimum_valid_samples"],
         "status": status,
-        "origin": profile["policy"]["provenance"],
+        "origin": judge["origin"] if judge else profile["policy"]["provenance"],
+        "judge_source": judge,
         "rationale": profile["threshold_policy"]["rationale"],
-        "score_effect": None,
-        "deduction_enabled": False,
+        "score_effect": judge["score_effect"] if judge else None,
+        "deduction_enabled": judge is not None,
         "failure_behavior": profile["failure_behavior"],
         "skip_reason_codes": profile["skip_reason_codes"],
-        "decision_status": profile["policy"]["decision_status"],
-        "rule_eligibility": profile["policy"]["rule_eligibility"],
-        "numeric_score_enabled": False,
-        "deduction_points": None,
+        "decision_status": JUDGE_DECISION_STATUS if judge else profile["policy"]["decision_status"],
+        "rule_eligibility": JUDGE_RULE_ELIGIBILITY if judge else profile["policy"]["rule_eligibility"],
+        "numeric_score_enabled": judge is not None,
+        "deduction_points": judge["deduction_points"] if judge else None,
         "measurement_evaluator_status": (
             "not_applicable_pipeline_limit"
             if status == "not_observable_with_current_pipeline"
@@ -1048,6 +1110,61 @@ def _validate_contract_tables(stance: Any, techniques: Any) -> None:
         for key in technique_keys - {"allowed_torso_pelvis_yaw_deg"}:
             _nonempty(contract[key], f"{name}.{key}")
         _nonnegative(contract["allowed_torso_pelvis_yaw_deg"], f"{name}.allowed_torso_pelvis_yaw_deg")
+
+
+def _judge_deduction(result: dict[str, Any]) -> dict[str, Any]:
+    """One deduction row, carrying the signature that authorised it.
+
+    The row is never anonymous: whoever reads the report can see which referee's
+    number produced it, and on what date, without opening the profile.
+    """
+    judge = result["judge_source"]
+    return {
+        "movement_id": result["movement_id"],
+        "rule_id": result["rule_id"],
+        "metric_id": result["metric_id"],
+        "criterion_id": result["criterion_id"],
+        "measured_value": result["value"],
+        "threshold": result["threshold"],
+        "unit": result["unit"],
+        "decision_status": result["decision_status"],
+        "score_effect": result["score_effect"],
+        "deduction_points": result["deduction_points"],
+        "provenance": result["provenance"],
+        "judge_name": judge["judge_name"],
+        "judge_credential": judge["judge_credential"],
+        "decision_date": judge["decision_date"],
+        "approval_reference": judge["approval_reference"],
+    }
+
+
+def _validate_judge_source(payload: Any, metric_id: str) -> dict[str, Any]:
+    """A referee-signed threshold is the only origin allowed to carry a score effect.
+
+    Everything here is attribution: who decided, what they are qualified as, when,
+    and under which recorded approval. A value without that record stays self-authored
+    and score-neutral, so a scoring threshold can never enter the profile anonymously.
+    """
+    label = f"thresholds.{metric_id}.judge_source"
+    if not isinstance(payload, dict):
+        raise ScoringContractError(f"{label} must be a mapping")
+    source = deepcopy(payload)
+    _exact_keys(source, JUDGE_SOURCE_KEYS, label)
+    if source["origin"] != JUDGE_THRESHOLD_ORIGIN:
+        raise ScoringContractError(f"{label}.origin must be {JUDGE_THRESHOLD_ORIGIN}")
+    for key in ("judge_name", "judge_credential", "approval_reference"):
+        _nonempty(source[key], f"{label}.{key}")
+    decision_date = _nonempty(source["decision_date"], f"{label}.decision_date")
+    try:
+        date.fromisoformat(decision_date)
+    except ValueError as error:
+        raise ScoringContractError(f"{label}.decision_date must be an ISO date") from error
+    if source["score_effect"] not in JUDGE_SCORE_EFFECTS:
+        raise ScoringContractError(
+            f"{label}.score_effect must be one of {sorted(JUDGE_SCORE_EFFECTS)}"
+        )
+    source["deduction_points"] = _positive(source["deduction_points"], f"{label}.deduction_points")
+    return source
 
 
 def _id_set(values: Any, catalog: dict[str, str], label: str) -> set[str]:

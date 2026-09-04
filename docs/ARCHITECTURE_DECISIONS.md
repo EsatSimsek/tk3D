@@ -612,6 +612,61 @@ gerekir. Sentetik fixture, gerçek hata doğruluğunun yerine kullanılamaz.
 Ayrıntı:
 [`TECHNICAL_ACCURACY_RULE_VALIDATION.md`](TECHNICAL_ACCURACY_RULE_VALIDATION.md).
 
+## AD-030 — Puana etki edebilen tek eşik kaynağı imzalı hakem değeridir
+
+Karar: Teknik doğruluk profilinde iki eşik kaynağı tanımlanır. Varsayılan kaynak
+`self_authored_temporary_accuracy_rule` olarak kalır ve hiçbir koşulda puana
+etki edemez. İkinci kaynak `judge_supplied_validated_threshold`, eşik satırının
+kendi içindeki `judge_source` bloğudur; yalnız bu kaynağı taşıyan kural kesinti
+adayı üretebilir. Kaynak profil düzeyinde değil eşik düzeyindedir, çünkü hakem
+toplantısından çıkan sayı tek seferde otuz iki eşiği kapsamaz; imzalanan üç eşik
+puana etki ederken kalan eşikler bizim yazdığımız hâliyle puansız kalır.
+
+Gerekçe: Profil düzeyinde tek anahtar olsaydı hakem üç sayı verdiğinde geri
+kalan yirmi dokuz eşiği de hakemin verdiği sayılmış olurdu; alternatifi bütün
+profili kullanılamaz bırakmaktı. Eşik düzeyinde kaynak, hakem görüşmesinden
+sonra tek işin verilen sayıları ilgili satırlara yazmak olmasını sağlar.
+
+Koruma: `judge_source` bloğu anonim olamaz. Hakemin adı, yetki belgesi, karar
+tarihi (ISO) ve onay kaydı zorunludur; biri eksikse profil reddedilir. Profil
+düzeyindeki `policy` bloğunun puansızlık kilidi ve `threshold_policy.origin`
+kontrolü hiç gevşetilmedi; imzalı eşik varken bile bu iki kilit aynen çalışır.
+İmzalı eşiklerin kümesi `judge_validated_rules` listesiyle birebir eşleşmek
+zorundadır ve liste `active_rules` altkümesi olmak zorundadır. Yani imza sessizce
+giremez, listede boşta duramaz ve evaluator'ı olmayan bir kurala bağlanamaz.
+Kesinti satırı hangi hakemin hangi tarihli kararından çıktığını taşır; kaynağı
+görünmeyen kesinti üretilemez. `judge_validated_rules` boşken rapor bugünkü
+çıktının aynısıdır.
+
+Sınır: Bu düzenek eşiğin doğruluğunu değil kaynağının kayıtlı olduğunu garanti
+eder. `accuracy_score`, `total_score` ve `official_accuracy_claim_allowed`
+imzalı eşik varken de değişmez; resmî puan iddiası bu katmanın işi değildir.
+
+## AD-031 — Eşiği olup pasif kalan iki kuralın sebebi kayda geçer
+
+Karar: `foot_landing_position_error_body_ratio` ve `head_torso_settle_offset`
+eşik taşıdıkları hâlde `measurement_only` kalır. İkisinin de sebebi ayrıdır ve
+ikisi de eksiklik değil, kasıtlı kapalılıktır.
+
+`foot_landing_position_error_body_ratio` ayağın duruş sözleşmesindeki aralığın
+ne kadar dışına taştığını ölçer (`_stance_range_error`). O aralık —
+`stance_contracts` içindeki `length_leg_ratio` ve `width_shoulder_ratio` —
+kendi yazdığımız doğrulanmamış bir değerdir. Kural aktif edilseydi hem aralığın
+hem toleransın doğru olduğu iddia edilmiş olurdu. Aktifleşmesi için hakemden iki
+sayı gerekir: aralık ve tolerans.
+
+`head_torso_settle_offset` başın ve gövdenin duruşa oturma anları arasındaki
+farkı ölçer. "Oturdu" kararını `_settle_frame` fonksiyonunun içine gömülü `10°`
+verir; bu değer YAML'da değildir ve bütün sayıların YAML'da olması kuralını
+bozar. Aktif kardeşi `active_hand_stance_settle_offset` bu sorunu taşımaz,
+çünkü doğrudan v2 ölçümünden gelir. Aktifleşmesi için önce `10°` YAML'a
+çıkarılmalı, sonra hakem onaylamalıdır.
+
+Koruma: Bir kuralın aktif olması için `active_rules` listesinde ve
+`ACTIVE_EVALUATORS` kümesinde birlikte bulunması şarttır; eşik taşımak tek
+başına yetmez ve yetmemelidir. Eşiği olup aktif olmayan diğer beş kural yön
+bağlıdır ve sebepleri AD-027'de kayıtlıdır.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

@@ -151,8 +151,9 @@ ground-reaction force, darbe gücü veya kas gerilimi ölçülmez.
 
 ## Eşik ve karar politikası
 
-Bütün sayısal değerler v3 YAML içindeki `thresholds` alanındadır; evaluator
-fonksiyonlarına gömülü eşik yoktur. Her eşik birim, operatör, belirsizlik bandı
+Aktif kuralların bütün sayısal değerleri v3 YAML içindeki `thresholds`
+alanındadır; aktif bir evaluator'a gömülü eşik yoktur. Pasif kalan iki kuralın
+biri tam da bu yüzden pasiftir; aşağıya bakınız. Her eşik birim, operatör, belirsizlik bandı
 ve ortak provenance politikasını taşır. Başlıca istek-bağlı geçici değerler:
 
 - baş hedef/torso yaw `25°`, roll `15°`, pitch `20°`, baş fixation/drift `10°`;
@@ -182,6 +183,68 @@ deduction_enabled = false
 rule_eligibility = blocked_unvalidated_screening_threshold
 provenance = self_authored_temporary_accuracy_rule
 ```
+
+Bu alanlar imzasız her eşik için geçerlidir ve profil düzeyindeki `policy`
+bloğu birebir kilitlidir; tek satırı değişirse profil reddedilir.
+
+## İkinci eşik kaynağı: imzalı hakem değeri
+
+Bir eşik satırı `judge_source` bloğu taşıyabilir. Yalnız bu bloğu taşıyan kural
+kesinti adayı üretebilir; imzasız eşikler yukarıdaki puansız hâlinde kalır.
+
+```yaml
+thresholds:
+  torso_lean_p95_deg:
+    operator: max
+    value: 15.0
+    uncertainty_band: 2.0
+    unit: deg
+    judge_source:
+      origin: judge_supplied_validated_threshold
+      judge_name: <hakemin adı>
+      judge_credential: <yetki belgesi>
+      decision_date: '2026-09-10'
+      approval_reference: <onay kaydı>
+      score_effect: deduction_candidate
+      deduction_points: 0.1
+judge_validated_rules:
+  - torso_lean_p95_deg
+```
+
+Kaynak profil düzeyinde değil eşik düzeyindedir. Hakem üç sayı verirse yalnız o
+üç kural puana etki eder; kalan yirmi dokuz eşik bizim yazdığımız hâliyle
+puansız kalır. Toplantıdan sonra tek iş, verilen sayıları ilgili satırlara
+yazmaktır.
+
+Kabul koşulları, hepsi zorunlu:
+
+- `judge_source` altı alanın tamamını taşır. Ad, yetki belgesi ve onay kaydı boş
+  olamaz, tarih ISO biçimindedir. Anonim imza reddedilir.
+- İmzalı eşiklerin kümesi `judge_validated_rules` listesiyle birebir eşleşir.
+  İmza listede yoksa da, liste imzasızsa da profil reddedilir.
+- `judge_validated_rules` `active_rules` altkümesidir. Evaluator'ı olmayan bir
+  kural imzalanamaz.
+- Profil düzeyindeki `policy` kilidi ve `threshold_policy.origin` kontrolü aynen
+  çalışır. İmzalı eşik varken bile bu iki kilit gevşemez.
+
+Raporda her kesinti satırı hangi hakemin hangi tarihli kararından çıktığını
+taşır; kaynağı görünmeyen kesinti üretilemez. `judge_validated_rules` boşken
+rapor bugünkü çıktının aynısıdır: `numeric_score_enabled=false`,
+`deduction_enabled=false`, `deductions=[]`.
+
+`accuracy_score`, `total_score` ve `official_accuracy_claim_allowed` imzalı eşik
+varken de değişmez. Bu katman kesinti adayı üretir, resmî puan üretmez.
+
+## Eşiği olup pasif kalan iki kural
+
+Profilde 32 eşik var, 7'si aktif değil. Beşi yön bağlıdır. Kalan ikisi:
+
+| Kural | Sebep | Aktifleşmesi için |
+| --- | --- | --- |
+| `foot_landing_position_error_body_ratio` | Duruş sözleşmesindeki aralığın dışına taşmayı ölçer; o aralık da doğrulanmamış kendi değerimizdir | Hakemden hem aralık hem tolerans |
+| `head_torso_settle_offset` | "Oturdu" kararı `_settle_frame` içindeki gömülü `10°` ile verilir, YAML'da değildir | Önce `10°` YAML'a çıkacak, sonra hakem onayı |
+
+İkisi de unutulmuş değildir. Ayrıntı AD-031'dedir.
 
 ## Çıktılar ve güncel kanıt kapsamı
 
