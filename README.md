@@ -169,6 +169,13 @@ Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` ola
 yorumlanır. Sporcu-yerel yön referansı her run'da açılış duruşundan türetilir ve
 oturum/pose hash'ine bağlanır; türetilemezse 17 yön kuralı fail-closed kalır ve
 gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
+
+Bir eşiğin puana etki edebilmesi için hakem imzası taşıması gerekir. Eşik satırı
+`judge_source` bloğu alabilir; hakemin adı, yetki belgesi, karar tarihi ve onay
+kaydı zorunludur ve imzalı eşikler `judge_validated_rules` listesiyle birebir
+eşleşmek zorundadır. İmzasız eşikler puansız kalır, profil düzeyindeki
+puansızlık kilidi imzalı eşik varken de çalışır ve liste boşken rapor önceki
+çıktının aynısıdır. Bugün liste boştur.
 Ayrıntı:
 [`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
@@ -176,7 +183,14 @@ Elle etiketlenmemiş bir kayıt için hareket zaman çizelgesi **önerisi** ayr�
 komutla üretilir; kanonik akış bu taslağı kendiliğinden tüketmez. Taslak, tespit
 edilen segmentleri `config/scoring/templates/` altındaki referans duruşlarla
 eşleştirir, şüpheli eşleşmeleri `ambiguous` işaretler ve hizalama anomalilerini
-ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
+ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez.
+
+Taslağın çapaları videoyu kaydırmadan incelenebilir: ayrı bir komut her çapanın
+çevresinde ±15 kare aralıkta beşer kare adımla yedi kare çıkarır ve tek bir HTML
+sayfasına dizer. Kayıt elinizin altındaysa `--camera` ile kamera karesi kullanın;
+yoksa `--pose` ile ölçülen iskelet çizilir, ki o sistemin ölçtüğü geometriyi
+gösterir, sporcunun kendisini değil. Sayfa hiçbir kesinti veya puan iddiası
+taşımaz ve kanonik akışın parçası değildir. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
