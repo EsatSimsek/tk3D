@@ -363,7 +363,7 @@ doğruluğuna devredilmez.
    GitHub-hosted CI sonucu henüz yoktur.
 10. `judge_validated_rules` boştur; ikinci eşik kaynağının yolu kurulu olsa da
     hiçbir eşik hakem imzası taşımaz ve hiçbir kural puana etki edemez.
-11. `technical_accuracy_metrics.py` on üç yerde yedi sayıyı kod içine gömülü
+11. `technical_accuracy_metrics.py` on dört yerde yedi sayıyı kod içine gömülü
     tutar ve **yedisi de profilde zaten var olan bir değerin kopyasıdır**:
 
     | Kod | Değer | Profildeki aslı |
@@ -376,6 +376,7 @@ doğruluğuna devredilmez.
     | `direction_ok <= 25.0` | 25.0 | `stance_axis_target_yaw_error_deg` |
     | `correction > 0.08` | 0.08 | `arm_late_correction_body_ratio` |
     | `hand <= 0.05` | 0.05 | `active_hand_fixation_stability` |
+    | `_hand_settled` içindeki sınır | 0.05 | aynı eşik |
     | `lower <= 0.04` | 0.04 | `foot_fixation_slip_body_ratio` |
 
     Sonuç bir üslup kusuru değil: profildeki bir eşik değişirse sayısal kural
@@ -386,9 +387,15 @@ doğruluğuna devredilmez.
     değildir; onlar eşik değil, "aynı yarı düzlemde mi" anlamına gelen geometrik
     sabittir. AD-031 bu ailenin iki üyesini zaten kaydetmişti.
 
+    Sayım önce elle yapıldı ve on üç çıktı; profildeki değerlerle karşılaştıran
+    bir betikle tekrarlandığında on dördüncü yer ortaya çıktı. Bu yüzden
+    düzeltmenin yanına tekrarlanabilir bir kontrol de gerekir: elle tarama aynı
+    hatayı yeniden yapar.
+
 ## 11. Opsiyonel gelecek çalışmaları
 
-- `technical_accuracy_metrics.py` içindeki on üç gömülü kopyanın profile bağlanması;
+- `technical_accuracy_metrics.py` içindeki on dört gömülü kopyanın profile
+  bağlanması ve yeni kopyaların eklenmesini engelleyen bir test;
 - imzasız eşiklerin hakem görüşmesi için makine-okunur soru listesine dönüşmesi;
 - M07–M18 için manuel/uzman doğrulanmış hareket ve faz etiketleri;
 - farklı sporcu, seviye, kıyafet, kamera düzeni ve oturumlarla değerlendirme;
