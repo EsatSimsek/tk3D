@@ -705,6 +705,39 @@ Sınır: Bu karar sayıların doğru olduğunu değil, tek bir yerde durduğunu 
 eder. Değerlerin kendisi hâlâ doğrulanmamış mühendislik varsayımıdır ve AD-030'a
 göre yalnız imzalı bir eşik puana etki edebilir.
 
+## AD-033 — Hakem soru listesi elle yazılmaz, profilden üretilir
+
+Karar: Hakemden istenecek değerlerin listesi
+`scripts/build_judge_threshold_questionnaire.py` tarafından teşhis profilinden
+üretilir. Komut imzasız her eşiği, duruş aralıklarını ve tanımlanmamış teknik
+hedeflerini tarar ve tek bir HTML sayfası yazar. Sayfa iki bölümdür: cevabı
+gelir gelmez iş yapacak sorular önce, sayı dışında da eksiği olanlar sonra.
+
+Gerekçe: Elle yazılmış bir soru listesi ilk eşik değiştiğinde eskir ve eskidiği
+görünmez. Profil zaten hangi değerin geliştirme sırasında yazıldığını ve hangisinin
+imza taşıdığını biliyor; liste bu bilgiden türetilince sorunun kaynağıyla arasında
+kopukluk kalmaz. Bir eşik imzalandığında ilgili soru listeden kendiliğinden düşer,
+bir eşik eklendiğinde kendiliğinden girer. Bunu bir test korur: sorulan kümenin
+imzasız eşiklerin kümesine eşit olduğu, ve bir imza konduğunda yalnız o sorunun
+düştüğü doğrulanır.
+
+Önceliklendirme ölçütü: Bir kural bugün çalışıyorsa ve tek eksiği doğru sayıysa,
+cevabı anında iş yapar; bu sorular birinci bölümdedir. Yön referansı bekleyen ya
+da altındaki aralık doğrulanmamış kurallar ikinci bölümdedir ve her satır sayı
+dışındaki eksiği yazar, okuyan kişi önceliği kendisi görebilsin diye. Duruş
+aralıkları birinci bölümdedir, çünkü ayak inişi toleransı onların üstüne oturur ve
+ikisi birden gelmezse o kural açılmaz.
+
+Koruma: Komut kanonik akışın parçası değildir ve bir test bunu doğrular. Var olan
+bir çıktının üzerine yazmaz; doldurulmuş bir cevap kâğıdı sessizce kaybolamaz.
+Sayfa hiçbir performans hakkında iddia, kesinti veya puan taşımaz ve bunu kendi
+üstünde yazılı olarak belirtir. Cevabın profile nasıl işleneceği aynı sayfada
+gösterilir, böylece görüşme sonrası tek iş verilen sayıları yazmak olur.
+
+Sınır: Liste hangi değerin eksik olduğunu bilir, hangisinin önemli olduğunu
+bilmez. Sıralama ölçütü teknik erişilebilirliktir, sporcu üzerindeki etki değil.
+Bir hakem soruların sırasını kendi bilgisine göre değiştirebilir.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

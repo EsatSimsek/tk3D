@@ -236,6 +236,27 @@ rapor bugünkü çıktının aynısıdır: `numeric_score_enabled=false`,
 `accuracy_score`, `total_score` ve `official_accuracy_claim_allowed` imzalı eşik
 varken de değişmez. Bu katman kesinti adayı üretir, resmî puan üretmez.
 
+## Hakem soru listesi
+
+Profilde imzasız kalan her değer bir sorudur ve liste elle tutulmaz, komutla
+üretilir:
+
+```powershell
+python scripts/build_judge_threshold_questionnaire.py `
+  --profile config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml `
+  --output-html hakem_sorulari.html
+```
+
+Bugünkü çıktı 41 sorudur: 26 ekran eşiği, 8 duruş aralığı, 6 başka eksiği olan
+eşik, 1 tanımlanmamış teknik hedefi. Sayfa iki bölümdür — cevabı gelir gelmez iş
+yapacak sorular önce, sayı dışında da eksiği olanlar sonra. İkinci bölümdeki her
+satır sayı dışındaki eksiği ayrıca yazar.
+
+Bir eşik imzalandığında ilgili soru listeden kendiliğinden düşer; liste profille
+birlikte hareket eder. Sayfanın altında cevabın profile nasıl işleneceği duruyor.
+Komut kanonik akışın parçası değildir, var olan çıktının üzerine yazmaz ve hiçbir
+kesinti veya puan iddiası taşımaz. Ayrıntı AD-033'tedir.
+
 ## Eşiği olup pasif kalan tek kural
 
 Profilde 32 eşik var, 6'sı aktif değil. Beşi yön bağlıdır. Kalan bir tanesi:

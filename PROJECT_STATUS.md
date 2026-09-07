@@ -1,6 +1,6 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **7 Eylül 2026**
+Son doğrulama tarihi: **8 Eylül 2026**
 
 Dal: **`main`**
 
@@ -114,6 +114,18 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+8 Eylül 2026 hakem soru listesi kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest (Windows, torch hariç): **`342 passed`**;
+- tam pytest (Linux, torch'suz): **`340 passed`** + Windows yol ve poz testleri;
+- `git diff --check`: temiz;
+- `scripts/build_judge_threshold_questionnaire.py` profilden **41 soru** üretti:
+  26 ekran eşiği, 8 duruş aralığı, 6 başka eksiği olan eşik, 1 teknik hedefi;
+- sorulan kümenin imzasız eşiklerin kümesine eşit olduğu doğrulandı; test
+  profile bir imza koyup yalnız o sorunun düştüğünü de kontrol etti;
+- komut kanonik akıştan çağrılmıyor ve var olan çıktının üzerine yazmıyor.
 
 7 Eylül 2026 gömülü sabitlerin profile bağlanması kapısı:
 
@@ -409,7 +421,6 @@ doğruluğuna devredilmez.
 
 ## 11. Opsiyonel gelecek çalışmaları
 
-- imzasız eşiklerin hakem görüşmesi için makine-okunur soru listesine dönüşmesi;
 - M07–M18 için manuel/uzman doğrulanmış hareket ve faz etiketleri;
 - farklı sporcu, seviye, kıyafet, kamera düzeni ve oturumlarla değerlendirme;
 - imkân olduğunda senkron bağımsız mocap/ölçüm ground truth;

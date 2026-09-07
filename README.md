@@ -193,6 +193,12 @@ gösterir, sporcunun kendisini değil. Sayfa hiçbir kesinti veya puan iddiası
 taşımaz ve kanonik akışın parçası değildir. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
+Profilde imzasız kalan her değer bir sorudur ve hakemden istenecek liste elle
+tutulmaz, `scripts/build_judge_threshold_questionnaire.py` ile profilden üretilir.
+Çıktı tek bir HTML sayfasıdır; cevabı gelir gelmez iş yapacak sorular önce,
+sayı dışında da eksiği olanlar sonra sıralanır. Bir eşik imzalandığında ilgili
+soru listeden kendiliğinden düşer.
+
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
 kural ile 133-landmark kapsam envanterini, 34 aktif kural için 340
 sınır/eksik/non-finite vakasını ve 12 WholeBody-133 geometri senaryosunu

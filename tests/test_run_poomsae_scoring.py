@@ -616,3 +616,96 @@ def test_diagnostic_scripts_can_run_without_the_package_installed() -> None:
     ):
         source = (ROOT / "scripts" / name).read_text(encoding="utf-8")
         assert "sys.path.insert(0, str(ROOT))" in source, name
+
+
+def test_judge_questionnaire_asks_only_about_values_no_referee_has_signed() -> None:
+    """The questionnaire is the profile's own list of what it still does not know."""
+    from src.poomsae_scoring import load_technical_accuracy_profile
+    from scripts.build_judge_threshold_questionnaire import collect_open_questions
+
+    profile_path = ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v3.yaml"
+    profile = load_technical_accuracy_profile(profile_path)
+    questions = collect_open_questions(profile)
+
+    asked = {row["metric_id"] for row in questions["priority"] + questions["deferred"]}
+    assert asked == set(profile["thresholds"])  # nothing is signed yet, so everything is open
+
+    # A referee's answer removes the question, and only that question.
+    raw = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    raw["thresholds"]["torso_lean_p95_deg"]["judge_source"] = {
+        "origin": "judge_supplied_validated_threshold",
+        "judge_name": "Test Referee",
+        "judge_credential": "WT international poomsae referee, 1st class",
+        "decision_date": "2026-09-10",
+        "approval_reference": "TK3D-JUDGE-REVIEW-2026-09-10",
+        "score_effect": "deduction_candidate",
+        "deduction_points": 0.1,
+    }
+    raw["judge_validated_rules"] = ["torso_lean_p95_deg"]
+    from src.poomsae_scoring import validate_technical_accuracy_profile
+
+    signed = collect_open_questions(validate_technical_accuracy_profile(raw))
+    still_asked = {row["metric_id"] for row in signed["priority"] + signed["deferred"]}
+    assert still_asked == asked - {"torso_lean_p95_deg"}
+
+
+def test_judge_questionnaire_puts_answerable_questions_first() -> None:
+    """A question whose answer works immediately is worth more meeting time than one that waits."""
+    from src.poomsae_scoring import load_technical_accuracy_profile
+    from scripts.build_judge_threshold_questionnaire import collect_open_questions
+
+    profile = load_technical_accuracy_profile(
+        ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v3.yaml"
+    )
+    questions = collect_open_questions(profile)
+
+    assert questions["priority"], "an active rule with an unsigned threshold must be asked first"
+    assert all(row["status"] == "active_diagnostic" for row in questions["priority"])
+    assert all(row["status"] != "active_diagnostic" for row in questions["deferred"])
+    # A deferred question must say what else is missing, or the reader cannot judge its priority.
+    assert all(row["blocking_reason"] for row in questions["deferred"])
+    # The stance ranges are asked because a landing tolerance sits on top of them.
+    assert {row["stance"] for row in questions["stance_ranges"]} == {"ap_seogi", "ap_gubi"}
+
+
+def test_judge_questionnaire_claims_nothing_and_stays_out_of_the_scoring_run(tmp_path: Path) -> None:
+    application = (ROOT / "src" / "poomsae_scoring" / "application.py").read_text(encoding="utf-8")
+    assert "build_judge_threshold_questionnaire" not in application
+
+    output = tmp_path / "hakem_sorulari.html"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "build_judge_threshold_questionnaire.py"),
+            "--profile",
+            str(ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v3.yaml"),
+            "--output-html",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    page = output.read_text(encoding="utf-8")
+    assert "kesinti ve puan içermez" in page  # the page states its own limits
+    assert "Bölüm 1 &mdash; öncelikli" in page
+    assert "Bölüm 2 &mdash; vakit kalırsa" in page
+    assert "judge_supplied_validated_threshold" in page  # how an answer is recorded
+
+    # An existing page is never overwritten; a stale answer sheet must not disappear silently.
+    again = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "build_judge_threshold_questionnaire.py"),
+            "--profile",
+            str(ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v3.yaml"),
+            "--output-html",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert again.returncode != 0
+    assert "üzerine yazılmayacak" in again.stderr
