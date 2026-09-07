@@ -40,8 +40,8 @@ def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
 
     assert len(rules) == 174
     assert {rule["metric_id"] for rule in rules if rule["status"] == "active_diagnostic"} == ACTIVE_EVALUATORS
-    assert sum(rule["status"] == "active_diagnostic" for rule in rules) == 33
-    assert sum(rule["status"] == "measurement_only" for rule in rules) == 116
+    assert sum(rule["status"] == "active_diagnostic" for rule in rules) == 34
+    assert sum(rule["status"] == "measurement_only" for rule in rules) == 115
     assert sum(rule["status"] == "blocked_missing_reference" for rule in rules) == 17
     assert sum(rule["status"] == "not_observable_with_current_pipeline" for rule in rules) == 8
     for rule in rules:
@@ -658,3 +658,69 @@ def test_profile_level_score_lock_survives_a_judge_signature() -> None:
     raw["threshold_policy"]["origin"] = "judge_supplied_validated_threshold"
     with pytest.raises(ScoringContractError, match="self-authored and score-neutral"):
         validate_technical_accuracy_profile(raw)
+
+
+def test_no_measurement_literal_repeats_a_value_the_profile_already_defines() -> None:
+    """A limit lives in the profile or it lives nowhere.
+
+    A copy in the code is invisible while nothing can change the profile. Once a
+    referee-signed threshold can change one, the numeric rule moves and the boolean
+    rule keeps answering from the stale copy, so one report carries two answers for
+    one limit. This test fails when such a copy reappears.
+    """
+    import re
+
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    defined: dict[float, str] = {}
+    for metric_id, threshold in profile["thresholds"].items():
+        value = threshold["value"]
+        if isinstance(value, (int, float)):
+            defined.setdefault(float(value), metric_id)
+        else:
+            for bound in value:
+                defined.setdefault(float(bound), metric_id)
+    # Only the gate that acts as a measurement limit belongs here. The camera count
+    # and the frame-jump gate are pipeline settings whose values (2.0, 0.5) are also
+    # ordinary arithmetic, so including them would flag every midpoint in the module.
+    defined.setdefault(
+        float(profile["quality_gates"]["min_group_valid_ratio"]),
+        "quality_gates.min_group_valid_ratio",
+    )
+
+    module = ROOT / "src" / "poomsae_scoring" / "technical_accuracy_metrics.py"
+    offenders: list[str] = []
+    for number, line in enumerate(module.read_text(encoding="utf-8").splitlines(), start=1):
+        if line.lstrip().startswith("#"):
+            continue
+        for match in re.finditer(r"(?<![\w.])(\d+\.\d+)(?![\w.])", line):
+            literal = float(match.group(1))
+            if literal in defined:
+                offenders.append(f"{module.name}:{number} repeats {literal} from {defined[literal]}")
+
+    assert not offenders, (
+        "measurement code must read these limits from the profile instead of repeating them: "
+        + "; ".join(offenders)
+    )
+
+
+def test_every_profile_limit_used_by_the_measurement_layer_is_read_from_the_profile() -> None:
+    from src.poomsae_scoring.technical_accuracy_metrics import _profile_limits
+
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    limits = _profile_limits(profile)
+    thresholds = profile["thresholds"]
+
+    assert limits["head_settled_deg"] == thresholds["head_fixation_orientation_dispersion_p95_deg"]["value"]
+    assert limits["torso_settled_deg"] == thresholds["torso_fixation_orientation_dispersion_p95_deg"]["value"]
+    assert limits["pelvis_settled_deg"] == thresholds["pelvis_fixation_orientation_dispersion_p95_deg"]["value"]
+    assert limits["stance_direction_deg"] == thresholds["stance_axis_target_yaw_error_deg"]["value"]
+    assert limits["late_correction_ratio"] == thresholds["arm_late_correction_body_ratio"]["value"]
+    assert limits["hand_still_ratio"] == thresholds["active_hand_fixation_stability"]["value"]
+    assert limits["foot_still_ratio"] == thresholds["foot_fixation_slip_body_ratio"]["value"]
+    assert limits["group_quality_ratio"] == profile["quality_gates"]["min_group_valid_ratio"]
+
+    # A changed profile must move every limit with it; nothing may hold a stale copy.
+    raw = _raw_profile()
+    raw["thresholds"]["head_fixation_orientation_dispersion_p95_deg"]["value"] = 6.0
+    moved = _profile_limits(validate_technical_accuracy_profile(raw))
+    assert moved["head_settled_deg"] == 6.0

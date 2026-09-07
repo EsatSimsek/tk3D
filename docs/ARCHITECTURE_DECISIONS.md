@@ -588,7 +588,7 @@ tek başına duraklama türeten eski script bu gözlemlerin dar bir alt kümesin
 
 Karar: Taegeuk 1 v3 teknik-doğruluk kuralları için sentetik, sürümlü ve
 makine-okunur ayrı bir validation düzeneği kullanılır. Düzenek 174 kuralın
-durum/evaluator/puan-sızlık envanterini, 33 aktif kuralın eşik sınırlarını ve
+durum/evaluator/puan-sızlık envanterini, 34 aktif kuralın eşik sınırlarını ve
 WholeBody-133 kanıt bozulmalarını doğrular. Runtime analiz artifact'i veya
 source-bound kararları bu düzeneğin çıktısından beslenmez.
 
@@ -666,6 +666,44 @@ Koruma: Bir kuralın aktif olması için `active_rules` listesinde ve
 `ACTIVE_EVALUATORS` kümesinde birlikte bulunması şarttır; eşik taşımak tek
 başına yetmez ve yetmemelidir. Eşiği olup aktif olmayan diğer beş kural yön
 bağlıdır ve sebepleri AD-027'de kayıtlıdır.
+
+Güncelleme (5 Eylül 2026): `head_torso_settle_offset` için yazılan sebep
+kapatıldı. Gömülü `10°` profile taşındı ve kural aktif edildi; ayrıntı
+AD-032'dedir. `foot_landing_position_error_body_ratio` bu maddede yazıldığı
+gibi pasif kalmaya devam eder.
+
+## AD-032 — Bir sınır ya profildedir ya da hiçbir yerde
+
+Karar: Ölçüm kodu hiçbir karar sınırını kendi içinde tutmaz. Profildeki bir
+değere eşit olan her sabit kaldırıldı; `_profile_limits` bu değerleri tek yerde
+çözer ve ihtiyaç duyan fonksiyonlara parametre olarak geçer. Bir test bu kuralı
+korur: ölçüm modülündeki bir sabit profildeki bir eşiğe ya da
+`min_group_valid_ratio` kapısına eşitse test düşer ve hangi satırın hangi eşiği
+tekrarladığını yazar.
+
+Gerekçe: Yedi sayı on dört yerde ikinci kez yazılmıştı. Hiçbir eşik
+değişemediği sürece bu görünmezdi. AD-030 hakemin bir eşiği gerçekten
+değiştirebilmesini sağladığı anda iki kopya ayrışabilir hâle geldi: sayısal
+kural yeni değeri, aynı eşiğe dayanan boolean kural koddaki eski kopyayı
+kullanırdı ve tek rapor tek eşik için iki cevap taşırdı. Tek seferlik temizlik
+yetmez, çünkü aynı hata bir kez fark edilmeden yapıldı; testsiz ikinci kez de
+yapılır.
+
+Kapsam dışı: `90°` ile yapılan iki karşılaştırma eşik değildir, "aynı yarı
+düzlemde mi" anlamına gelen geometrik sabittir ve kodda kalır. Kamera sayısı
+(`2`) ve kare atlama kapısı (`0.5`) ölçüm sınırı değil hat ayarıdır; değerleri
+sıradan aritmetikle çakıştığı için testin kapsamına alınmadı.
+
+Sonuç: `head_torso_settle_offset` AD-031'de "oturdu" kararını gömülü `10°` ile
+verdiği için pasif tutuluyordu. O sebep ortadan kalktı ve kural aktif edildi.
+Aktif kural sayısı 33'ten 34'e, `measurement_only` 116'dan 115'e geçti; doğrulama
+düzeneğindeki aktif-kural vakası 330'dan 340'a çıktı. Eşiği olup pasif kalan tek
+kural `foot_landing_position_error_body_ratio` olarak kaldı; onun sebebi farklıdır
+ve hakemden iki sayı ister.
+
+Sınır: Bu karar sayıların doğru olduğunu değil, tek bir yerde durduğunu garanti
+eder. Değerlerin kendisi hâlâ doğrulanmamış mühendislik varsayımıdır ve AD-030'a
+göre yalnız imzalı bir eşik puana etki edebilir.
 
 ## Karar değiştirme süreci
 

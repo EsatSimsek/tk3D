@@ -16,10 +16,10 @@ kanıtlamaz. Çıktının durumu bu nedenle
 2. **133 landmark envanteri:** 0–132 arasındaki her noktanın en az bir kural
    sözleşmesine bağlı olduğu ayrıca doğrulanır. Bu kontrol landmark başına
    bağımsız aktif hata kuralı bulunduğu anlamına gelmez.
-3. **33 aktif kuralın eşik sınıflandırması:** Her aktif kural için `pass`,
+3. **34 aktif kuralın eşik sınıflandırması:** Her aktif kural için `pass`,
    üst/ana `boundary`, karşı taraf `opposite_boundary`, üst/ana `fail`, karşı
    taraf `opposite_fail`, `missing`, `nan`, `positive_infinity`,
-   `negative_infinity` ve `wrong_type` çalıştırılır. Böylece toplam 330
+   `negative_infinity` ve `wrong_type` çalıştırılır. Böylece toplam 340
    sınıflandırma vakası oluşur. Range operatörünün iki sınırı ve `abs_max`
    operatörünün pozitif/negatif yönü ayrı sınanır. Tek taraflı veya boolean
    kontratta uygulanamayan karşı sınır açıkça `not_applicable` kaydedilir.
@@ -63,7 +63,7 @@ Rapor ancak aşağıdakilerin hepsi doğruysa `status=passed` olur:
 
 - 174 envanter satırının tamamı kendi durum sözleşmesini geçer;
 - 133 landmark satırının tamamı en az bir açık kural bağı taşır;
-- 330 aktif-kural vakasının tamamı beklenen sınıfa düşer;
+- 340 aktif-kural vakasının tamamı beklenen sınıfa düşer;
 - yapılandırılmış 12 geometri senaryosunun tamamı geçer;
 - BODY-17 girdisi kabul edilmez, eksik kanıt aday üretmez ve yön kuralları
   session-bound referans olmadan açılmaz;

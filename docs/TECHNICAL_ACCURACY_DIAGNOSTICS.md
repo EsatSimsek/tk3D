@@ -64,8 +64,8 @@ Profil düzeyinde 174 kuralın durumu:
 
 | Durum | Sayı | Anlam |
 | --- | ---: | --- |
-| `active_diagnostic` | 33 | Ölçüm ve geçici eşik değerlendiricisi var |
-| `measurement_only` | 116 | Ölçüm var; güvenli karar yetkisi veya sayısal hedef yok |
+| `active_diagnostic` | 34 | Ölçüm ve geçici eşik değerlendiricisi var |
+| `measurement_only` | 115 | Ölçüm var; güvenli karar yetkisi veya sayısal hedef yok |
 | `blocked_missing_reference` | 17 | Sporcu-yerel mutlak yön bağı olmadan kapanır |
 | `not_observable_with_current_pipeline` | 8 | Mevcut pose/video kanıtından iddia edilemez |
 
@@ -151,9 +151,10 @@ ground-reaction force, darbe gücü veya kas gerilimi ölçülmez.
 
 ## Eşik ve karar politikası
 
-Aktif kuralların bütün sayısal değerleri v3 YAML içindeki `thresholds`
-alanındadır; aktif bir evaluator'a gömülü eşik yoktur. Pasif kalan iki kuralın
-biri tam da bu yüzden pasiftir; aşağıya bakınız. Her eşik birim, operatör, belirsizlik bandı
+Bütün sayısal değerler v3 YAML içindedir; ölçüm koduna gömülü eşik yoktur.
+Bir eşiğin kod içinde ikinci kez yazılmasını engelleyen bir test vardır: koddaki
+bir sabit profildeki bir değere eşitse test düşer. Bu kural 5 Eylül 2026'da
+on dört kopya bulunup kaldırıldıktan sonra kondu (AD-032). Her eşik birim, operatör, belirsizlik bandı
 ve ortak provenance politikasını taşır. Başlıca istek-bağlı geçici değerler:
 
 - baş hedef/torso yaw `25°`, roll `15°`, pitch `20°`, baş fixation/drift `10°`;
@@ -235,16 +236,17 @@ rapor bugünkü çıktının aynısıdır: `numeric_score_enabled=false`,
 `accuracy_score`, `total_score` ve `official_accuracy_claim_allowed` imzalı eşik
 varken de değişmez. Bu katman kesinti adayı üretir, resmî puan üretmez.
 
-## Eşiği olup pasif kalan iki kural
+## Eşiği olup pasif kalan tek kural
 
-Profilde 32 eşik var, 7'si aktif değil. Beşi yön bağlıdır. Kalan ikisi:
+Profilde 32 eşik var, 6'sı aktif değil. Beşi yön bağlıdır. Kalan bir tanesi:
 
 | Kural | Sebep | Aktifleşmesi için |
 | --- | --- | --- |
 | `foot_landing_position_error_body_ratio` | Duruş sözleşmesindeki aralığın dışına taşmayı ölçer; o aralık da doğrulanmamış kendi değerimizdir | Hakemden hem aralık hem tolerans |
-| `head_torso_settle_offset` | "Oturdu" kararı `_settle_frame` içindeki gömülü `10°` ile verilir, YAML'da değildir | Önce `10°` YAML'a çıkacak, sonra hakem onayı |
 
-İkisi de unutulmuş değildir. Ayrıntı AD-031'dedir.
+`head_torso_settle_offset` 5 Eylül 2026'ya kadar bu listedeydi. Sebebi "oturdu"
+kararının `_settle_frame` içine gömülü `10°` ile verilmesiydi. O değer artık
+profilden okunuyor, kural aktif edildi ve aktif kural sayısı 34 oldu (AD-032).
 
 ## Çıktılar ve güncel kanıt kapsamı
 

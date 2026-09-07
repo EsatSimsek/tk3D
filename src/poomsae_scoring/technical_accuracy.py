@@ -140,6 +140,7 @@ ACTIVE_EVALUATORS = {
     "active_hand_fixation_stability",
     "reaction_hand_fixation_stability",
     "active_hand_stance_settle_offset",
+    "head_torso_settle_offset",
     "required_phase_coverage",
     "movement_contract_exists",
     "movement_timeline_segment_exists",

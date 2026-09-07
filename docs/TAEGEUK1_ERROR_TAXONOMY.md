@@ -336,7 +336,7 @@ yalnız doğrulanmamış adayın otomatik puan kesmesine engel olur.
 
 31 Ağustos 2026 itibarıyla v3 profil, yukarıdaki taksonomiyi 174 ayrı
 makine-okunur kurala ve M01–M18 hareket kontratına dönüştürür. Durum dağılımı
-33 `active_diagnostic`, 116 `measurement_only`, 17
+34 `active_diagnostic`, 115 `measurement_only`, 17
 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kuraldır. Çalışma anındaki eksik veya
 dejenere kanıt ayrıca `unmeasurable` olur.

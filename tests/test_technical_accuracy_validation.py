@@ -71,10 +71,10 @@ def test_all_174_rules_have_explicit_validation_depth(validation_report: dict) -
     assert validation_report["status"] == "passed"
     assert summary["rule_count"] == 174
     assert summary["rule_inventory_passed_count"] == 174
-    assert summary["active_rule_count"] == 33
+    assert summary["active_rule_count"] == 34
     assert summary["rule_state_counts"] == {
-        "active_diagnostic": 33,
-        "measurement_only": 116,
+        "active_diagnostic": 34,
+        "measurement_only": 115,
         "blocked_missing_reference": 17,
         "not_observable_with_current_pipeline": 8,
     }
@@ -116,8 +116,8 @@ def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_repo
     for row in rows:
         by_metric.setdefault(row["metric_id"], set()).add(row["case_id"])
 
-    assert len(by_metric) == 33
-    assert len(rows) == 330
+    assert len(by_metric) == 34
+    assert len(rows) == 340
     assert all(cases == expected_cases for cases in by_metric.values())
     assert all(row["passed"] for row in rows)
     assert all(

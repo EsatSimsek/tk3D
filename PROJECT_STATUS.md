@@ -1,6 +1,6 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **4 Eylül 2026**
+Son doğrulama tarihi: **7 Eylül 2026**
 
 Dal: **`main`**
 
@@ -39,7 +39,7 @@ durumlarla açıkça korunur.
 
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
-kontrata çözülür; 174 kurallık envanter 33 `active_diagnostic`, 116
+kontrata çözülür; 174 kurallık envanter 34 `active_diagnostic`, 115
 `measurement_only`, 17 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kural taşır. Aktif kayıt kanıtı yine
 yalnız M01–M06'dır. Geçici adaylar source-bound karar, Accuracy skoru,
@@ -114,6 +114,19 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+7 Eylül 2026 gömülü sabitlerin profile bağlanması kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest (Windows, torch dahil): **`347 passed`**;
+- tam pytest (Linux, torch'suz): **`337 passed`** + Windows yol testi düşer;
+- `git diff --check`: temiz;
+- ölçüm modülünde profildeki bir değere eşit sabit kalmadı; tarama **0** döndü;
+- yeni koruma testi kasıtlı geri konan bir kopyayı yakaladı ve hangi satırın
+  hangi eşiği tekrarladığını yazdı;
+- `head_torso_settle_offset` aktif edildi; aktif kural 34, `measurement_only`
+  115 oldu; doğrulama düzeneğinde aktif-kural vakası **`340/340`** geçti;
+- eşiği olup pasif kalan tek kural `foot_landing_position_error_body_ratio`.
 
 4 Eylül 2026 hakem-kaynaklı eşik ve çapa inceleme kapısı:
 
@@ -363,8 +376,10 @@ doğruluğuna devredilmez.
    GitHub-hosted CI sonucu henüz yoktur.
 10. `judge_validated_rules` boştur; ikinci eşik kaynağının yolu kurulu olsa da
     hiçbir eşik hakem imzası taşımaz ve hiçbir kural puana etki edemez.
-11. `technical_accuracy_metrics.py` on dört yerde yedi sayıyı kod içine gömülü
-    tutar ve **yedisi de profilde zaten var olan bir değerin kopyasıdır**:
+11. ~~`technical_accuracy_metrics.py` on dört yerde yedi sayıyı kod içine gömülü
+    tutar.~~ **7 Eylül 2026'da kapatıldı (AD-032).** Bütün kopyalar kaldırıldı,
+    değerler profilden okunuyor ve yeni bir kopya eklenmesini engelleyen test
+    kondu. Kayıt için bulgunun kendisi:
 
     | Kod | Değer | Profildeki aslı |
     | --- | ---: | --- |
@@ -394,8 +409,6 @@ doğruluğuna devredilmez.
 
 ## 11. Opsiyonel gelecek çalışmaları
 
-- `technical_accuracy_metrics.py` içindeki on dört gömülü kopyanın profile
-  bağlanması ve yeni kopyaların eklenmesini engelleyen bir test;
 - imzasız eşiklerin hakem görüşmesi için makine-okunur soru listesine dönüşmesi;
 - M07–M18 için manuel/uzman doğrulanmış hareket ve faz etiketleri;
 - farklı sporcu, seviye, kıyafet, kamera düzeni ve oturumlarla değerlendirme;

@@ -13,6 +13,26 @@ from src.data_structures import (
 )
 
 
+def _profile_limits(profile: dict[str, Any]) -> dict[str, float]:
+    """Read every decision limit from the profile instead of repeating it in code.
+
+    Each value below already exists in the diagnostic profile. Copying one into
+    this module would let a referee change the profile while a boolean rule kept
+    answering from the stale copy, so the copies are resolved here once.
+    """
+    thresholds = profile["thresholds"]
+    return {
+        "head_settled_deg": float(thresholds["head_fixation_orientation_dispersion_p95_deg"]["value"]),
+        "torso_settled_deg": float(thresholds["torso_fixation_orientation_dispersion_p95_deg"]["value"]),
+        "pelvis_settled_deg": float(thresholds["pelvis_fixation_orientation_dispersion_p95_deg"]["value"]),
+        "stance_direction_deg": float(thresholds["stance_axis_target_yaw_error_deg"]["value"]),
+        "late_correction_ratio": float(thresholds["arm_late_correction_body_ratio"]["value"]),
+        "hand_still_ratio": float(thresholds["active_hand_fixation_stability"]["value"]),
+        "foot_still_ratio": float(thresholds["foot_fixation_slip_body_ratio"]["value"]),
+        "group_quality_ratio": float(profile["quality_gates"]["min_group_valid_ratio"]),
+    }
+
+
 def measure_observable_accuracy_metrics(
     arrays: dict[str, Any],
     contract: dict[str, Any],
@@ -43,6 +63,7 @@ def measure_observable_accuracy_metrics(
     lead = contract["lead_leg"]
     rear = contract["rear_or_support_leg"]
     kick_side = contract.get("kicking_leg")
+    limits = _profile_limits(profile)
     result: dict[str, dict[str, Any]] = {}
 
     def put(metric_id: str, value: Any, unit: str, *, reason: str | None = None) -> None:
@@ -75,7 +96,7 @@ def measure_observable_accuracy_metrics(
     foot_quality = _group_quality(arrays, fix_frames, _foot_indices(lead) + _foot_indices(rear))
 
     put("head_face_geometry_quality", head_quality, "ratio")
-    put("head_orientation_unmeasurable_reason", "none" if head_quality is not None and head_quality >= 0.75 else None, "reason_code")
+    put("head_orientation_unmeasurable_reason", "none" if head_quality is not None and head_quality >= limits["group_quality_ratio"] else None, "reason_code")
     put("torso_geometry_quality", torso_quality, "ratio")
     put("stance_geometry_quality", _minimum_finite(lower_quality, foot_quality), "ratio")
     put("lower_body_geometry_quality", lower_quality, "ratio")
@@ -168,7 +189,7 @@ def measure_observable_accuracy_metrics(
     put("wrist_flexion_extension_proxy_deg", wrist_components.get("flexion"), "deg")
     put("wrist_radial_ulnar_deviation_proxy_deg", wrist_components.get("radial"), "deg")
     put("fist_or_hand_orientation_proxy_deg", wrist_components.get("orientation"), "deg")
-    put("hand_shape_observability", hand_quality is not None and hand_quality >= 0.75, "bool")
+    put("hand_shape_observability", hand_quality is not None and hand_quality >= limits["group_quality_ratio"], "bool")
     put("active_hand_fixation_stability", _hand_dispersion(arrays, after_frames, active, active_arm_scale), "arm_length")
     put("reaction_hand_fixation_stability", _hand_dispersion(arrays, after_frames, reaction, _median_scalar(arrays, fix_frames, lambda a, f: _limb_scale(a, f, "arm", reaction))), "arm_length")
     put("fist_target_height_error_body_ratio", _technique_target_error(arrays, fix_frames, contract, active, "height"), "torso_length")
@@ -179,24 +200,24 @@ def measure_observable_accuracy_metrics(
     put("preparation_side_match", _arm_side_match(arrays, prep_frames, exec_frames, active, reaction), "bool")
     put("chamber_pose_observed", _reaction_hip_distance(arrays, prep_frames, reaction) is not None, "bool")
     put("chamber_precedes_execution", preparation <= execution, "bool")
-    put("active_technique_reaches_target_by_fixation", _hand_settled(arrays, after_frames, active, active_arm_scale), "bool")
+    put("active_technique_reaches_target_by_fixation", _hand_settled(arrays, after_frames, active, active_arm_scale, limits["hand_still_ratio"]), "bool")
     put("stance_reaches_target_by_fixation", stance_match, "bool")
-    put("head_reaches_target_by_fixation", _component_settled(arrays, after_frames, "head", 10.0), "bool")
-    put("torso_reaches_target_by_fixation", _component_settled(arrays, after_frames, "shoulder", 8.0), "bool")
+    put("head_reaches_target_by_fixation", _component_settled(arrays, after_frames, "head", limits["head_settled_deg"]), "bool")
+    put("torso_reaches_target_by_fixation", _component_settled(arrays, after_frames, "shoulder", limits["torso_settled_deg"]), "bool")
     put("reaction_hand_reaches_target_by_fixation", _reaction_hip_distance(arrays, fix_frames, reaction) is not None, "bool")
-    put("head_torso_settle_offset", _settle_offset(arrays, transition_frames, "head", "shoulder", fps), "sec")
+    put("head_torso_settle_offset", _settle_offset(arrays, transition_frames, "head", "shoulder", fps, limits["head_settled_deg"], limits["torso_settled_deg"]), "sec")
     put("late_post_fixation_correction", _late_component_correction(arrays, after_frames, active, active_arm_scale), "arm_length")
-    put("premature_next_movement_transition", _premature_transition(arrays, after_frames, active, active_arm_scale), "bool")
-    put("fixation_pose_stability", _fixation_stable(arrays, after_frames, active, lead_leg_scale, active_arm_scale), "bool")
+    put("premature_next_movement_transition", _premature_transition(arrays, after_frames, active, active_arm_scale, limits["late_correction_ratio"]), "bool")
+    put("fixation_pose_stability", _fixation_stable(arrays, after_frames, active, lead_leg_scale, active_arm_scale, limits["hand_still_ratio"], limits["foot_still_ratio"]), "bool")
     put("final_pose_geometry_conformance", _finite_value(stance_match) and _finite_value(elbow), "bool")
 
     put("step_length_error_body_ratio", _stance_range_component_error(contract["stance_length_expectation"], _safe_ratio(stance.get("length"), lead_leg_scale)), "leg_length")
     put("step_width_error_body_ratio", _stance_range_component_error(contract["stance_width_expectation"], _safe_ratio(stance.get("width"), shoulder_width)), "shoulder_width")
     put("landing_position_error_body_ratio", result["foot_landing_position_error_body_ratio"]["value"], "leg_length")
     put("landing_stance_type_match", stance_match, "bool")
-    put("head_turn_settled_by_fixation", _component_settled(arrays, after_frames, "head", 10.0), "bool")
-    put("torso_turn_settled_by_fixation", _component_settled(arrays, after_frames, "shoulder", 8.0), "bool")
-    put("pelvis_or_stance_turn_settled_by_fixation", _component_settled(arrays, after_frames, "hip", 8.0), "bool")
+    put("head_turn_settled_by_fixation", _component_settled(arrays, after_frames, "head", limits["head_settled_deg"]), "bool")
+    put("torso_turn_settled_by_fixation", _component_settled(arrays, after_frames, "shoulder", limits["torso_settled_deg"]), "bool")
+    put("pelvis_or_stance_turn_settled_by_fixation", _component_settled(arrays, after_frames, "hip", limits["pelvis_settled_deg"]), "bool")
     put("pivot_foot_excess_displacement", rear_displacement, "leg_length")
     put("transition_foot_crossing", (stance.get("crossing_margin") or 0.0) < 0.0 if stance.get("crossing_margin") is not None else None, "bool")
     put("post_landing_adjustment", _lower_dispersion(arrays, after_frames, lead_leg_scale), "leg_length")
@@ -221,10 +242,10 @@ def measure_observable_accuracy_metrics(
     put("final_geometry_consistent_with_declared_movement", bool(stance_match) if stance_match is not None else None, "bool")
     put("movement_completion_state", fixation <= end and "fixation" in anchors, "bool")
 
-    put("head_turn_completion_state", _component_settled(arrays, after_frames, "head", 10.0), "bool")
+    put("head_turn_completion_state", _component_settled(arrays, after_frames, "head", limits["head_settled_deg"]), "bool")
     put("head_late_turn_state", not bool(result["head_turn_completion_state"]["value"]) if result["head_turn_completion_state"]["value"] is not None else None, "bool")
 
-    _direction_metrics(result, put, arrays, contract, fix_frames, direction, active)
+    _direction_metrics(result, put, arrays, contract, fix_frames, direction, active, limits)
     _kick_metrics(result, put, arrays, contract, anchors, start, end, kick_side, rear, lead_leg_scale)
     _apply_quality_gates(
         result,
@@ -264,7 +285,7 @@ def measure_athlete_forward_vector(
     return _unit(np.median(np.asarray(vectors, dtype=float), axis=0))
 
 
-def _direction_metrics(result: dict[str, dict[str, Any]], put: Callable[..., None], arrays: dict[str, Any], contract: dict[str, Any], frames: np.ndarray, direction: dict[str, Any] | None, active: str | None) -> None:
+def _direction_metrics(result: dict[str, dict[str, Any]], put: Callable[..., None], arrays: dict[str, Any], contract: dict[str, Any], frames: np.ndarray, direction: dict[str, Any] | None, active: str | None, limits: dict[str, float]) -> None:
     ids = (
         "head_target_yaw_error_deg", "torso_target_yaw_error_deg", "pelvis_target_yaw_error_deg",
         "stance_axis_target_yaw_error_deg", "front_foot_target_yaw_error_deg", "rear_foot_target_yaw_error_deg",
@@ -293,7 +314,7 @@ def _direction_metrics(result: dict[str, dict[str, Any]], put: Callable[..., Non
     for metric_id, vector in vectors.items():
         put(metric_id, _horizontal_angle(vector, target), "deg")
     direction_ok = result["stance_axis_target_yaw_error_deg"]["value"]
-    put("expected_direction_change_match", direction_ok is not None and direction_ok <= 25.0, "bool")
+    put("expected_direction_change_match", direction_ok is not None and direction_ok <= limits["stance_direction_deg"], "bool")
     put("rotation_direction_sign_match", direction_ok is not None and direction_ok <= 90.0, "bool")
     put("step_direction_error_deg", direction_ok, "deg")
     head_error = result["head_target_yaw_error_deg"]["value"]
@@ -962,9 +983,9 @@ def _technique_target_error(arrays: dict[str, Any], frames: np.ndarray, contract
     return None if len(values) < 3 else float(np.median(values))
 
 
-def _hand_settled(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None) -> bool | None:
+def _hand_settled(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None, limit: float) -> bool | None:
     value = _hand_dispersion(arrays, frames, side, scale)
-    return None if value is None else value <= 0.05
+    return None if value is None else value <= limit
 
 
 def _component_settled(arrays: dict[str, Any], frames: np.ndarray, part: str, limit: float) -> bool | None:
@@ -972,13 +993,21 @@ def _component_settled(arrays: dict[str, Any], frames: np.ndarray, part: str, li
     return None if value is None else value <= limit
 
 
-def _settle_offset(arrays: dict[str, Any], frames: np.ndarray, first: str, second: str, fps: float) -> float | None:
-    first_frame = _settle_frame(arrays, frames, first)
-    second_frame = _settle_frame(arrays, frames, second)
+def _settle_offset(
+    arrays: dict[str, Any],
+    frames: np.ndarray,
+    first: str,
+    second: str,
+    fps: float,
+    first_limit: float,
+    second_limit: float,
+) -> float | None:
+    first_frame = _settle_frame(arrays, frames, first, first_limit)
+    second_frame = _settle_frame(arrays, frames, second, second_limit)
     return None if first_frame is None or second_frame is None or fps <= 0 else float((first_frame - second_frame) / fps)
 
 
-def _settle_frame(arrays: dict[str, Any], frames: np.ndarray, part: str) -> int | None:
+def _settle_frame(arrays: dict[str, Any], frames: np.ndarray, part: str, limit: float) -> int | None:
     if len(frames) < 4:
         return None
     vectors = [_orientation_line(arrays, int(frame), part) for frame in frames]
@@ -986,7 +1015,7 @@ def _settle_frame(arrays: dict[str, Any], frames: np.ndarray, part: str) -> int 
     if final is None:
         return None
     for index, vector in enumerate(vectors[:-2]):
-        if vector is not None and _angle(vector, final) is not None and _angle(vector, final) <= 10.0:
+        if vector is not None and _angle(vector, final) is not None and _angle(vector, final) <= limit:
             return int(frames[index])
     return int(frames[-1])
 
@@ -998,15 +1027,23 @@ def _late_component_correction(arrays: dict[str, Any], frames: np.ndarray, side:
     return None if first is None or last is None else float(np.linalg.norm(last - first) / scale)
 
 
-def _premature_transition(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None) -> bool | None:
+def _premature_transition(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None, limit: float) -> bool | None:
     correction = _late_component_correction(arrays, frames, side, scale)
-    return None if correction is None else correction > 0.08
+    return None if correction is None else correction > limit
 
 
-def _fixation_stable(arrays: dict[str, Any], frames: np.ndarray, active: str | None, leg: float | None, arm: float | None) -> bool | None:
+def _fixation_stable(
+    arrays: dict[str, Any],
+    frames: np.ndarray,
+    active: str | None,
+    leg: float | None,
+    arm: float | None,
+    hand_limit: float,
+    foot_limit: float,
+) -> bool | None:
     hand = _hand_dispersion(arrays, frames, active, arm)
     lower = _lower_dispersion(arrays, frames, leg)
-    return None if hand is None or lower is None else hand <= 0.05 and lower <= 0.04
+    return None if hand is None or lower is None else hand <= hand_limit and lower <= foot_limit
 
 
 def _foot_dispersion(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None) -> float | None:

@@ -194,7 +194,7 @@ taşımaz ve kanonik akışın parçası değildir. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 33 aktif kural için 330
+kural ile 133-landmark kapsam envanterini, 34 aktif kural için 340
 sınır/eksik/non-finite vakasını ve 12 WholeBody-133 geometri senaryosunu
 hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
 Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
