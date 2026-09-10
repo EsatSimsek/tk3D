@@ -64,8 +64,8 @@ Profil düzeyinde 174 kuralın durumu:
 
 | Durum | Sayı | Anlam |
 | --- | ---: | --- |
-| `active_diagnostic` | 74 | Ölçüm ve geçici eşik/boolean değerlendiricisi var |
-| `measurement_only` | 75 | Ölçüm var; bağımsız karar hedefi yok, açık gerekçe taşır |
+| `active_diagnostic` | 75 | Ölçüm ve geçici eşik/boolean değerlendiricisi var |
+| `measurement_only` | 74 | Ölçüm var; bağımsız karar hedefi yok, açık gerekçe taşır |
 | `blocked_missing_reference` | 17 | Sporcu-yerel mutlak yön bağı olmadan kapanır |
 | `not_observable_with_current_pipeline` | 8 | Mevcut pose/video kanıtından iddia edilemez |
 
@@ -157,9 +157,10 @@ ground-reaction force, darbe gücü veya kas gerilimi ölçülmez.
 ## Eşik ve karar politikası
 
 Aktif kuralların bütün sayısal değerleri v3 YAML içindeki `thresholds`, duruş
-kontratları veya `technique_screening_thresholds` alanındadır; aktif evaluator
-fonksiyonlarına gömülü eşik yoktur. Pasif kalan iki kuraldan biri tam da bu
-yüzden pasiftir; aşağıya bakınız. Her eşik birim, operatör, belirsizlik bandı
+kontratları veya `technique_screening_thresholds` alanındadır; ölçüm koduna
+gömülü eşik yoktur. Bir eşiğin kod içinde ikinci kez yazılmasını engelleyen test,
+koddaki bir sabit profildeki bir değere eşitse düşer. Bu koruma on dört kopya
+kaldırıldıktan sonra eklendi (AD-034). Her eşik birim, operatör, belirsizlik bandı
 ve ortak provenance politikasını taşır. Başlıca istek-bağlı geçici değerler:
 
 - baş hedef/torso yaw `25°`, roll `15°`, pitch `20°`, baş fixation/drift `10°`;
@@ -247,16 +248,39 @@ rapor bugünkü çıktının aynısıdır: `numeric_score_enabled=false`,
 `accuracy_score`, `total_score` ve `official_accuracy_claim_allowed` imzalı eşik
 varken de değişmez. Bu katman kesinti adayı üretir, resmî puan üretmez.
 
-## Eşiği olup pasif kalan iki kural
+## Hakem soru listesi
 
-Profilde 32 eşik var, 7'si aktif değil. Beşi yön bağlıdır. Kalan ikisi:
+Profilde imzasız kalan her değer bir sorudur ve liste elle tutulmaz, komutla
+üretilir:
+
+```powershell
+python scripts/build_judge_threshold_questionnaire.py `
+  --profile config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml `
+  --output-html hakem_sorulari.html
+```
+
+Güncel birleşik profil 72 soru üretir: 55 ekran eşiği, 8 duruş aralığı,
+8 başka eksiği olan eşik ve 1 tanımlanmamış teknik hedefi. Sayfa iki bölümdür — cevabı gelir gelmez iş
+yapacak sorular önce, sayı dışında da eksiği olanlar sonra. İkinci bölümdeki her
+satır sayı dışındaki eksiği ayrıca yazar.
+
+Bir eşik imzalandığında ilgili soru listeden kendiliğinden düşer; liste profille
+birlikte hareket eder. Sayfanın altında cevabın profile nasıl işleneceği duruyor.
+Komut kanonik akışın parçası değildir, var olan çıktının üzerine yazmaz ve hiçbir
+kesinti veya puan iddiası taşımaz. Ayrıntı AD-035'tedir.
+
+## Eşiği olup pasif kalan tek kural
+
+Profilde 32 eşik var, 6'sı aktif değil. Beşi yön bağlıdır. Kalan bir tanesi:
 
 | Kural | Sebep | Aktifleşmesi için |
 | --- | --- | --- |
 | `foot_landing_position_error_body_ratio` | Duruş sözleşmesindeki aralığın dışına taşmayı ölçer; o aralık da doğrulanmamış kendi değerimizdir | Hakemden hem aralık hem tolerans |
-| `head_torso_settle_offset` | "Oturdu" kararı `_settle_frame` içindeki gömülü `10°` ile verilir, YAML'da değildir | Önce `10°` YAML'a çıkacak, sonra hakem onayı |
 
-İkisi de unutulmuş değildir. Ayrıntı AD-031'dedir.
+`head_torso_settle_offset` 5 Eylül 2026'ya kadar bu listedeydi. Sebebi "oturdu"
+kararının `_settle_frame` içine gömülü `10°` ile verilmesiydi. O değer artık
+profilden okunuyor, kural aktif edildi ve birleşik profilde aktif kural sayısı
+75 oldu (AD-034).
 
 ## Çıktılar ve güncel kanıt kapsamı
 

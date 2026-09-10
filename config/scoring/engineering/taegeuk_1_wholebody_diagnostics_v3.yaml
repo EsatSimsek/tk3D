@@ -164,7 +164,6 @@ measurement_only_reasons:
   fist_or_hand_orientation_proxy_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
   fist_target_depth_error_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
   hand_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
-  head_torso_settle_offset: 'Baş/gövde oturma anını belirleyen 10 derece iç eşiği henüz YAML profilinde değildir; bu gizli karar sabiti taşınmadan bağımsız aday üretmez.'
   preparation_pose_observed: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: required_phase_coverage'
   preparation_side_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: active_arm_side_match'
   chamber_pose_observed: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
@@ -486,6 +485,7 @@ active_rules:
   - active_hand_fixation_stability
   - reaction_hand_fixation_stability
   - active_hand_stance_settle_offset
+  - head_torso_settle_offset
   - required_phase_coverage
   - movement_contract_exists
   - movement_timeline_segment_exists

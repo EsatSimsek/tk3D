@@ -345,7 +345,7 @@ Pipeline sınırındaki 8 özellik hariç 166 kuralın tamamında ölçüm evalu
 yolu vardır. 133 landmarkın tamamı kural envanterine bağlı, 51'i aktif eşikli
 kuralların zorunlu landmark kümesindedir. Ayrıntılı el/ayak/yüz ölçümü `%75`
 landmark-grup kalite kapısını geçmezse fail-closed kapanır.
-Yalnız ölçümde kalan 75 destek/kalite/alias metriğinin her biri nedenini ve
+Yalnız ölçümde kalan 74 destek/kalite/alias metriğinin her biri nedenini ve
 varsa ana karar kontrolünü açıkça taşır; bunlar sırf katalogda bulunduğu için
 bağımsız sporcu hatasına dönüştürülmez.
 

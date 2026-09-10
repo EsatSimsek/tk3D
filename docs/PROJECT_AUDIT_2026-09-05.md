@@ -106,7 +106,7 @@ Stabilite JSON’unda açı yüksek-frekans medyanı yaklaşık **0,05086°**, b
 
 `run_quality_report.json` içindeki `max_reprojection_error_px: 25.0` alanı uygulamada eşik değişkeninden yazılıyor. Bunu gözlenen dağılımın maksimumu diye sunmamak gerekir. Rapor şemasında `configured_max_reprojection_error_px` gibi daha açık ad veya açıklama tercih edilmeli; gözlenen p50/p95/p99/max ayrı alanlar olmalı.
 
-`benim-denemem-21` kaydedilmiş raporu **75 aktif, 74 yalnız ölçüm, 17 referansla bloke, 8 gözlenemeyen** kural ve **82 puansız aday** içeriyor. Bugünkü çalışma profilinin dağılımı ise **74 aktif, 75 yalnız ölçüm, 17 bloke, 8 gözlenemeyen**. Eski rapor bugünkü profil çalıştırılmış gibi yorumlanmamalıdır.
+`benim-denemem-21` kaydedilmiş raporu **75 aktif, 74 yalnız ölçüm, 17 referansla bloke, 8 gözlenemeyen** kural ve **82 puansız aday** içeriyor. Denetim anındaki çalışma profilinin dağılımı ise **74 aktif, 75 yalnız ölçüm, 17 bloke, 8 gözlenemeyen** idi. Eski rapor farklı bir profil çalıştırılmış gibi yorumlanmamalıdır; 10 Eylül birleşik profil durumu Bölüm 17'dedir.
 
 ### 3.3. Hazırlık durumlarının ayrılması
 
@@ -621,20 +621,23 @@ Bu teslimde devam eden merge, yerel geçici kural genişletmesi ile uzak daldaki
 hakem-imzalı eşik sözleşmesini birlikte koruyacak biçimde çözüldü. Mimari karar
 numaraları tekilleştirildi ve bütün çatışma işaretleri kaldırıldı.
 
-`head_torso_settle_offset`, baş/gövde oturma kararındaki `10°` sabiti profil
-dışında kaldığı için aktif aday listesinden çıkarıldı. Güncel profil 3.2.1;
-envanter **74 `active_diagnostic`, 75 `measurement_only`, 17
+Uzak daldaki sonraki düzeltme, baş/gövde oturma kararındaki `10°` sınırını ve
+ölçüm katmanında tekrar eden diğer karar sabitlerini profile taşıdı.
+`head_torso_settle_offset` böylece güvenli biçimde yeniden aktif edildi. Güncel
+profil 3.2.1; envanter **75 `active_diagnostic`, 74 `measurement_only`, 17
 `blocked_missing_reference`, 8 `not_observable_with_current_pipeline`** üretir.
-Sentetik sınıflandırma kapsamı buna bağlı olarak **87 metrik ve 970 vaka** oldu.
+Sentetik sınıflandırma kapsamı **88 metrik ve 980 vaka** olarak doğrulandı.
 
 Doğrulama sonuçları:
 
-- teknik doğruluk ve validation odaklı testler: **57 passed in 36.94s**;
-- tam pytest: **384 passed in 92.35s**;
+- teknik doğruluk, validation ve Poomsae runner odaklı testler:
+  **96 passed in 50.63s**;
+- tam pytest: **389 passed in 76.29s**;
 - Ruff: temiz;
 - `git diff --check`: temiz.
 
-Bu sonuçlarla B01'deki merge çatışması ve B02'deki profil/test/belge sayım
-uyuşmazlığı bu teslim kapsamında kapatıldı. Raporun lifecycle, artifact bağı,
-semantik doğruluk ve bağımsız dış doğrulama hakkındaki diğer bulguları kısa,
-orta ve uzun vadeli çalışma listesi olarak geçerliliğini korur.
+Bu sonuçlarla B01'deki merge çatışması, B02'deki profil/test/belge sayım
+uyuşmazlığı ve B10'daki gömülü karar sınırları bu teslim kapsamında kapatıldı.
+Raporun lifecycle, artifact bağı, semantik doğruluk ve bağımsız dış doğrulama
+hakkındaki diğer bulguları kısa, orta ve uzun vadeli çalışma listesi olarak
+geçerliliğini korur.

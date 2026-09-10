@@ -40,10 +40,26 @@ durumlarla açıkça korunur.
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
 kontrata çözülür. 10 Eylül 2026 tarihli profil 3.2.1 ile 174 kurallık envanter
-74 `active_diagnostic`, 75 `measurement_only`, 17 `blocked_missing_reference` ve 8
+75 `active_diagnostic`, 74 `measurement_only`, 17 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kural taşır. Aktif kayıt kanıtı yine
 yalnız M01–M06'dır. Geçici adaylar source-bound karar, Accuracy skoru,
 Presentation veya readiness'i değiştiremez.
+
+4 Eylül 2026'da aynı katmana ikinci bir eşik kaynağı eklendi. Bir eşik satırı
+`judge_source` bloğu taşıyabilir; hakemin adı, yetki belgesi, karar tarihi ve
+onay kaydı zorunludur. Yalnız bu bloğu taşıyan kural kesinti adayı üretebilir,
+imzasız eşikler puansız kalır. Kaynak profil düzeyinde değil eşik düzeyindedir,
+çünkü bir hakem görüşmesi otuz iki eşiğin tamamını değil birkaçını kapsar.
+Profil düzeyindeki puansızlık kilidi ve `threshold_policy.origin` kontrolü
+gevşetilmedi; ikisi de imzalı eşik varken aynen çalışır. İmzalar
+`judge_validated_rules` listesiyle birebir eşleşmek ve `active_rules` altkümesi
+olmak zorundadır. Liste bugün boştur, bu yüzden hiçbir kural puana etki etmez ve
+rapor önceki çıktının aynısıdır. Ayrıntı AD-032'dedir.
+
+Taslak zaman çizelgesinin çapaları videoyu kaydırmadan incelenebilir. Ayrı bir
+komut her çapanın çevresindeki kareleri tek bir HTML sayfasına dizer; kayıt
+elinizde değilse kamera karesi yerine ölçülen iskelet çizilir. Komut kanonik
+akışın parçası değildir ve bir test bunu korur.
 
 Landmark kapsam envanteri 0–132 arasındaki `17 body + 6 foot + 68 face + 42
 hand = 133` noktanın tamamını listeler. Tamamı en az bir kural sözleşmesine
@@ -102,29 +118,73 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 10 Eylül 2026 merge, hakem-imzalı eşik ve profil uyumu kapısı:
 
 - Ruff ve `git diff --check`: temiz;
-- tam pytest: **`384 passed in 92.35s`**;
-- teknik doğruluk ve validation odaklı testler: **`57 passed in 36.94s`**;
-- validation: **174/174** kural, **133/133** landmark, **970/970** sınıflandırma,
+- tam pytest: **`389 passed in 76.29s`**;
+- teknik doğruluk, validation ve Poomsae runner odaklı testler:
+  **`96 passed in 50.63s`**;
+- validation: **174/174** kural, **133/133** landmark, **980/980** sınıflandırma,
   **18/18** geometri/uçtan uca kanıt senaryosu geçti;
 - teknik profil 3.2.1: 20 boolean koşul açık beklenen değer taşır. Yanlış yön
   durumunun beklenen değeri `false`; dejenere yüz yönü `null` kalır;
 - 17 referans-bağlı ölçütün 13'ü tanımlı eşik/beklenen boolean ile
   değerlendirilebilir; sayısal eşiksiz dördü `measurement_only` kalır;
-- 74 aktif kuralın 41'i yeni geçici taramadır. Duruş uzunluğu/genişliği ve
+- 75 aktif kuralın 42'si yeni geçici taramadır. Duruş uzunluğu/genişliği ve
   diz açıları `ap_seogi`/`ap_gubi`; dirsek ve kol uzaması teknik türü bağlamına
-  göre eşik alır. 75 destek ölçümünün tamamı neden/ana-kontrol metni taşır;
+  göre eşik alır. 74 destek ölçümünün tamamı neden/ana-kontrol metni taşır;
 - hakem kaynağı taşıyan eşiklerin açık imza/provenance sözleşmesi birleşti;
   imzasız güncel profil puan ve kesinti üretmiyor;
-- `head_torso_settle_offset`, evaluator içindeki gizli `10°` sabiti YAML'a
-  taşınana ve dışarıdan doğrulanana kadar `measurement_only` durumundadır;
+- ölçüm modülündeki karar sınırları profile taşındı; `head_torso_settle_offset`
+  yeniden aktif ve koddaki eşik kopyalarını yakalayan koruma testi mevcut;
+- hakem soru listesi profilden üretiliyor ve kanonik akıştan ayrı tutuluyor;
+  güncel birleşik profil 72 soru üretti;
 - bu teslim gerçek model inference davranışını değiştirmediği için yeni video
   inference veya gerçek smoke koşusu yapılmadı.
 
 ### Önceki doğrulamalar (tarihsel)
 
-5 Eylül 2026 geçici kural genişletme kapısı 75 aktif, 74 yalnız ölçüm ve
-980 sınıflandırma vakasıyla geçti. Bu sayılar profil 3.2.0'a aittir; güncel
-3.2.1 profili için yukarıdaki 74/75 ve 970 değerleri kullanılmalıdır.
+8 Eylül 2026 hakem soru listesi kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest (Windows, torch hariç): **`342 passed`**;
+- tam pytest (Linux, torch'suz): **`340 passed`** + Windows yol ve poz testleri;
+- `git diff --check`: temiz;
+- `scripts/build_judge_threshold_questionnaire.py` profilden **41 soru** üretti:
+  26 ekran eşiği, 8 duruş aralığı, 6 başka eksiği olan eşik, 1 teknik hedefi;
+- sorulan kümenin imzasız eşiklerin kümesine eşit olduğu doğrulandı; test
+  profile bir imza koyup yalnız o sorunun düştüğünü de kontrol etti;
+- komut kanonik akıştan çağrılmıyor ve var olan çıktının üzerine yazmıyor.
+
+7 Eylül 2026 gömülü sabitlerin profile bağlanması kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest (Windows, torch dahil): **`347 passed`**;
+- tam pytest (Linux, torch'suz): **`337 passed`** + Windows yol testi düşer;
+- `git diff --check`: temiz;
+- ölçüm modülünde profildeki bir değere eşit sabit kalmadı; tarama **0** döndü;
+- yeni koruma testi kasıtlı geri konan bir kopyayı yakaladı ve hangi satırın
+  hangi eşiği tekrarladığını yazdı;
+- `head_torso_settle_offset` aktif edildi; aktif kural 34, `measurement_only`
+  115 oldu; doğrulama düzeneğinde aktif-kural vakası **`340/340`** geçti;
+- eşiği olup pasif kalan tek kural `foot_landing_position_error_body_ratio`.
+
+4 Eylül 2026 hakem-kaynaklı eşik ve çapa inceleme kapısı:
+
+- `python -m ruff check src scripts tests`: geçti;
+- tam pytest (Windows, torch dahil): **`345 passed`**;
+- tam pytest (Linux, torch'suz): **`335 passed`** + Windows yol testi düşer;
+- `git diff --check`: temiz;
+- hakem imzası odaklı testler: **`13 passed in 1.54s`** (tam koşuya dahil);
+- imzasız profilde rapor bit bit önceki çıktıya eşit: `numeric_score_enabled`
+  ve `deduction_enabled` `false`, `deductions` boş;
+- imzalı eşik testinde kesinti satırı hakemin adını, yetki belgesini, karar
+  tarihini ve onay kaydını taşıdı; aynı raporda imzasız kuralların tamamı
+  puansız kaldı;
+- profil düzeyindeki puansızlık kilidi imzalı eşik varken de reddetti;
+- eşiği olup pasif kalan iki kuralın sebebi ölçüldü ve AD-031'e yazıldı;
+- `docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md` içindeki "aktif evaluator'a gömülü
+  eşik yoktur" iddiası düzeltildi.
+
+5 Eylül 2026 yerel geçici kural genişletme kapısı 75 aktif, 74 yalnız ölçüm ve
+980 sınıflandırma vakasıyla geçti. Bu kapsam güncel birleşik profile korundu.
 
 2 Eylül 2026 boolean technical-accuracy EvidenceEvent ve lifecycle düzeltmesi:
 
@@ -355,7 +415,8 @@ doğruluğuna devredilmez.
 | İç multiview kalite | `passed` | Son tam aktif referansta iç geometri/sensör kapıları geçti |
 | `provisional_scoring_ready` | `true` | Kaynak-bağlı provisional analize veri hazırlığı var |
 | `rule_scoring_ready` | `false` | Tam ve doğrulanmış kural kanıtı hazır değil |
-| `judge_calibrated_ready` | `false` | Uzman/hakem kalibrasyon verisi yok |
+| `judge_supplied_threshold_channel` | `READY` | İmzalı hakem eşiğini kabul eden yol kurulu ve testli |
+| `judge_calibrated_ready` | `false` | Uzman/hakem kalibrasyon verisi yok; imzalı eşik listesi boş |
 | `official_scoring_ready` | `false` | Resmî puan önkoşulları sağlanmadı |
 
 `tk3d-check` Final Polish son doğrulamasında da `READY` döndürdü.
@@ -376,6 +437,38 @@ doğruluğuna devredilmez.
    öncesinde açıklığa kavuşturulmalıdır.
 9. CI yapılandırması yerel olarak doğrulandı, fakat bu kirli çalışma ağacının
    GitHub-hosted CI sonucu henüz yoktur.
+10. `judge_validated_rules` boştur; ikinci eşik kaynağının yolu kurulu olsa da
+    hiçbir eşik hakem imzası taşımaz ve hiçbir kural puana etki edemez.
+11. ~~`technical_accuracy_metrics.py` on dört yerde yedi sayıyı kod içine gömülü
+    tutar.~~ **7 Eylül 2026'da kapatıldı (AD-034).** Bütün kopyalar kaldırıldı,
+    değerler profilden okunuyor ve yeni bir kopya eklenmesini engelleyen test
+    kondu. Kayıt için bulgunun kendisi:
+
+    | Kod | Değer | Profildeki aslı |
+    | --- | ---: | --- |
+    | `_component_settled(..., "head", 10.0)` ×3 | 10.0 | `head_fixation_orientation_dispersion_p95_deg` |
+    | `_settle_frame` içindeki açı sınırı | 10.0 | aynı eşik |
+    | `_component_settled(..., "shoulder", 8.0)` ×2 | 8.0 | `torso_fixation_orientation_dispersion_p95_deg` |
+    | `_component_settled(..., "hip", 8.0)` | 8.0 | `pelvis_fixation_orientation_dispersion_p95_deg` |
+    | `head_quality >= 0.75` ×2 | 0.75 | `quality_gates.min_group_valid_ratio` |
+    | `direction_ok <= 25.0` | 25.0 | `stance_axis_target_yaw_error_deg` |
+    | `correction > 0.08` | 0.08 | `arm_late_correction_body_ratio` |
+    | `hand <= 0.05` | 0.05 | `active_hand_fixation_stability` |
+    | `_hand_settled` içindeki sınır | 0.05 | aynı eşik |
+    | `lower <= 0.04` | 0.04 | `foot_fixation_slip_body_ratio` |
+
+    Sonuç bir üslup kusuru değil: profildeki bir eşik değişirse sayısal kural
+    yeni değeri kullanır, aynı eşiğe dayanan boolean kural eski kopyayı
+    kullanmaya devam eder ve aynı rapor tek eşik için iki farklı cevap taşır.
+    AD-032 ile hakem artık bir eşiği gerçekten değiştirebildiği için bu sessiz
+    ayrışma somut bir risktir. `90.0` kullanan iki karşılaştırma bu listede
+    değildir; onlar eşik değil, "aynı yarı düzlemde mi" anlamına gelen geometrik
+    sabittir. AD-033 bu ailenin iki üyesini zaten kaydetmişti.
+
+    Sayım önce elle yapıldı ve on üç çıktı; profildeki değerlerle karşılaştıran
+    bir betikle tekrarlandığında on dördüncü yer ortaya çıktı. Bu yüzden
+    düzeltmenin yanına tekrarlanabilir bir kontrol de gerekir: elle tarama aynı
+    hatayı yeniden yapar.
 
 ## 11. Opsiyonel gelecek çalışmaları
 

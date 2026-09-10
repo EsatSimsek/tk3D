@@ -713,6 +713,78 @@ Koruma: Bir kuralın aktif olması için `active_rules` listesinde ve
 `ACTIVE_EVALUATORS` kümesinde birlikte bulunması şarttır; eşik taşımak tek
 başına yetmez ve yetmemelidir. Eşiği olup aktif olmayan diğer beş kural yön
 bağlıdır ve sebepleri AD-027'de kayıtlıdır.
+Güncelleme (5 Eylül 2026): `head_torso_settle_offset` için yazılan sebep
+kapatıldı. Gömülü `10°` profile taşındı ve kural aktif edildi; ayrıntı
+AD-034'tedir. `foot_landing_position_error_body_ratio` bu maddede yazıldığı
+gibi pasif kalmaya devam eder.
+
+## AD-034 — Bir sınır ya profildedir ya da hiçbir yerde
+
+Karar: Ölçüm kodu hiçbir karar sınırını kendi içinde tutmaz. Profildeki bir
+değere eşit olan her sabit kaldırıldı; `_profile_limits` bu değerleri tek yerde
+çözer ve ihtiyaç duyan fonksiyonlara parametre olarak geçer. Bir test bu kuralı
+korur: ölçüm modülündeki bir sabit profildeki bir eşiğe ya da
+`min_group_valid_ratio` kapısına eşitse test düşer ve hangi satırın hangi eşiği
+tekrarladığını yazar.
+
+Gerekçe: Yedi sayı on dört yerde ikinci kez yazılmıştı. Hiçbir eşik
+değişemediği sürece bu görünmezdi. AD-032 hakemin bir eşiği gerçekten
+değiştirebilmesini sağladığı anda iki kopya ayrışabilir hâle geldi: sayısal
+kural yeni değeri, aynı eşiğe dayanan boolean kural koddaki eski kopyayı
+kullanırdı ve tek rapor tek eşik için iki cevap taşırdı. Tek seferlik temizlik
+yetmez, çünkü aynı hata bir kez fark edilmeden yapıldı; testsiz ikinci kez de
+yapılır.
+
+Kapsam dışı: `90°` ile yapılan iki karşılaştırma eşik değildir, "aynı yarı
+düzlemde mi" anlamına gelen geometrik sabittir ve kodda kalır. Kamera sayısı
+(`2`) ve kare atlama kapısı (`0.5`) ölçüm sınırı değil hat ayarıdır; değerleri
+sıradan aritmetikle çakıştığı için testin kapsamına alınmadı.
+
+Sonuç: `head_torso_settle_offset` AD-033'te "oturdu" kararını gömülü `10°` ile
+verdiği için pasif tutuluyordu. O sebep ortadan kalktı ve kural aktif edildi.
+Bu değişiklik tek başına önceki 33 aktif kurallık tabanı 34'e çıkardı; AD-031'deki
+geniş tarama kapsamıyla birleşen güncel profil 75 `active_diagnostic`, 74
+`measurement_only` ve 980 sınıflandırma vakası üretir. Eşiği olup pasif kalan tek
+kural `foot_landing_position_error_body_ratio` olarak kaldı; onun sebebi farklıdır
+ve hakemden iki sayı ister.
+
+Sınır: Bu karar sayıların doğru olduğunu değil, tek bir yerde durduğunu garanti
+eder. Değerlerin kendisi hâlâ doğrulanmamış mühendislik varsayımıdır ve AD-032'ye
+göre yalnız imzalı bir eşik puana etki edebilir.
+
+## AD-035 — Hakem soru listesi elle yazılmaz, profilden üretilir
+
+Karar: Hakemden istenecek değerlerin listesi
+`scripts/build_judge_threshold_questionnaire.py` tarafından teşhis profilinden
+üretilir. Komut imzasız her eşiği, duruş aralıklarını ve tanımlanmamış teknik
+hedeflerini tarar ve tek bir HTML sayfası yazar. Sayfa iki bölümdür: cevabı
+gelir gelmez iş yapacak sorular önce, sayı dışında da eksiği olanlar sonra.
+
+Gerekçe: Elle yazılmış bir soru listesi ilk eşik değiştiğinde eskir ve eskidiği
+görünmez. Profil zaten hangi değerin geliştirme sırasında yazıldığını ve hangisinin
+imza taşıdığını biliyor; liste bu bilgiden türetilince sorunun kaynağıyla arasında
+kopukluk kalmaz. Bir eşik imzalandığında ilgili soru listeden kendiliğinden düşer,
+bir eşik eklendiğinde kendiliğinden girer. Bunu bir test korur: sorulan kümenin
+imzasız eşiklerin kümesine eşit olduğu, ve bir imza konduğunda yalnız o sorunun
+düştüğü doğrulanır.
+
+Önceliklendirme ölçütü: Bir kural bugün çalışıyorsa ve tek eksiği doğru sayıysa,
+cevabı anında iş yapar; bu sorular birinci bölümdedir. Yön referansı bekleyen ya
+da altındaki aralık doğrulanmamış kurallar ikinci bölümdedir ve her satır sayı
+dışındaki eksiği yazar, okuyan kişi önceliği kendisi görebilsin diye. Duruş
+aralıkları birinci bölümdedir, çünkü ayak inişi toleransı onların üstüne oturur ve
+ikisi birden gelmezse o kural açılmaz.
+
+Koruma: Komut kanonik akışın parçası değildir ve bir test bunu doğrular. Var olan
+bir çıktının üzerine yazmaz; doldurulmuş bir cevap kâğıdı sessizce kaybolamaz.
+Sayfa hiçbir performans hakkında iddia, kesinti veya puan taşımaz ve bunu kendi
+üstünde yazılı olarak belirtir. Cevabın profile nasıl işleneceği aynı sayfada
+gösterilir, böylece görüşme sonrası tek iş verilen sayıları yazmak olur.
+
+Sınır: Liste hangi değerin eksik olduğunu bilir, hangisinin önemli olduğunu
+bilmez. Sıralama ölçütü teknik erişilebilirliktir, sporcu üzerindeki etki değil.
+Bir hakem soruların sırasını kendi bilgisine göre değiştirebilir.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

@@ -164,14 +164,21 @@ V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurall
 makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
 kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i
 aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
-ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.1'de 74 kural geçici
-tarama kararı üretir; 75 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
+ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.1'de 75 kural geçici
+tarama kararı üretir; 74 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
 kalır. Her kuralın ölçümü, geçici beklentisi, bağlamı, kararı veya kapanma
 nedeni HTML inceleme ekranında aranabilir. Geçici adaylar skor ve kesintiyi değiştirmez.
 Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
 yorumlanır. Sporcu-yerel yön referansı her run'da açılış duruşundan türetilir ve
 oturum/pose hash'ine bağlanır; türetilemezse 17 yön kuralı fail-closed kalır ve
 gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
+
+Bir eşiğin puana etki edebilmesi için hakem imzası taşıması gerekir. Eşik satırı
+`judge_source` bloğu alabilir; hakemin adı, yetki belgesi, karar tarihi ve onay
+kaydı zorunludur ve imzalı eşikler `judge_validated_rules` listesiyle birebir
+eşleşmek zorundadır. İmzasız eşikler puansız kalır, profil düzeyindeki
+puansızlık kilidi imzalı eşik varken de çalışır ve liste boşken rapor önceki
+çıktının aynısıdır. Bugün liste boştur.
 Ayrıntı:
 [`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
 
@@ -179,14 +186,26 @@ Elle etiketlenmemiş bir kayıt için hareket zaman çizelgesi **önerisi** ayr�
 komutla üretilir; kanonik akış bu taslağı kendiliğinden tüketmez. Taslak, tespit
 edilen segmentleri `config/scoring/templates/` altındaki referans duruşlarla
 eşleştirir, şüpheli eşleşmeleri `ambiguous` işaretler ve hizalama anomalilerini
-ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
+ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez.
+
+Taslağın çapaları videoyu kaydırmadan incelenebilir: ayrı bir komut her çapanın
+çevresinde ±15 kare aralıkta beşer kare adımla yedi kare çıkarır ve tek bir HTML
+sayfasına dizer. Kayıt elinizin altındaysa `--camera` ile kamera karesi kullanın;
+yoksa `--pose` ile ölçülen iskelet çizilir, ki o sistemin ölçtüğü geometriyi
+gösterir, sporcunun kendisini değil. Sayfa hiçbir kesinti veya puan iddiası
+taşımaz ve kanonik akışın parçası değildir. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
+Profilde imzasız kalan her değer bir sorudur ve hakemden istenecek liste elle
+tutulmaz, `scripts/build_judge_threshold_questionnaire.py` ile profilden üretilir.
+Çıktı tek bir HTML sayfasıdır; cevabı gelir gelmez iş yapacak sorular önce,
+sayı dışında da eksiği olanlar sonra sıralanır. Bir eşik imzalandığında ilgili
+soru listeden kendiliğinden düşer.
+
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 74 aktif ve 13 referans-bağlı
-değerlendirilebilir metriğin bağlamsal varyantları için 970 sınır/eksik/non-finite
-vakasını ve
-18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
+kural ile 133-landmark kapsam envanterini, 75 aktif ve 13 referans-bağlı
+değerlendirilebilir metriğin bağlamsal varyantları için 980 sınır/eksik/non-finite
+vakasını ve 18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
 hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
 Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
 yorum sınırları:
