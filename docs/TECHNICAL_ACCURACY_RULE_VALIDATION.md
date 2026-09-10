@@ -1,6 +1,6 @@
 # Teknik Doğruluk Kural Doğrulama Düzeneği
 
-Son güncelleme: **5 Eylül 2026**
+Son güncelleme: **10 Eylül 2026**
 
 Bu düzenek, Taegeuk 1 v3 teknik-doğruluk sisteminin yazılım davranışını
 tekrarlanabilir sentetik vakalarla doğrular. Kuralın biomekanik olarak doğru
@@ -16,13 +16,13 @@ kanıtlamaz. Çıktının durumu bu nedenle
 2. **133 landmark envanteri:** 0–132 arasındaki her noktanın en az bir kural
    sözleşmesine bağlı olduğu ayrıca doğrulanır. Bu kontrol landmark başına
    bağımsız aktif hata kuralı bulunduğu anlamına gelmez.
-3. **88 değerlendirilebilir metriğin eşik sınıflandırması:** 75 aktif ve
+3. **87 değerlendirilebilir metriğin eşik sınıflandırması:** 74 aktif ve
    13 referans-bağlı metriğe `pass`,
    üst/ana `boundary`, karşı taraf `opposite_boundary`, üst/ana `fail`, karşı
    taraf `opposite_fail`, `missing`, `nan`, `positive_infinity`,
    `negative_infinity` ve `wrong_type` çalıştırılır. Duruş ve teknik bağlamına
    göre farklı eşik kullanan altı metriğin varyantları ayrı test edildiği için
-   toplam 980 sınıflandırma vakası oluşur. Range operatörünün iki sınırı ve `abs_max`
+   toplam 970 sınıflandırma vakası oluşur. Range operatörünün iki sınırı ve `abs_max`
    operatörünün pozitif/negatif yönü ayrı sınanır. Tek taraflı veya boolean
    kontratta uygulanamayan karşı sınır açıkça `not_applicable` kaydedilir.
    Boolean kararlar profilin açık `boolean_expectations` değerine göre
@@ -71,7 +71,7 @@ Rapor ancak aşağıdakilerin hepsi doğruysa `status=passed` olur:
 
 - 174 envanter satırının tamamı kendi durum sözleşmesini geçer;
 - 133 landmark satırının tamamı en az bir açık kural bağı taşır;
-- 980 sınıflandırma vakasının tamamı beklenen sınıfa düşer;
+- 970 sınıflandırma vakasının tamamı beklenen sınıfa düşer;
 - 12 yapılandırılmış ve 6 zorunlu uçtan uca senaryonun tamamı geçer;
 - BODY-17 girdisi kabul edilmez, eksik kanıt aday üretmez ve yön kuralları
   session-bound referans olmadan açılmaz;

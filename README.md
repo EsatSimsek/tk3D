@@ -164,8 +164,8 @@ V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurall
 makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
 kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i
 aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
-ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.0'da 75 kural geçici
-tarama kararı üretir; 74 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
+ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.1'de 74 kural geçici
+tarama kararı üretir; 75 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
 kalır. Her kuralın ölçümü, geçici beklentisi, bağlamı, kararı veya kapanma
 nedeni HTML inceleme ekranında aranabilir. Geçici adaylar skor ve kesintiyi değiştirmez.
 Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
@@ -183,8 +183,8 @@ ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez. Ayrıntı:
 [`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
 
 Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 75 aktif ve 13 referans-bağlı
-değerlendirilebilir metriğin bağlamsal varyantları için 980 sınır/eksik/non-finite
+kural ile 133-landmark kapsam envanterini, 74 aktif ve 13 referans-bağlı
+değerlendirilebilir metriğin bağlamsal varyantları için 970 sınır/eksik/non-finite
 vakasını ve
 18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
 hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
@@ -192,7 +192,7 @@ Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma kom
 yorum sınırları:
 [`docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md`](docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md).
 
-Teknik profil `3.2.0`, boolean kuralların beklenen sonucunu
+Teknik profil `3.2.1`, boolean kuralların beklenen sonucunu
 `boolean_expectations` içinde açıkça tanımlar. Yanlış yön koşulunun beklenen
 değeri `false` olur; ölçülemeyen yön `null` kalır ve hata adayı üretmez.
 Yön referansı bulunması, sayısal eşiği olmayan dört ölçüme karar yetkisi vermez.

@@ -1,6 +1,6 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **5 Eylül 2026**
+Son doğrulama tarihi: **10 Eylül 2026**
 
 Dal: **`main`**
 
@@ -39,8 +39,8 @@ durumlarla açıkça korunur.
 
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
-kontrata çözülür. 5 Eylül 2026 tarihli profil 3.2.0 ile 174 kurallık envanter
-75 `active_diagnostic`, 74 `measurement_only`, 17 `blocked_missing_reference` ve 8
+kontrata çözülür. 10 Eylül 2026 tarihli profil 3.2.1 ile 174 kurallık envanter
+74 `active_diagnostic`, 75 `measurement_only`, 17 `blocked_missing_reference` ve 8
 `not_observable_with_current_pipeline` kural taşır. Aktif kayıt kanıtı yine
 yalnız M01–M06'dır. Geçici adaylar source-bound karar, Accuracy skoru,
 Presentation veya readiness'i değiştiremez.
@@ -99,33 +99,32 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 
 ## 4. Güncel test ve kalite kapısı
 
-5 Eylül 2026 geçici kural genişletme ve inceleme görünürlüğü kapısı:
+10 Eylül 2026 merge, hakem-imzalı eşik ve profil uyumu kapısı:
 
 - Ruff ve `git diff --check`: temiz;
-- tam pytest: **`371 passed in 59.26s`**;
-- review bağlama ve gerçek JavaScript kayıt/JSON import-export handler testi:
-  **`8 passed in 1.43s`** (Node, minimal DOM; gerçek video oynatımı testi değil);
-- validation: **174/174** kural, **133/133** landmark, **980/980** sınıflandırma,
+- tam pytest: **`384 passed in 92.35s`**;
+- teknik doğruluk ve validation odaklı testler: **`57 passed in 36.94s`**;
+- validation: **174/174** kural, **133/133** landmark, **970/970** sınıflandırma,
   **18/18** geometri/uçtan uca kanıt senaryosu geçti;
-- bağımsız validation CLI artifact'leri:
-  `outputs/validation/runs/expanded-rules-20260905-r1/`;
-- teknik profil 3.2.0: 20 boolean koşul açık beklenen değer taşır. Yanlış yön
+- teknik profil 3.2.1: 20 boolean koşul açık beklenen değer taşır. Yanlış yön
   durumunun beklenen değeri `false`; dejenere yüz yönü `null` kalır;
 - 17 referans-bağlı ölçütün 13'ü tanımlı eşik/beklenen boolean ile
   değerlendirilebilir; sayısal eşiksiz dördü `measurement_only` kalır;
-- 75 aktif kuralın 42'si yeni geçici taramadır. Duruş uzunluğu/genişliği ve
+- 74 aktif kuralın 41'i yeni geçici taramadır. Duruş uzunluğu/genişliği ve
   diz açıları `ap_seogi`/`ap_gubi`; dirsek ve kol uzaması teknik türü bağlamına
-  göre eşik alır. 74 destek ölçümünün tamamı neden/ana-kontrol metni taşır;
-- hata/kesinti testleri snapshot, video çözümleme, işlem başlatma, video alt
-  işlem hatası, durum yazma hatası ve mevcut run'ı koruma yollarını kapsar;
-- şema-2 review JSON'ları analiz run'ı, kaynak pose, timeline, rapor/girdi
-  hash'lerine bağlıdır. İnceleyen/zaman olmadan etiket kaydedilmez; eski veya
-  başka run'a ait JSON içe alınmaz;
-- gerçek bağlı pose üzerinden analiz yeniden çalıştırıldı (yeni model
-  inference yok); aşağıdaki run başarıyla tamamlandı. İnsan/hakem pilotu ve
-  faz düzenleme editörü bu teslimde tamamlanmış değildir.
+  göre eşik alır. 75 destek ölçümünün tamamı neden/ana-kontrol metni taşır;
+- hakem kaynağı taşıyan eşiklerin açık imza/provenance sözleşmesi birleşti;
+  imzasız güncel profil puan ve kesinti üretmiyor;
+- `head_torso_settle_offset`, evaluator içindeki gizli `10°` sabiti YAML'a
+  taşınana ve dışarıdan doğrulanana kadar `measurement_only` durumundadır;
+- bu teslim gerçek model inference davranışını değiştirmediği için yeni video
+  inference veya gerçek smoke koşusu yapılmadı.
 
 ### Önceki doğrulamalar (tarihsel)
+
+5 Eylül 2026 geçici kural genişletme kapısı 75 aktif, 74 yalnız ölçüm ve
+980 sınıflandırma vakasıyla geçti. Bu sayılar profil 3.2.0'a aittir; güncel
+3.2.1 profili için yukarıdaki 74/75 ve 970 değerleri kullanılmalıdır.
 
 2 Eylül 2026 boolean technical-accuracy EvidenceEvent ve lifecycle düzeltmesi:
 

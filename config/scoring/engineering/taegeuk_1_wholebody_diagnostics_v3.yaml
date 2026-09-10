@@ -1,6 +1,6 @@
 schema_version: 3
 profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
-version: 3.2.0
+version: 3.2.1
 status: diagnostic_only_unvalidated
 poomsae_id: taegeuk_1_jang
 required_keypoint_count: 133
@@ -164,6 +164,7 @@ measurement_only_reasons:
   fist_or_hand_orientation_proxy_deg: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
   fist_target_depth_error_body_ratio: 'Tekniğe özgü sayısal hedef veya uygun geometri referansı henüz tanımlı değil; ham ölçüm gösterilir.'
   hand_geometry_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
+  head_torso_settle_offset: 'Baş/gövde oturma anını belirleyen 10 derece iç eşiği henüz YAML profilinde değildir; bu gizli karar sabiti taşınmadan bağımsız aday üretmez.'
   preparation_pose_observed: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: required_phase_coverage'
   preparation_side_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: active_arm_side_match'
   chamber_pose_observed: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
@@ -525,7 +526,6 @@ active_rules:
   - fist_target_height_error_body_ratio
   - fist_target_lateral_error_body_ratio
   - chamber_precedes_execution
-  - head_torso_settle_offset
   - late_post_fixation_correction
   - premature_next_movement_transition
   - fixation_pose_stability
@@ -562,6 +562,11 @@ not_observable_rules:
   - impact_power
   - muscle_tension
   - hand_shape_observability
+# Rules whose threshold carries a recorded referee signature. These are the only
+# rules allowed to carry a deduction. The list must match the thresholds that
+# actually carry a judge_source block; a mismatch either way is rejected.
+# Empty means no referee has signed anything yet, so nothing here can change a score.
+judge_validated_rules: []
 failure_behavior: emit_state_and_reason_without_candidate
 skip_reason_codes:
   - insufficient_valid_samples
