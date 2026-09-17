@@ -785,6 +785,31 @@ Sınır: Liste hangi değerin eksik olduğunu bilir, hangisinin önemli olduğun
 bilmez. Sıralama ölçütü teknik erişilebilirliktir, sporcu üzerindeki etki değil.
 Bir hakem soruların sırasını kendi bilgisine göre değiştirebilir.
 
+## AD-036 — Doğrudan multiview hata sahipliği ve çıktı giriş kontrolleri
+
+17 Eylül 2026: `run_multiview_pose`, yalnız kendi oluşturduğu run'ın hata
+durumunu yazan bir dış uygulama sınırı kullanır. Snapshot, video açma/model
+başlatma, sonraki işlem hataları, `KeyboardInterrupt` ve `SystemExit` bu
+sınırdan geçer. Video okuyucuları oluşturuldukları anda `ExitStack` ile
+kaydedilir; kısmi açılış ve model yükleme kesintisinde de serbest bırakılır.
+Durum dosyası yazılamazsa ilk hata korunur ve ek not eklenir. Kalite kapısını
+geçemeyen tanısal çıktı tutulabilir fakat run başarılı veya latest ilan edilmez.
+
+`failed → running/completed` geçişleri reddedilir; tekrar deneme yeni run
+gerektirir. Mevcut birleşik Poomsae işinin kullandığı ara `completed → running`
+davranışı korunur. Bu değişiklik tam bir eşzamanlı durum makinesi veya alt aşama
+sahipliği yeniden tasarımı değildir.
+
+Latest okuyucusu doğrudan beklenen run klasörünü, marker/run/session kimlik
+eşitliğini ve tamamlanmış lifecycle kaydını zorunlu tutar. Güncel 3B çıktıda
+kare/zaman dizilerinin tipi ve artışı ile manifestteki model config hash bağı
+doğrulanır. Eski şemasız 3B dosyalar mevcut açık legacy sınıfında kalır;
+lifecycle'sız klasörlere sessiz latest uyumluluğu verilmez.
+
+Doğrulama hata enjeksiyonu, regresyon testleri ve kaydedilmiş gerçek çıktının
+yeniden okunmasıyla yapılır. Model hesaplamaları, kalibrasyon sayıları ve
+puanlama eşikleri değişmez; yeni bir 3B doğruluk iddiası oluşturmaz.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

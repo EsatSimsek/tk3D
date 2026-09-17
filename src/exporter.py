@@ -13,7 +13,7 @@ def export_session_json(payload: dict[str, Any], output_path: str | Path) -> Non
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
-        json.dump(_json_ready(payload), file, indent=2)
+        json.dump(_json_ready(payload), file, indent=2, allow_nan=False)
 
 
 def export_keypoints3d_csv(
@@ -222,7 +222,7 @@ def _json_ready(value: Any) -> Any:
         return _json_ready(asdict(value))
     if isinstance(value, dict):
         return {str(key): _json_ready(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [_json_ready(item) for item in value]
     return value
 

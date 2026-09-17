@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -24,7 +25,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("pose2d.adapter_checkpoint_path must be a non-empty path when provided")
     if "allow_unapproved_adapter" in pose and not isinstance(pose["allow_unapproved_adapter"], bool):
         raise ValueError("pose2d.allow_unapproved_adapter must be boolean")
-    threshold = float(pose.get("score_threshold", 0.30))
+    threshold = _finite_number(pose.get("score_threshold", 0.30), "pose2d.score_threshold")
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("pose2d.score_threshold must be between 0 and 1")
     for option in ("flip_test", "temporal_filter_enabled", "temporal_stabilize_left_right"):
@@ -41,7 +42,12 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     offline_order = int(offline.get("polynomial_order", 2))
     if offline_order < 1 or (offline_window > 1 and offline_order >= offline_window):
         raise ValueError("pose2d.offline_stabilization.polynomial_order must be positive and smaller than window_size")
-    if float(offline.get("min_outlier_distance_px", 6.0)) < 0.0:
+    if (
+        _finite_number(
+            offline.get("min_outlier_distance_px", 6.0), "pose2d.offline_stabilization.min_outlier_distance_px"
+        )
+        < 0.0
+    ):
         raise ValueError("pose2d.offline_stabilization.min_outlier_distance_px must be non-negative")
 
     detector = config.get("person_detector", {})
@@ -60,15 +66,20 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
             ("track_activation_threshold", 0.25),
             ("minimum_matching_threshold", 0.80),
         ):
-            value = float(detector.get(key, default))
+            value = _finite_number(detector.get(key, default), f"person_detector.{key}")
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"person_detector.{key} must be between 0 and 1")
-        if not 0.0 <= float(detector.get("bbox_padding", 0.18)) <= 1.0:
+        if not 0.0 <= _finite_number(detector.get("bbox_padding", 0.18), "person_detector.bbox_padding") <= 1.0:
             raise ValueError("person_detector.bbox_padding must be between 0 and 1")
-        stationary_alpha = float(detector.get("bbox_stationary_alpha", 0.35))
+        stationary_alpha = _finite_number(
+            detector.get("bbox_stationary_alpha", 0.35), "person_detector.bbox_stationary_alpha"
+        )
         if not 0.0 < stationary_alpha <= 1.0:
             raise ValueError("person_detector.bbox_stationary_alpha must be between 0 and 1")
-        if float(detector.get("bbox_motion_scale_ratio", 0.12)) <= 0.0:
+        if (
+            _finite_number(detector.get("bbox_motion_scale_ratio", 0.12), "person_detector.bbox_motion_scale_ratio")
+            <= 0.0
+        ):
             raise ValueError("person_detector.bbox_motion_scale_ratio must be positive")
         for key, default in (("lost_track_buffer", 30), ("reacquire_after_frames", 12)):
             if int(detector.get(key, default)) < 1:
@@ -79,12 +90,17 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     triangulation = _mapping(config, "triangulation")
     if int(triangulation.get("min_views", 2)) < 2:
         raise ValueError("triangulation.min_views must be at least 2")
-    keypoint_score = float(triangulation.get("min_keypoint_score", 0.30))
+    keypoint_score = _finite_number(triangulation.get("min_keypoint_score", 0.30), "triangulation.min_keypoint_score")
     if not 0.0 <= keypoint_score <= 1.0:
         raise ValueError("triangulation.min_keypoint_score must be between 0 and 1")
-    if float(triangulation.get("max_reprojection_error_px", 25.0)) <= 0.0:
+    if (
+        _finite_number(triangulation.get("max_reprojection_error_px", 25.0), "triangulation.max_reprojection_error_px")
+        <= 0.0
+    ):
         raise ValueError("triangulation.max_reprojection_error_px must be positive")
-    quality = float(triangulation.get("min_triangulation_score", 0.20))
+    quality = _finite_number(
+        triangulation.get("min_triangulation_score", 0.20), "triangulation.min_triangulation_score"
+    )
     if not 0.0 <= quality <= 1.0:
         raise ValueError("triangulation.min_triangulation_score must be between 0 and 1")
     if int(triangulation.get("max_hypotheses", 16)) < 1:
@@ -103,11 +119,13 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         "neural_plus",
     }:
         raise ValueError("zed_depth_fusion.depth_mode is not supported")
-    confidence_threshold = float(depth_fusion.get("confidence_threshold", 50.0))
+    confidence_threshold = _finite_number(
+        depth_fusion.get("confidence_threshold", 50.0), "zed_depth_fusion.confidence_threshold"
+    )
     if not 0.0 <= confidence_threshold <= 100.0:
         raise ValueError("zed_depth_fusion.confidence_threshold must be between 0 and 100")
     for key, default in (("min_pose_score", 0.30), ("surface_gate_ratio", 0.10)):
-        value = float(depth_fusion.get(key, default))
+        value = _finite_number(depth_fusion.get(key, default), f"zed_depth_fusion.{key}")
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"zed_depth_fusion.{key} must be between 0 and 1")
     for key, default in (
@@ -133,10 +151,10 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("max_final_p95_acceleration_increase_mps2", 1.0),
         ("max_final_bone_cv_increase_percent", 0.10),
     ):
-        if float(depth_fusion.get(key, default)) <= 0.0:
+        if _finite_number(depth_fusion.get(key, default), f"zed_depth_fusion.{key}") <= 0.0:
             raise ValueError(f"zed_depth_fusion.{key} must be positive")
-    if float(depth_fusion.get("max_depth_m", 10.0)) <= float(
-        depth_fusion.get("min_depth_m", 0.40)
+    if _finite_number(depth_fusion.get("max_depth_m", 10.0), "zed_depth_fusion.max_depth_m") <= _finite_number(
+        depth_fusion.get("min_depth_m", 0.40), "zed_depth_fusion.min_depth_m"
     ):
         raise ValueError("zed_depth_fusion.max_depth_m must exceed min_depth_m")
     for key, default in (
@@ -144,7 +162,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("max_final_p95_reprojection_ratio", 1.03),
         ("max_final_p95_acceleration_ratio", 1.05),
     ):
-        if float(depth_fusion.get(key, default)) < 1.0:
+        if _finite_number(depth_fusion.get(key, default), f"zed_depth_fusion.{key}") < 1.0:
             raise ValueError(f"zed_depth_fusion.{key} must be at least 1")
 
     feedback = config.get("crossview_2d_feedback", {})
@@ -164,7 +182,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("min_geometric_improvement_px", 12.0),
         ("max_reprojection_error_px", 25.0),
     ):
-        if float(feedback.get(key, default)) <= 0.0:
+        if _finite_number(feedback.get(key, default), f"crossview_2d_feedback.{key}") <= 0.0:
             raise ValueError(f"crossview_2d_feedback.{key} must be positive")
     for key, default in (
         ("min_observation_score", 0.30),
@@ -172,7 +190,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("min_image_score", 0.30),
         ("min_peak_score_ratio", 0.08),
     ):
-        value = float(feedback.get(key, default))
+        value = _finite_number(feedback.get(key, default), f"crossview_2d_feedback.{key}")
         if not 0.0 <= value <= 1.0:
             raise ValueError(f"crossview_2d_feedback.{key} must be between 0 and 1")
 
@@ -181,7 +199,9 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("global_optimization must be a mapping")
     if "enabled" in global_optimization and not isinstance(global_optimization["enabled"], bool):
         raise ValueError("global_optimization.enabled must be boolean")
-    optimization_score = float(global_optimization.get("min_observation_score", 0.30))
+    optimization_score = _finite_number(
+        global_optimization.get("min_observation_score", 0.30), "global_optimization.min_observation_score"
+    )
     if not 0.0 <= optimization_score <= 1.0:
         raise ValueError("global_optimization.min_observation_score must be between 0 and 1")
     for key, default in (
@@ -206,14 +226,14 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("max_p95_acceleration_increase_mps2", 5.0),
         ("max_p95_correction_m", 0.30),
     ):
-        if float(global_optimization.get(key, default)) <= 0.0:
+        if _finite_number(global_optimization.get(key, default), f"global_optimization.{key}") <= 0.0:
             raise ValueError(f"global_optimization.{key} must be positive")
     for key, default in (
         ("camera_weight_floor", 0.20),
         ("camera_weight_update_alpha", 0.50),
         ("temporal_weight_floor", 0.15),
     ):
-        value = float(global_optimization.get(key, default))
+        value = _finite_number(global_optimization.get(key, default), f"global_optimization.{key}")
         if not 0.0 < value <= 1.0:
             raise ValueError(f"global_optimization.{key} must be greater than 0 and at most 1")
     for key, default in (
@@ -221,7 +241,7 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("max_p95_reprojection_degradation_ratio", 1.10),
         ("max_p95_acceleration_degradation_ratio", 1.10),
     ):
-        if float(global_optimization.get(key, default)) < 1.0:
+        if _finite_number(global_optimization.get(key, default), f"global_optimization.{key}") < 1.0:
             raise ValueError(f"global_optimization.{key} must be at least 1")
     optimization_weights = global_optimization.get("weights", {})
     if not isinstance(optimization_weights, dict):
@@ -234,9 +254,9 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
         ("joint_limits", 0.50),
         ("anchor", 0.03),
     ):
-        if float(optimization_weights.get(key, default)) < 0.0:
+        if _finite_number(optimization_weights.get(key, default), f"global_optimization.weights.{key}") < 0.0:
             raise ValueError(f"global_optimization.weights.{key} must be non-negative")
-    if float(optimization_weights.get("reprojection", 1.0)) <= 0.0:
+    if _finite_number(optimization_weights.get("reprojection", 1.0), "global_optimization.weights.reprojection") <= 0.0:
         raise ValueError("global_optimization.weights.reprojection must be positive")
 
     smoothing = _mapping(config, "smoothing")
@@ -248,23 +268,38 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     polynomial_order = int(smoothing.get("polynomial_order", 2))
     if polynomial_order < 1 or (window > 1 and polynomial_order >= window):
         raise ValueError("smoothing.polynomial_order must be positive and smaller than window_size")
-    if float(smoothing.get("min_outlier_distance_m", 0.04)) < 0.0:
+    if _finite_number(smoothing.get("min_outlier_distance_m", 0.04), "smoothing.min_outlier_distance_m") < 0.0:
         raise ValueError("smoothing.min_outlier_distance_m must be non-negative")
 
     reliability = config.get("reliability", {})
     if not isinstance(reliability, dict):
         raise ValueError("reliability must be a mapping")
-    if float(reliability.get("max_bone_relative_deviation", 0.25)) <= 0.0:
+    if (
+        _finite_number(reliability.get("max_bone_relative_deviation", 0.25), "reliability.max_bone_relative_deviation")
+        <= 0.0
+    ):
         raise ValueError("reliability.max_bone_relative_deviation must be positive")
-    if float(reliability.get("max_bone_absolute_deviation_m", 0.08)) <= 0.0:
+    if (
+        _finite_number(
+            reliability.get("max_bone_absolute_deviation_m", 0.08), "reliability.max_bone_absolute_deviation_m"
+        )
+        <= 0.0
+    ):
         raise ValueError("reliability.max_bone_absolute_deviation_m must be positive")
-    if float(reliability.get("min_temporal_residual_m", 0.08)) <= 0.0:
+    if _finite_number(reliability.get("min_temporal_residual_m", 0.08), "reliability.min_temporal_residual_m") <= 0.0:
         raise ValueError("reliability.min_temporal_residual_m must be positive")
-    if float(reliability.get("max_temporal_acceleration_mps2", 70.0)) <= 0.0:
+    if (
+        _finite_number(
+            reliability.get("max_temporal_acceleration_mps2", 70.0), "reliability.max_temporal_acceleration_mps2"
+        )
+        <= 0.0
+    ):
         raise ValueError("reliability.max_temporal_acceleration_mps2 must be positive")
     if int(reliability.get("minimum_bone_samples", 5)) < 1:
         raise ValueError("reliability.minimum_bone_samples must be positive")
-    minimum_ratio = float(reliability.get("min_output_valid_body_ratio", 0.90))
+    minimum_ratio = _finite_number(
+        reliability.get("min_output_valid_body_ratio", 0.90), "reliability.min_output_valid_body_ratio"
+    )
     if not 0.0 <= minimum_ratio <= 1.0:
         raise ValueError("reliability.min_output_valid_body_ratio must be between 0 and 1")
     return config
@@ -277,7 +312,7 @@ def validate_calibration_config(config: dict[str, Any]) -> dict[str, Any]:
     pattern = checker.get("pattern_size")
     if not isinstance(pattern, list) or len(pattern) != 2 or any(int(value) < 2 for value in pattern):
         raise ValueError("checkerboard.pattern_size must contain two integers >= 2")
-    if float(checker.get("square_size_m", 0.0)) <= 0.0:
+    if _finite_number(checker.get("square_size_m", 0.0), "checkerboard.square_size_m") <= 0.0:
         raise ValueError("checkerboard.square_size_m must be positive")
     if int(checker.get("min_valid_frames", 0)) < 3:
         raise ValueError("checkerboard.min_valid_frames must be at least 3")
@@ -285,12 +320,30 @@ def validate_calibration_config(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("checkerboard.frame_stride must be positive")
     if int(checker.get("min_common_frames", 3)) < 3:
         raise ValueError("checkerboard.min_common_frames must be at least 3")
-    if "sync_tolerance_sec" in checker and float(checker["sync_tolerance_sec"]) <= 0.0:
+    if (
+        "sync_tolerance_sec" in checker
+        and _finite_number(checker["sync_tolerance_sec"], "checkerboard.sync_tolerance_sec") <= 0.0
+    ):
         raise ValueError("checkerboard.sync_tolerance_sec must be positive")
     calibration = _mapping(config, "calibration")
-    if float(calibration.get("reprojection_error_warn_px", 0.0)) <= 0.0:
+    if (
+        _finite_number(calibration.get("reprojection_error_warn_px", 0.0), "calibration.reprojection_error_warn_px")
+        <= 0.0
+    ):
         raise ValueError("calibration.reprojection_error_warn_px must be positive")
     return config
+
+
+def _finite_number(value: Any, label: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{label} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{label} must be a finite number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be a finite number")
+    return number
 
 
 def _mapping(config: dict[str, Any], key: str) -> dict[str, Any]:

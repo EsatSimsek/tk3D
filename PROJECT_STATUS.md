@@ -1,13 +1,14 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **10 Eylül 2026**
+Son doğrulama tarihi: **17 Eylül 2026**
 
 Dal: **`main`**
 
-Temel commit: **`3cac492`**. Güncel teslim commit'i için `git rev-parse HEAD`.
+Temel commit: **`d33dbb2`**. Aşağıdaki son doğrulama bu commit üzerine uygulanan
+düzeltmeleri kapsar. Güncel teslim commit'i için `git rev-parse HEAD`.
 
-Teslim kapsamı: **karar doğruluğu, run lifecycle ve review bağlama değişiklikleri;
-`outputs/` validation run'ları Git dışıdır**
+Teslim kapsamı: **sayısal girdi, 3B çıktı bağı, video/JSON raporlama ve run hata
+yönetimi düzeltmeleri; `outputs/` test dizinleri Git dışıdır**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -114,6 +115,39 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+17 Eylül 2026 temel hata düzeltmeleri:
+
+- başlangıç ağacı temiz, `git pull --ff-only`: already up to date;
+- değişiklik öncesi tam pytest: **389 passed in 95.46s**;
+- düzeltme sonrası tam pytest: **520 passed in 63.95s**;
+- Ruff, `git diff --check` ve `pip check`: temiz;
+- son test dizini: `outputs/pytest-basic-final-20260917-01`;
+- model/kalibrasyon sayısal eşiklerinde non-finite, `null` ve boolean
+  değerler alan adıyla reddedilir; geçerli eşikler değiştirilmedi;
+- güncel 3B dosyada kare indeksleri negatif olmayan tamsayı, zamanlar sonlu
+  sayı ve iki dizi de kesin artan olmak zorundadır. Negatif zaman ofseti ve
+  stride korunur. Artifact model-config hash'i manifestle eşleşmelidir;
+- latest okuyucusu doğrudan beklenen klasörü, session/run eşitliğini ve
+  tamamlanmış lifecycle kaydını doğrular. Başarısız run yeniden running veya
+  completed yapılamaz; birleşik işin ara completed/running davranışı korunur;
+- doğrudan multiview komutunun snapshot, video başlatma ve model yükleme
+  hata/iptal senaryoları başarısız durum kaydı bırakır. Açılmış video
+  okuyucuları kısmi başlatmada da kapanır; ilk hata durum yazımında korunur;
+- düşük kaliteli tanısal sonuç isteğe bağlı tutulsa da run failed olur ve
+  latest'e taşınmaz. Var olan run'a hata durumu yazılmaz;
+- iç içe tuple/NumPy değerleri JSON'da normalize edilir; eksik sayılar null
+  olur. Geçersiz video başlığı ölçümleri raporda null olarak gösterilir;
+- kaydedilmiş gerçek latest run
+  `post-polish-full-regression-20260828-021518` yeni okuyucularla doğrulandı:
+  `CURRENT`, **741 kare, [741, 133, 3]** ve manifest bağları geçerli.
+
+Bu teslim model çıkarımı veya puanlama hesaplarını değiştirmedi; yeni GPU/ZED
+inference çalıştırılmadı. Hata enjeksiyonu ve mevcut gerçek artifact'in
+yeniden okunması yeni ölçüm doğruluğu/benchmark kanıtı değildir. Ayrıntılı
+bulgu durumu `docs/PROJECT_AUDIT_2026-09-05.md` Bölüm 18'dedir.
+
+### 10 Eylül 2026 doğrulaması (tarihsel)
 
 10 Eylül 2026 merge, hakem-imzalı eşik ve profil uyumu kapısı:
 

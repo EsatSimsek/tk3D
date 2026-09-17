@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Iterable
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -71,7 +72,7 @@ from src.pose3d_html_viewer import write_pose3d_html_viewer
 from src.pose_reliability import filter_unreliable_pose
 from src.progress import ProgressBar
 from src.quality_status import external_accuracy_not_evaluated, internal_sensor_consistency_status
-from src.run_outputs import create_run_output_tree, mark_run_complete, mark_run_completed, mark_run_running
+from src.run_outputs import create_run_output_tree, mark_run_complete, mark_run_completed, mark_run_failed, mark_run_running
 from src.run_manifest import (
     build_run_manifest,
     model_provenance,
@@ -135,7 +136,38 @@ class MultiviewQualityError(RuntimeError):
         self.result = result
 
 
+@dataclass(slots=True)
+class _MultiviewRunContext:
+    owned_run: tuple[Path, str, str] | None = None
+
+
 def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
+    context = _MultiviewRunContext()
+    try:
+        with ExitStack() as capture_resources:
+            result = _execute_multiview_pose(options, context, capture_resources)
+        if not result.quality_passed:
+            mark_run_failed(
+                result.run_root, result.session_id, result.run_id,
+                "3D output failed production quality gates; diagnostic files were kept.",
+            )
+        return result
+    except (Exception, KeyboardInterrupt, SystemExit) as exc:
+        if context.owned_run is not None:
+            run_root, session_id, run_id = context.owned_run
+            try:
+                mark_run_failed(
+                    run_root, session_id, run_id,
+                    f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__,
+                )
+            except Exception as state_error:
+                exc.add_note(f"Could not persist failed run state: {state_error}")
+        raise
+
+
+def _execute_multiview_pose(
+    options: MultiviewRunOptions, context: _MultiviewRunContext, capture_resources: ExitStack,
+) -> MultiviewRunResult:
     profiler = (
         PerformanceCollector(
             benchmark_window=(options.benchmark_window_start, options.benchmark_window_end),
@@ -224,6 +256,7 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
             f"triangulation.min_views={min_views} requires at least {min_views} selected cameras; got {len(cameras)}"
         )
     run_id, output_paths = create_run_output_tree(output_root, session.session_id, args.run_id)
+    context.owned_run = (output_paths["root"], session.session_id, run_id)
     mark_run_running(output_paths["root"], session.session_id, run_id)
     production_ready_calibration = calibration_mode in PRODUCTION_CALIBRATION_MODES
     config_dir = output_paths["root"] / "config"
@@ -297,10 +330,12 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
             )
         )
 
-    captures = [cv2.VideoCapture(str(camera.video_path)) for camera in cameras]
+    captures = []
+    for camera in cameras:
+        capture = cv2.VideoCapture(str(camera.video_path))
+        capture_resources.callback(capture.release)
+        captures.append(capture)
     if not all(capture.isOpened() for capture in captures):
-        for capture in captures:
-            capture.release()
         raise SystemExit("Could not open all selected videos.")
 
     fps_by_camera = {
@@ -308,16 +343,12 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
         for camera, capture in zip(cameras, captures, strict=True)
     }
     if any(not np.isfinite(value) or value <= 0 for value in fps_by_camera.values()):
-        for capture in captures:
-            capture.release()
         raise SystemExit(f"Every video must report a valid FPS: {fps_by_camera}")
     fps = _effective_timeline_fps(session.fps, fps_by_camera.values())
     for camera, capture in zip(cameras, captures, strict=True):
         actual_size = (int(capture.get(cv2.CAP_PROP_FRAME_WIDTH)), int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         expected_size = tuple(calibrations[camera.camera_id].image_size)
         if actual_size != expected_size and calibration_mode != "approximate_test_calibration":
-            for opened_capture in captures:
-                opened_capture.release()
             raise SystemExit(f"{camera.camera_id}: video size {actual_size} does not match calibration {expected_size}")
     print("=" * 72, flush=True)
     print("TK3D VITPOSE MULTI-VIEW 3D", flush=True)
@@ -359,8 +390,7 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
                 estimator = ViTPose2DEstimator(estimator_config)
             profiler.reset_cuda_peak_memory()
     except Exception:
-        for capture in captures:
-            capture.release()
+        capture_resources.close()
         raise
     print(
         "[2/5] Preparing videos and calibration\n"
@@ -396,8 +426,6 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
         target_fps=fps,
     )
     if not synced_frames:
-        for capture in captures:
-            capture.release()
         raise SystemExit("Selected camera videos have no overlapping synchronized timeline")
     source_frame_count = len(synced_frames)
     target_frames = _target_sample_count(source_frame_count, args.max_frames, args.stride)
@@ -458,8 +486,7 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
             if written == 1 or written == target_frames or written % max(args.progress_every, 1) == 0:
                 progress.print(written, extra=f"global frame {global_frame_idx}")
     finally:
-        for capture in captures:
-            capture.release()
+        capture_resources.close()
         if sampled_global_frame_indices:
             progress.done()
             print("[4/5] Stabilizing 2D trajectories and triangulating 3D", flush=True)
@@ -1177,12 +1204,6 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
             output_paths["json"] / "performance_report.json",
             report,
         )
-    if quality_passed:
-        if options.promote_latest:
-            mark_run_complete(output_root, session.session_id, run_id, output_paths["root"])
-        else:
-            mark_run_completed(output_paths["root"], session.session_id, run_id)
-
     print(f"saved: {output_paths['videos'] / 'vitpose_skeleton_3d_world.mp4'}")
     print(f"saved: {viewer_path}")
     print(f"saved: {manifest_path}")
@@ -1226,6 +1247,11 @@ def run_multiview_pose(options: MultiviewRunOptions) -> MultiviewRunResult:
             ),
             result,
         )
+    if quality_passed:
+        if options.promote_latest:
+            mark_run_complete(output_root, session.session_id, run_id, output_paths["root"])
+        else:
+            mark_run_completed(output_paths["root"], session.session_id, run_id)
     return result
 
 

@@ -80,12 +80,25 @@ def resolve_latest_run(output_root: str | Path, session_id: str) -> Path:
     if not marker.exists():
         raise FileNotFoundError(f"No completed run marker found: {marker}")
     raw = load_json_object(marker)
-    root = Path(raw["run_root"]).resolve()
+    run_id = raw.get("run_id")
+    _validate_component(run_id, "run_id")
+    root_value = raw.get("run_root")
+    if not isinstance(root_value, str) or not root_value.strip():
+        raise ValueError(f"Invalid latest run marker: {marker}")
+    root = Path(root_value).resolve()
     expected_parent = (Path(output_root).resolve() / session_id / "runs").resolve()
-    if expected_parent not in root.parents or raw.get("status") != "complete" or not root.exists():
+    if (
+        root.parent != expected_parent or root.name != run_id
+        or raw.get("status") != "complete" or not root.is_dir()
+    ):
         raise ValueError(f"Invalid latest run marker: {marker}")
     state_path = root / "run_state.json"
-    if state_path.is_file() and load_json_object(state_path).get("status") != "completed":
+    if not state_path.is_file():
+        raise ValueError(f"Latest run lifecycle state is missing: {state_path}")
+    state = load_json_object(state_path)
+    if state.get("session_id") != session_id or state.get("run_id") != run_id:
+        raise ValueError(f"Latest run lifecycle identity mismatch: {state_path}")
+    if state.get("status") != "completed":
         raise ValueError(f"Latest run is not completed according to its lifecycle state: {state_path}")
     return root
 
@@ -107,6 +120,10 @@ def _update_run_state(
     current = load_json_object(state_path)
     if current.get("session_id") != session_id or current.get("run_id") != run_id:
         raise ValueError(f"Run lifecycle identity mismatch: {state_path}")
+    if current.get("status") not in {"preparing", "running", "completed", "failed"}:
+        raise ValueError(f"Invalid run lifecycle status: {state_path}")
+    if current["status"] == "failed" and status != "failed":
+        raise ValueError(f"A failed run cannot be restarted or completed; use a new run_id: {state_path}")
     return write_json_atomic(state_path, _run_state_payload(session_id, run_id, status, error=error))
 
 
@@ -126,5 +143,5 @@ def _run_state_payload(session_id: str, run_id: str, status: str, *, error: str 
 
 
 def _validate_component(value: str, label: str) -> None:
-    if not _SAFE_RUN_ID.fullmatch(value):
+    if not isinstance(value, str) or not _SAFE_RUN_ID.fullmatch(value):
         raise ValueError(f"{label} must contain only letters, numbers, dot, underscore, or hyphen")

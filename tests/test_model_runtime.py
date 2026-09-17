@@ -4,7 +4,7 @@ import yaml
 import pytest
 import torch
 
-from src.config_validation import validate_model_config
+from src.config_validation import validate_calibration_config, validate_model_config
 from src.model_runtime import check_model_runtime
 
 
@@ -123,3 +123,49 @@ def test_model_config_rejects_unsafe_global_optimization_limits() -> None:
 
     with pytest.raises(ValueError, match="global_optimization.max_p95_correction_m"):
         validate_model_config(config)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf"), "nan", "inf", None, True])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "pose2d.offline_stabilization.min_outlier_distance_px",
+        "person_detector.bbox_motion_scale_ratio",
+        "triangulation.max_reprojection_error_px",
+        "zed_depth_fusion.max_depth_m",
+        "zed_depth_fusion.max_final_median_reprojection_ratio",
+        "crossview_2d_feedback.search_radius_px",
+        "global_optimization.max_p95_correction_m",
+        "global_optimization.max_median_reprojection_degradation_ratio",
+        "global_optimization.weights.bone",
+        "smoothing.min_outlier_distance_m",
+        "reliability.max_temporal_acceleration_mps2",
+    ],
+)
+def test_model_config_rejects_invalid_numeric_safety_settings(field, invalid) -> None:
+    with open("config/model_config.yaml", encoding="utf-8") as file:
+        config = yaml.safe_load(file)
+    section = config
+    *parents, key = field.split(".")
+    for parent in parents:
+        section = section.setdefault(parent, {})
+    section[key] = invalid
+
+    with pytest.raises(ValueError, match=field):
+        validate_model_config(config)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), "nan", None, True])
+@pytest.mark.parametrize(
+    "field", ["checkerboard.square_size_m", "checkerboard.sync_tolerance_sec", "calibration.reprojection_error_warn_px"]
+)
+def test_calibration_config_rejects_invalid_numeric_settings(field, invalid) -> None:
+    config = {
+        "checkerboard": {"pattern_size": [9, 6], "square_size_m": 0.025, "min_valid_frames": 5, "frame_stride": 1},
+        "calibration": {"reprojection_error_warn_px": 2.0},
+    }
+    section, key = field.split(".")
+    config[section][key] = invalid
+
+    with pytest.raises(ValueError, match=field):
+        validate_calibration_config(config)

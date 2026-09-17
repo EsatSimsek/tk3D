@@ -138,9 +138,66 @@ def test_artifact_run_and_calibration_must_match_manifest() -> None:
             "sha256": "a" * 64,
             "snapshot_path": artifact["provenance"]["calibration_snapshot"],
         },
+        "configs": {"model_config": {"sha256": artifact["provenance"]["model_config_sha256"]}},
     }
     validate_artifact_manifest_binding(artifact, manifest)
 
     manifest["run_id"] = "different-run"
     with pytest.raises(ArtifactContractError, match="run_id"):
+        validate_artifact_manifest_binding(artifact, manifest)
+
+
+@pytest.mark.parametrize("invalid", [None, "0", True, -1, 0.5])
+def test_main_3d_rejects_invalid_frame_indices(invalid) -> None:
+    payload = _current_pose()
+    payload["frame_indices"][0] = invalid
+    with pytest.raises(ArtifactContractError, match="frame_indices"):
+        validate_main_3d_artifact(payload)
+
+
+@pytest.mark.parametrize("invalid", [None, "0.0", True])
+def test_main_3d_rejects_invalid_timestamps(invalid) -> None:
+    payload = _current_pose()
+    payload["timestamps_sec"][0] = invalid
+    with pytest.raises(ArtifactContractError, match="timestamps_sec"):
+        validate_main_3d_artifact(payload)
+
+
+@pytest.mark.parametrize("field,values", [
+    ("frame_indices", [4, 4]), ("frame_indices", [4, 2]),
+    ("timestamps_sec", [0.1, 0.1]), ("timestamps_sec", [0.1, 0.0]),
+])
+def test_main_3d_rejects_repeated_or_reversed_timeline(field, values) -> None:
+    payload = _two_frame_pose()
+    payload[field] = values
+    with pytest.raises(ArtifactContractError, match=field):
+        validate_main_3d_artifact(payload)
+
+
+def _two_frame_pose() -> dict:
+    payload = _current_pose()
+    payload["keypoints_3d_world"] = [deepcopy(payload["keypoints_3d_world"][0]) for _ in range(2)]
+    payload["shape"]["keypoints_3d_world"] = [2, 133, 3]
+    payload["frame_indices"] = [10, 13]
+    payload["timestamps_sec"] = [-0.5, -0.4]
+    payload["sample_fps"] = 10.0
+    return payload
+
+
+def test_main_3d_preserves_nonzero_frame_origin_stride_and_negative_time_offset() -> None:
+    assert validate_main_3d_artifact(_two_frame_pose()) is ArtifactCompatibility.CURRENT
+
+
+@pytest.mark.parametrize("configs", [None, {}, {"model_config": {}}, {"model_config": {"sha256": "c" * 64}}])
+def test_artifact_requires_matching_model_configuration(configs) -> None:
+    artifact = _current_pose()
+    manifest = {
+        "session_id": artifact["session_id"], "run_id": artifact["run_id"],
+        "calibration": {
+            "sha256": artifact["provenance"]["calibration_sha256"],
+            "snapshot_path": artifact["provenance"]["calibration_snapshot"],
+        },
+        "configs": configs,
+    }
+    with pytest.raises(ArtifactContractError, match="model.config"):
         validate_artifact_manifest_binding(artifact, manifest)

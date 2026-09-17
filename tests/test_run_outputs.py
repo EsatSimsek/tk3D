@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.artifact_io import load_json_object
+from src.artifact_io import load_json_object, write_json_atomic
 from src.run_outputs import (
     create_run_output_tree,
     mark_run_complete,
@@ -68,3 +68,47 @@ def test_deferred_multistage_completion_promotes_only_after_final_stage(tmp_path
 
     mark_run_complete(tmp_path, "session", combined_id, combined["root"])
     assert resolve_latest_run(tmp_path, "session") == combined["root"]
+
+
+@pytest.mark.parametrize("mutation", ["missing_state", "wrong_run", "wrong_session", "nested_root", "wrong_marker_id"])
+def test_latest_rejects_missing_or_mismatched_lifecycle(tmp_path, mutation) -> None:
+    run_id, paths = create_run_output_tree(tmp_path, "session", "run-1")
+    marker = mark_run_complete(tmp_path, "session", run_id, paths["root"])
+    state_path = paths["root"] / "run_state.json"
+    state = load_json_object(state_path)
+    if mutation == "missing_state":
+        state_path.unlink()
+    elif mutation in {"wrong_run", "wrong_session"}:
+        state["run_id" if mutation == "wrong_run" else "session_id"] = "other"
+        write_json_atomic(state_path, state)
+    else:
+        payload = load_json_object(marker)
+        if mutation == "nested_root":
+            nested = paths["root"] / "nested"
+            nested.mkdir()
+            write_json_atomic(nested / "run_state.json", state)
+            payload["run_root"] = str(nested)
+        else:
+            payload["run_id"] = "other"
+        write_json_atomic(marker, payload)
+
+    with pytest.raises(ValueError):
+        resolve_latest_run(tmp_path, "session")
+
+
+def test_failed_run_cannot_restart_or_replace_latest_success(tmp_path) -> None:
+    _, previous = create_run_output_tree(tmp_path, "session", "previous")
+    marker = mark_run_complete(tmp_path, "session", "previous", previous["root"])
+    marker_before = marker.read_bytes()
+    _, failed = create_run_output_tree(tmp_path, "session", "failed")
+    mark_run_failed(failed["root"], "session", "failed", "original failure")
+    state_before = (failed["root"] / "run_state.json").read_bytes()
+
+    with pytest.raises(ValueError, match="failed"):
+        mark_run_complete(tmp_path, "session", "failed", failed["root"])
+    with pytest.raises(ValueError, match="failed"):
+        mark_run_running(failed["root"], "session", "failed")
+
+    assert (failed["root"] / "run_state.json").read_bytes() == state_before
+    assert marker.read_bytes() == marker_before
+    assert resolve_latest_run(tmp_path, "session") == previous["root"]

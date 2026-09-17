@@ -79,6 +79,15 @@ def validate_main_3d_artifact(payload: Any) -> ArtifactCompatibility:
             )
         _require_vector_length(data, "frame_indices", frame_count)
         _require_vector_length(data, "timestamps_sec", frame_count)
+        frame_indices = data["frame_indices"]
+        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in frame_indices):
+            raise ArtifactContractError("frame_indices must contain non-negative integers")
+        timestamps = data["timestamps_sec"]
+        if any(not _is_finite_number(value) for value in timestamps):
+            raise ArtifactContractError("timestamps_sec must contain finite numbers")
+        for field, values in (("frame_indices", frame_indices), ("timestamps_sec", timestamps)):
+            if any(current <= previous for previous, current in zip(values, values[1:])):
+                raise ArtifactContractError(f"{field} must be strictly increasing")
         _require_provenance(data)
         sample_fps = data.get("sample_fps")
         if not _is_finite_number(sample_fps) or float(sample_fps) <= 0:
@@ -122,6 +131,12 @@ def validate_artifact_manifest_binding(artifact: dict[str, Any], manifest: dict[
     manifest_snapshot = Path(str(calibration.get("snapshot_path", ""))).resolve()
     if artifact_snapshot != manifest_snapshot:
         raise ArtifactContractError("Artifact calibration snapshot does not match the run manifest")
+    configs = manifest.get("configs")
+    model_config = configs.get("model_config") if isinstance(configs, dict) else None
+    if not isinstance(model_config, dict) or not isinstance(model_config.get("sha256"), str):
+        raise ArtifactContractError("Run manifest model_config checksum is missing")
+    if provenance.get("model_config_sha256") != model_config["sha256"]:
+        raise ArtifactContractError("Artifact model_config checksum does not match the run manifest")
 
 
 def _schema_compatibility(

@@ -97,6 +97,11 @@ Clean checkout'ta Tier 1 hazırken dış araştırma verileri eksikse genel duru
 `PARTIALLY_READY` olması beklenir. Yerel `CURRENT_ACTIVE` varlıklarının tümü
 mevcutsa `READY` döner. `NOT_READY`, Tier 1 sözleşmesinin bozuk olduğunu gösterir.
 
+Model ve kalibrasyon ayarlarındaki sayısal eşikler sonlu olmalıdır. `NaN`,
+`Infinity`, `null` ve boolean değerler sayısal eşik olarak reddedilir; hata
+mesajı ilgili alanı belirtir. Video başlıklarında eksik/geçersiz çözünürlük,
+FPS veya kare sayısı varsa hazırlık raporunda ilgili değer `null` olur.
+
 ## Çok-kameralı 3B üretim
 
 Kanonik giriş noktası `tk3d-multiview` komutudur. `--session` bir session YAML
@@ -134,6 +139,11 @@ outputs/<session_id>/runs/<run_id>/
 geçerlilik/kalite alanlarını ve provenance bağını taşır. Eksik JSON değerleri
 `null`, CSV değerleri boş hücre olmalıdır; `NaN` veya `inf` downstream çıktıya
 sızmamalıdır.
+
+Doğrudan `tk3d-multiview` çalışmasında da hata veya kullanıcı kesintisi yeni
+run'ı `failed` durumuna geçirir ve açılmış video okuyucuları kapatılır.
+`--allow-low-quality-output` ile tutulan tanısal çıktı kalite kapısını
+geçmediyse run `failed` kalır; önceki `latest_run.json` değiştirilmez.
 
 ## Poomsae analizi
 
@@ -280,10 +290,16 @@ hash'leri veya config'leri yalnız biçimsel temizlik amacıyla değiştirmeyin.
   üzerine yazılamaz bir dizin kullanır.
 - `latest_run.json` yalnız başarıyla tamamlanan ve uygun koşuya ilerletilir;
   failed/incomplete run önceki başarılı işaretçiyi değiştiremez.
+  Okuyucu run klasörü ile session/run kimliklerini ve `completed` lifecycle
+  kaydını doğrular; lifecycle kaydı olmayan eski klasörler otomatik latest
+  kabul edilmez. `failed` bir run'ı yeniden çalıştırmak için yeni run kimliği gerekir.
 - Workflow içindeki bir subprocess aşaması hata verirse `run_state.json`
   `running` bırakılmaz; aşama adı, exit code ve `failed` durumu kaydedilir.
 - Her güncel 3B artifact; session/run kimliği, calibration snapshot/hash ve run
-  manifestiyle bağlanır. Sözleşme uyuşmazlığı fail-closed'dur.
+  manifestinin `configs.model_config.sha256` değeriyle bağlanır. Kare indeksleri
+  negatif olmayan tamsayı, zamanlar sonlu sayı ve her iki dizi kesin artan
+  olmalıdır. Stride ve negatif zaman ofseti desteklenir. Sözleşme uyuşmazlığı
+  fail-closed'dur.
 - Yaklaşık calibration açıkça izin verilmedikçe üretim inference'ta kabul
   edilmez ve puanlama kanıtı sayılmaz.
 - Ham triangulation korunur. Depth fusion veya global optimizer kalite kapısını

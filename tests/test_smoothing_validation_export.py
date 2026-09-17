@@ -50,6 +50,24 @@ def test_session_json_replaces_nan_with_null(tmp_path) -> None:
     assert json.loads(raw) == {"value": [1.0, None]}
 
 
+def test_session_json_normalizes_values_inside_nested_tuples(tmp_path) -> None:
+    output_path = tmp_path / "nested.json"
+    payload = {
+        "interval": (float("nan"), float("inf"), float("-inf")),
+        "samples": [(np.int64(7), np.array([1.0, np.nan]))],
+    }
+
+    export_session_json(payload, output_path)
+
+    raw = output_path.read_text(encoding="utf-8")
+    assert "NaN" not in raw
+    assert "Infinity" not in raw
+    assert json.loads(raw) == {
+        "interval": [None, None, None],
+        "samples": [[7, [1.0, None]]],
+    }
+
+
 def test_keypoints2d_export_preserves_tracked_person_identity(tmp_path) -> None:
     pose = PersonPose2D(
         camera_id="cam",

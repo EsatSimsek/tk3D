@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -36,11 +37,13 @@ def probe_video(camera_id: str, path: str | Path) -> VideoProbe:
         opened = bool(capture.isOpened())
         if not opened:
             return VideoProbe(camera_id=camera_id, path=str(video_path), exists=True, opened=False)
-        width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
-        frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-        duration_sec = frame_count / fps if fps > 0 else None
+        width = _positive_metadata(capture.get(cv2.CAP_PROP_FRAME_WIDTH), integer=True)
+        height = _positive_metadata(capture.get(cv2.CAP_PROP_FRAME_HEIGHT), integer=True)
+        fps = _positive_metadata(capture.get(cv2.CAP_PROP_FPS))
+        frame_count = _positive_metadata(capture.get(cv2.CAP_PROP_FRAME_COUNT), integer=True)
+        duration_sec = frame_count / fps if frame_count is not None and fps is not None else None
+        if duration_sec is not None and not math.isfinite(duration_sec):
+            duration_sec = None
         return VideoProbe(
             camera_id=camera_id,
             path=str(video_path),
@@ -54,6 +57,14 @@ def probe_video(camera_id: str, path: str | Path) -> VideoProbe:
         )
     finally:
         capture.release()
+
+
+def _positive_metadata(value: float, *, integer: bool = False) -> int | float | None:
+    if not math.isfinite(value) or value <= 0:
+        return None
+    if integer:
+        return int(value) if float(value).is_integer() else None
+    return float(value)
 
 
 def video_probe_summary(probes: list[VideoProbe]) -> dict[str, Any]:

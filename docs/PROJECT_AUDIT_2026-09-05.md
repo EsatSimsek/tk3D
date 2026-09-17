@@ -641,3 +641,33 @@ uyuşmazlığı ve B10'daki gömülü karar sınırları bu teslim kapsamında k
 Raporun lifecycle, artifact bağı, semantik doğruluk ve bağımsız dış doğrulama
 hakkındaki diğer bulguları kısa, orta ve uzun vadeli çalışma listesi olarak
 geçerliliğini korur.
+
+## 18. 17 Eylül 2026 temel hata düzeltmeleri
+
+Temel commit `d33dbb2` üzerindeki çalışma; doğrulama commit öncesinde yapıldı.
+Önceki bölümlerdeki ilk bulgular tarihsel kanıt olarak korunur.
+
+| Bulgu | Bu çalışmadaki sonuç | Kalan sınır |
+| --- | --- | --- |
+| B03 | Doğrudan multiview için sahip olunan run'ı failed yapan hata/iptal sınırı ve video okuyucu temizliği eklendi. Snapshot, kısmi kamera açılışı, metadata hatası ve model kesintisi sınandı. | Zorla süreç sonlandırma ve güç kesintisi yönetilmez; yeni gerçek inference yapılmadı. |
+| B04 | Kare/zaman tipleri ve kesin artış doğrulaması eklendi; negatif kare, kesirli kare, metin/null/bool zaman ve tekrar/ters sıra reddediliyor. | FPS ile bütün zaman ilişkileri ve bütün kalite dizilerinin şekil sözleşmeleri bu değişikliğin kapsamında değil. |
+| B05 | Artifact model-config hash'i manifestin configs.model_config.sha256 alanıyla zorunlu eşleştirildi. | Diğer adapter/model kimliklerinin genişletilmiş bağı ayrı konu. |
+| B06 | failed → running/completed reddediliyor; başarısız sonuç latest'in yerini alamıyor. | Birleşik işin ara completed → running davranışı korunuyor; tam durum makinesi ve eşzamanlılık tasarımı yapılmadı. |
+| B07 | Lifecycle'sız, kimliği uyuşmayan veya yanlış alt klasöre işaret eden latest reddediliyor. | Latest okuyucusu bütün sonuç dosyalarının varlığını/kalitesini kendisi yeniden denetlemiyor; artifact okuyucusunun bağı ayrı doğrulanıyor. |
+| B09 | Model ve kalibrasyonun kayan noktalı eşik alanları sonlu sayı gerektiriyor; null/bool da reddediliyor. | Bütün tamsayı ayarlarının katı tip denetimi bu çalışmanın kapsamında değil. |
+
+İki ek temel sorun düzeltildi: JSON exporter iç içe tuple değerlerindeki
+NumPy/NaN/inf verilerini normalize ediyor; video probe geçersiz metadata'yı
+çökmeden null olarak raporluyor. JSON yazımında non-finite sayı üretimine
+ayrıca izin verilmiyor.
+
+Doğrulama: başlangıç **389 passed**, son tam koşu **520 passed in 63.95s**;
+Ruff, pip check ve git diff --check temiz. Geçersiz ayar/çıktı ve lifecycle
+senaryoları düzeltmeden önce başarısız olarak yeniden üretildi. Gerçek latest
+run yeni okuyucularla **CURRENT / 741 kare / 133 nokta** olarak doğrulandı;
+mevcut run dosyaları değiştirilmedi. Test çıktıları
+`outputs/pytest-basic-final-20260917-01` altındadır.
+
+B08 optimizer kabul kapısı, B11 teknik ölçüm anlamı ve bağımsız dış doğrulama
+başlıkları bu teslimde değiştirilmedi. Yeni model/puanlama doğruluğu iddiası
+yoktur.
