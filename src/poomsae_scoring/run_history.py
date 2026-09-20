@@ -9,6 +9,7 @@ from math import isfinite
 from typing import Any
 
 from src.poomsae_scoring.contracts import ScoringContractError
+from src.poomsae_scoring.report_style import REPORT_CSS
 
 
 _METRICS = (
@@ -111,14 +112,7 @@ def build_run_history_html(report: dict[str, Any]) -> str:
     return f'''<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TK3D Koşu Geçmişi</title><style>
-:root{{color-scheme:dark;--bg:#071019;--panel:#10202d;--line:#294151;--text:#edf7ff;--muted:#9eb3c2;--cyan:#46d7e8;--green:#64e5a5;--amber:#ffca6a;--red:#ff7d7d}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 80% 0,#14354a 0,transparent 35%),var(--bg);color:var(--text);font-family:Inter,Segoe UI,system-ui,sans-serif}}
-main{{width:min(1280px,95vw);margin:auto;padding:30px 0 60px}}h1{{font-size:clamp(28px,4vw,46px);margin:5px 0}}h2{{margin:0 0 14px}}p{{color:var(--muted);line-height:1.55}}
-.eyebrow{{color:var(--cyan);font-weight:800;letter-spacing:.12em;text-transform:uppercase;font-size:12px}}.grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:20px 0}}
-.card,.section{{border:1px solid var(--line);background:linear-gradient(145deg,#142838,#0c1924);border-radius:16px;padding:18px}}.card span{{color:var(--muted);font-size:12px}}.card b{{display:block;font-size:22px;margin-top:6px}}
-.section{{margin-bottom:18px}}table{{width:100%;border-collapse:collapse}}th,td{{text-align:left;padding:10px;border-bottom:1px solid #213643}}th{{color:var(--cyan)}}td{{color:var(--muted)}}code{{color:var(--amber)}}ul{{list-style:none;padding:0}}li{{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid #213643;color:var(--muted)}}
-.alert{{border-color:#885e31;background:#2b2113}}.delta-pos{{color:var(--green)}}.delta-neg{{color:var(--red)}}.delta-neutral{{color:var(--muted)}}
-@media(max-width:760px){{.grid{{grid-template-columns:1fr}}.table-wrap{{overflow:auto}}}}
+{REPORT_CSS}
 </style></head><body><main><a href="poomsae_scoring_review.html">← İnceleme ekranına dön</a><div class="eyebrow" style="margin-top:18px">TK3D · regresyon teşhisi</div><h1>Koşu geçmişi ve karşılaştırma</h1>
 <p>{_escape(report.get("interpretation"))}</p><div class="grid">
 <div class="card"><span>Güncel koşu</span><b>{_escape(current["run_id"])}</b></div>

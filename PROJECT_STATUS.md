@@ -1,14 +1,15 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **17 Eylül 2026**
+Son doğrulama tarihi: **20 Eylül 2026**
 
 Dal: **`main`**
 
-Temel commit: **`d33dbb2`**. Aşağıdaki son doğrulama bu commit üzerine uygulanan
-düzeltmeleri kapsar. Güncel teslim commit'i için `git rev-parse HEAD`.
+Temel commit: **`95fee8d`**; `origin/main` dalına gönderildi. Aşağıdaki görsel
+düzenleme bu commit üzerine uygulanmıştır. Güncel teslim commit'i için
+`git rev-parse HEAD`.
 
-Teslim kapsamı: **sayısal girdi, 3B çıktı bağı, video/JSON raporlama ve run hata
-yönetimi düzeltmeleri; `outputs/` test dizinleri Git dışıdır**
+Teslim kapsamı: **video alt açıklama panelleri, HTML inceleme ve koşu geçmişi
+tasarımı; hesaplama ve puanlama aynı kalır. `outputs/` Git dışıdır**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -115,6 +116,43 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+20 Eylül 2026 gönderim öncesi kontrol:
+
+- `git pull --ff-only`: already up to date; temel commit `95fee8d`.
+- İlgili testler: **77 passed in 14.19s**.
+- Tam paket: **520 passed in 102.07s**;
+  `outputs/pytest-design-prepush-full-20260920-01`.
+- Ruff, `pip check` ve `git diff --check`: temiz.
+- Boş bulgu durumunun HTML etiketi geçerli paragraf yapısına düzeltildi.
+- Kaydedilmiş HTML ve video dosyalarının manifest hash'leri yeniden doğrulandı.
+  Video 1920×1080, 1281 kare, 60 FPS; son kare okunabilir. 741 kaynak kare,
+  üç okuma arası ve rapordaki 102 bulgu korunuyor.
+- Teslim yalnız 10 kaynak/yapılandırma/belge dosyasıdır. Video, test çıktısı,
+  model ve `outputs/` dosyaları Git kapsamı dışındadır.
+
+18 Eylül 2026 çıktı tasarımı:
+
+- İlgili regresyon testleri: **77 passed in 13.15s**.
+- O günkü tam paket: **520 passed in 162.85s**;
+  `outputs/pytest-design-final-20260918-02`. Ruff, `pip check` ve
+  `git diff --check`: temiz.
+- Mevcut `benim-denemem-21` girdileri SHA-256 ile doğrulanarak yeni
+  `outputs/design_refresh/runs/ui-20260918-02/` altında yeniden görselleştirildi.
+  Son HTML ve koşu geçmişi örneği `outputs/design_refresh/runs/ui-20260918-03/review/`.
+- Video: **741 kaynak kare / 60 FPS / 12.35 sn**, **1281 çıktı kare / 21.35 sn**;
+  218, 529 ve 637 kaynak karelerindeki üç adet 3 saniyelik okuma arası korundu.
+  Çıktı iki kamera için **1920×1080**, 102 olayın tamamı raporda mevcut.
+- HTML: dört ana gösterge, hareketlere göre bulgu grupları, açılır teknik
+  bölümler; video/rapor kimliği, JSON inceleme bağı ve filtreler korunur.
+- Gerçek video kareleri ve HTML tarayıcıda görsel olarak incelendi;
+  **Videoda aç** iki kamerayı **3.633333 sn** konumuna taşıdı.
+- 1280 px ve 390 px görünümde yatay taşma yok; oynat/duraklat/başa dön,
+  bulgu grupları ve teknik kural araması kontrol edildi. 102 olayın tamamı
+  HTML'de mevcut. Son video karesi okunabildi; 1281 kare, 60 FPS doğrulandı.
+- Yeni inference veya puanlama yapılmadı; eski run'lar ve latest değiştirilmedi.
+
+### 17 Eylül 2026 hata düzeltmeleri (önceki teslim)
 
 17 Eylül 2026 temel hata düzeltmeleri:
 

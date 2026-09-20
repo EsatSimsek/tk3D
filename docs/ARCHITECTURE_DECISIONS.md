@@ -810,6 +810,19 @@ Doğrulama hata enjeksiyonu, regresyon testleri ve kaydedilmiş gerçek çıktı
 yeniden okunmasıyla yapılır. Model hesaplamaları, kalibrasyon sayıları ve
 puanlama eşikleri değişmez; yeni bir 3B doğruluk iddiası oluşturmaz.
 
+## AD-037 — Kanıt çıktılarının sunum katmanı
+
+18 Eylül 2026: HTML inceleme ve koşu geçmişi ortak, dosyanın içine gömülen
+`report_style.py` stilini kullanır. Ayrıntılar yerel HTML `details` elemanlarıyla
+açılır; JavaScript yalnız gezinme ve mevcut inceleme işlevlerine hizmet eder.
+Haricî CSS veya yazı tipi isteği eklenmez.
+
+Video kartları `video_cards.py` içinde Pillow ve Matplotlib'in paketlenmiş
+DejaVu yazı tipleriyle çizilir. Sabit kart görselleri sınırlı önbellekte tutulur.
+`error_video.py` gözlenen 2B iz, kare sırası ve okuma duraklamalarının sahibi
+olarak kalır. Sunum katmanı ölçüm, eşik, belirsizlik veya kesinti hesaplamaz.
+Yeni çıktı üretimi benzersiz run kullanır; eski kanıt dosyaları değiştirilmez.
+
 ## Karar değiştirme süreci
 
 Bu kararlardan biri değiştirilecekse:

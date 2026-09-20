@@ -5,6 +5,8 @@ import hashlib
 import json
 from typing import Any
 
+from src.poomsae_scoring.report_style import REPORT_CSS
+
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
     validate_movement_timeline,
@@ -210,108 +212,35 @@ def build_review_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Taegeuk 1 Kısa Kayıt İncelemesi</title>
-  <style>
-    :root {{ color-scheme: dark; --bg:#071019; --panel:#101d29; --panel2:#142534; --line:#294151;
-      --text:#edf7ff; --muted:#9eb3c2; --cyan:#46d7e8; --green:#64e5a5; --amber:#ffca6a; --red:#ff7d7d; }}
-    * {{ box-sizing:border-box; }} body {{ margin:0; background:radial-gradient(circle at 80% 0,#14354a 0,transparent 35%),var(--bg);
-      color:var(--text); font-family:Inter,Segoe UI,system-ui,sans-serif; }}
-    main {{ width:min(1480px,96vw); margin:0 auto; padding:30px 0 60px; }}
-    header {{ display:flex; justify-content:space-between; gap:20px; align-items:flex-start; margin-bottom:20px; }}
-    h1 {{ margin:5px 0 7px; font-size:clamp(26px,3vw,44px); letter-spacing:-.04em; }}
-    h2 {{ font-size:20px; margin:0 0 14px; }} p {{ color:var(--muted); margin:0; line-height:1.55; }}
-    .eyebrow {{ color:var(--cyan); font-weight:750; letter-spacing:.13em; text-transform:uppercase; font-size:12px; }}
-    .pill {{ border:1px solid #9c762c; color:var(--amber); background:#2d2414; border-radius:999px; padding:9px 13px; white-space:nowrap; font-weight:700; }}
-    .notice {{ display:flex; gap:13px; border:1px solid #855e28; background:linear-gradient(90deg,#2b2113,#1a1d1e); padding:16px 18px; border-radius:14px; margin-bottom:18px; }}
-    .notice strong {{ color:var(--amber); display:block; margin-bottom:3px; }}
-    .stats {{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }}
-    .stat,.section {{ border:1px solid var(--line); background:linear-gradient(145deg,rgba(20,37,52,.94),rgba(12,25,36,.94)); border-radius:16px; }}
-    .stat {{ padding:16px; }} .stat b {{ display:block; font-size:25px; margin-top:5px; }} .stat span {{ color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.09em; }}
-    .section {{ padding:18px; margin-bottom:18px; }} .videos {{ display:grid; grid-template-columns:repeat({len(video_sources)},minmax(0,1fr)); gap:12px; }}
-    .video-card {{ border-radius:12px; overflow:hidden; background:#03070a; border:1px solid var(--line); }} video {{ width:100%; display:block; aspect-ratio:16/9; background:#000; }}
-    .video-label {{ padding:10px 12px; color:#d9edf8; font-size:13px; font-weight:700; }} .camera-dot {{ display:inline-block; width:8px; height:8px; background:var(--green); border-radius:50%; margin-right:8px; box-shadow:0 0 10px var(--green); }}
-    .video-health {{ padding:7px 12px; color:var(--muted); font-size:12px; border-top:1px solid var(--line); }}
-    .video-health[data-state="ready"],.video-health[data-state="playing"] {{ color:var(--green); }}
-    .video-health[data-state="loading"] {{ color:var(--amber); }} .video-health[data-state="error"] {{ color:var(--red); font-weight:700; }}
-    .toolbar {{ display:flex; align-items:center; gap:10px; margin-top:13px; flex-wrap:wrap; }} button {{ color:var(--text); background:#183247; border:1px solid #37627b; border-radius:9px; padding:9px 13px; cursor:pointer; font-weight:700; }} button:hover {{ background:#21445e; }}
-    #clock {{ color:var(--cyan); font-variant-numeric:tabular-nums; font-weight:750; }}
-    .movement-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }}
-    .movement {{ text-align:left; padding:14px; border:1px solid var(--line); border-radius:12px; background:#0b1822; cursor:pointer; transition:.15s ease; }}
-    .movement:hover,.movement.active {{ border-color:var(--cyan); transform:translateY(-1px); background:#102839; }}
-    .movement-top {{ display:flex; justify-content:space-between; gap:8px; }} .movement-id {{ color:var(--cyan); font-weight:800; }} .movement-name {{ font-weight:700; margin:6px 0 10px; }}
-    .metrics {{ display:grid; grid-template-columns:1fr 1fr; gap:5px 10px; color:var(--muted); font-size:12px; }} .metrics b {{ color:#d8e9f2; font-weight:650; }}
-    .anchors {{ display:flex; flex-wrap:wrap; gap:5px; margin-top:10px; }} .anchor {{ padding:5px 7px; font-size:11px; border-color:#355466; background:#10222f; }}
-    .two-col {{ display:grid; grid-template-columns:1.1fr .9fr; gap:18px; }} .missing-list {{ display:flex; flex-wrap:wrap; gap:7px; }}
-    .missing-chip {{ color:#c6d3db; background:#17222b; border:1px dashed #4c5d68; border-radius:999px; padding:7px 10px; font-size:12px; }}
-    ul {{ padding:0; list-style:none; margin:0; }} li {{ display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid #213643; color:var(--muted); }} li:last-child {{ border-bottom:0; }} code {{ color:var(--amber); }}
-    .candidate-row {{ display:grid; grid-template-columns:minmax(120px,.35fr) 1fr auto; align-items:center; }} .candidate-row button {{ padding:6px 9px; white-space:nowrap; }}
-    .metric-table-wrap {{ overflow:auto; margin-top:16px; }} .metric-table {{ width:100%; border-collapse:collapse; font-size:13px; }}
-    .metric-table th,.metric-table td {{ padding:9px 10px; border-bottom:1px solid #213643; text-align:left; white-space:nowrap; }}
-    .metric-table th {{ color:var(--cyan); background:#0a1721; position:sticky; top:0; }} .metric-table td {{ color:var(--muted); }}
-    .metric-table .review {{ color:var(--amber); font-weight:700; }} .metric-table .ok {{ color:var(--green); }} .metric-table .missing {{ color:#9aa8b2; }}
-    .decision-row {{ display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:12px; align-items:center; }}
-    .decision-row.red {{ border-left:4px solid var(--red); padding-left:10px; }} .decision-row.amber {{ border-left:4px solid var(--amber); padding-left:10px; }}
-    .decision-row.gray {{ border-left:4px solid #8998a3; padding-left:10px; }} .decision-row.green {{ border-left:4px solid var(--green); padding-left:10px; }}
-    .review-actions {{ display:flex; gap:5px; flex-wrap:wrap; }} .review-actions button.selected {{ outline:2px solid var(--cyan); background:#285575; }}
-    .sources {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }} a {{ color:var(--cyan); }}
-    .history-link {{ display:inline-block; margin:0 0 18px; padding:11px 14px; border:1px solid #37627b; border-radius:10px; background:#102839; font-weight:750; text-decoration:none; }}
-    .wb-movement-block {{ margin-bottom:14px; border:1px solid var(--line); border-radius:12px; background:#0b1822; padding:14px; }}
-    .wb-movement-hdr {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; cursor:pointer; user-select:none; }}
-    .wb-movement-hdr:hover {{ opacity:.85; }}
-    .wb-mid {{ color:var(--cyan); font-weight:800; font-size:15px; }} .wb-mname {{ font-weight:700; font-size:13px; color:var(--text); margin-left:8px; }}
-    .wb-badge {{ font-size:11px; padding:3px 8px; border-radius:999px; font-weight:700; }}
-    .wb-badge-ok {{ background:#123526; color:var(--green); border:1px solid #2a6b48; }}
-    .wb-badge-warn {{ background:#2d2414; color:var(--amber); border:1px solid #9c762c; }}
-    .wb-metrics-grid {{ display:grid; grid-template-columns:repeat(auto-fill, minmax(300px,1fr)); gap:6px; }}
-    .wb-m {{ display:grid; grid-template-columns:22px 1fr auto; gap:2px 8px; align-items:center; padding:7px 10px; border-radius:8px; font-size:12px; border:1px solid var(--line); }}
-    .wb-m-name {{ color:var(--muted); font-size:11px; letter-spacing:.02em; }}
-    .wb-m-val {{ font-weight:700; color:var(--text); font-size:13px; font-variant-numeric:tabular-nums; }}
-    .wb-m-range {{ color:var(--muted); font-size:10px; grid-column:2/4; margin-top:-1px; }}
-    .wb-ok {{ border-left:3px solid var(--green); }} .wb-ok .wb-dot {{ color:var(--green); }}
-    .wb-cand {{ border-left:3px solid var(--red); background:#1a1018; }} .wb-cand .wb-dot {{ color:var(--red); }}
-    .wb-nm {{ border-left:3px solid #5a6a75; opacity:.6; }} .wb-nm .wb-dot {{ color:#5a6a75; }}
-    .wb-diag {{ border-left:3px solid var(--cyan); opacity:.75; }} .wb-diag .wb-dot {{ color:var(--cyan); }}
-    .wb-collapse {{ display:none; }} .wb-movement-block.open .wb-collapse {{ display:grid; }}
-    .diag-row {{ display:grid; grid-template-columns:150px 150px minmax(0,1fr) auto; gap:10px; align-items:center; }}
-    .diag-consistent {{ color:var(--green); }} .diag-mismatch {{ color:var(--red); font-weight:750; }}
-    .diag-ambiguous {{ color:var(--amber); }} .proxy-grid {{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }}
-    .proxy-card {{ border:1px solid var(--line); border-radius:12px; background:#0b1822; padding:14px; }}
-    .proxy-card h3 {{ margin:0 0 10px; color:var(--cyan); }} .proxy-card li {{ display:block; }}
-    footer {{ color:#6f8795; font-size:12px; text-align:center; margin-top:20px; }}
-    @media(max-width:950px) {{ .stats {{ grid-template-columns:1fr 1fr; }} .videos,.two-col {{ grid-template-columns:1fr; }} .movement-grid {{ grid-template-columns:1fr 1fr; }} }}
-    @media(max-width:580px) {{ header {{ display:block; }} .pill {{ display:inline-block; margin-top:12px; }} .movement-grid,.stats {{ grid-template-columns:1fr; }} .candidate-row {{ grid-template-columns:1fr; }} }}
-  </style>
+  <style>{REPORT_CSS}</style>
 </head>
 <body><main>
   <header><div><div class="eyebrow">TK3D · Ölçüm kanıtı</div><h1>Taegeuk 1 Kısa Kayıt İncelemesi</h1>
     <p>{len(video_sources)} kamera, aynı zaman çizelgesi ve hareket/faz ölçümleri tek ekranda.</p></div>
     <div class="pill">Kısmi kayıt · {len(observed)}/{len(spec["movements"])}</div></header>
   <section class="notice"><div>⚠</div><div><strong>Bu çıktı tam veya resmî puan değildir.</strong><p>{_escape(decision_notice)} {_escape(source_end_reason)}</p></div></section>
-  {history_link}
+  <nav class="report-nav" aria-label="Rapor bölümleri"><a href="#cameras">Kamera kaydı</a><a href="#movements">Hareketler</a><a href="#findings">Bulgular</a><a href="#details">Teknik ayrıntılar</a>{history_link}</nav>
   <section class="stats">
     <div class="stat"><span>Kayıttaki hareket</span><b>{len(observed)} / {len(spec["movements"])}</b></div>
     <div class="stat"><span>Ölçülen faz ankrajı</span><b>{anchor_count}</b></div>
     <div class="stat"><span>Tam gözlenen ankraj</span><b>%{observed_ratio * 100:.1f}</b></div>
     {decision_stat}
-    {wholebody_stat}
-    {categorical_stat}
-    {technical_stat}
-    {accuracy_diagnostic_stat}
-    {presentation_stat}
-    {automatic_stat}
-    {trial_stat}
   </section>
-  <section class="section"><h2>Senkron kamera incelemesi</h2><div class="videos">{video_html}</div>
+  <section class="section" id="cameras"><div class="eyebrow">01 / Kayıt</div><h2>Senkron kamera incelemesi</h2><div class="videos" style="--camera-count:{len(video_sources)}">{video_html}</div>
     <div class="toolbar"><button type="button" id="sync-play">▶ {len(video_sources)} kamerayı oynat</button><button type="button" id="sync-pause">Ⅱ Duraklat</button><button type="button" id="sync-zero">↺ Başa dön</button><span id="clock">00:00.000</span><span id="sync-status" aria-live="polite">Videolar hazırlanıyor…</span><p>Bir videoda sarınca diğerleri aynı zamana gelir.</p></div>
   </section>
-  <section class="section"><h2>Kayıtta bulunan hareketler</h2><div class="movement-grid">{movement_cards}</div></section>
-  {automatic_section}
-  {trial_section}
-  {wholebody_section}
-  {categorical_section}
-  {technical_section}
-  {accuracy_diagnostic_section}
-  {presentation_section}
-  {decision_section}
+  <section class="section" id="movements"><div class="eyebrow">02 / Hareketler</div><h2>Kayıtta bulunan hareketler</h2><div class="movement-grid">{movement_cards}</div></section>
+  <div id="findings"><div class="eyebrow">03 / Karar incelemesi</div>{decision_section}</div>
+  <div id="details"><h2>Teknik ayrıntılar</h2>
+    <details class="report-detail"><summary>Ölçüm kapsamı ve teşhis özeti<small>Raporlanan tüm göstergeler</small></summary><div class="stats">{wholebody_stat}{categorical_stat}{technical_stat}{accuracy_diagnostic_stat}{presentation_stat}{automatic_stat}{trial_stat}</div></details>
+    {_detail_section("Hareket ve faz sınırları", automatic_section)}
+    {_detail_section("WholeBody ölçümleri", wholebody_section)}
+    {_detail_section("Hareket ve duruş kimliği", categorical_section)}
+    {_detail_section("Hareket bazlı teknik uygunluk", technical_section)}
+    {_detail_section("Teknik kural envanteri", accuracy_diagnostic_section)}
+    {_detail_section("Presentation göstergeleri", presentation_section)}
+    {_detail_section("Mühendislik denemesi", trial_section)}
+  </div>
   <div class="two-col">
     <section class="section"><h2>Kayıtta bulunmayan hareketler</h2><p style="margin-bottom:12px">Bunlar etiketleme hatası değildir; kaynak video M06 sonrasında devam etmiyor.</p><div class="missing-list">{missing_cards}</div></section>
     <section class="section"><h2>Puanlamayı kapalı tutan kapılar</h2><ul>{blocker_html}</ul></section>
@@ -358,6 +287,8 @@ def build_review_html(
   const setHealth = (index, state, message) => {{
     const node = healthNodes[index]; if (!node) return;
     node.dataset.state = state; node.textContent = message;
+    if (healthNodes.every(item => ['ready','playing'].includes(item.dataset.state)))
+      syncStatus.textContent = videos.every(video => video.paused) ? 'İncelemeye hazır.' : 'Senkron oynatılıyor.';
   }};
   const boundedTime = (video, time) => Number.isFinite(video.duration) ? Math.min(Math.max(0, time), Math.max(0, video.duration - .001)) : Math.max(0, time);
   const timeAvailable = (video, time) => {{
@@ -414,7 +345,7 @@ def build_review_html(
     const failed = results.filter(item => item.status === 'rejected').length;
     syncStatus.textContent = failed ? `${{failed}} kamera oynatılamadı; video durumunu kontrol edin.` : 'Senkron oynatılıyor.';
   }};
-  const pauseAll = () => {{ holdTransportSync(); videos.forEach(v => v.pause()); }};
+  const pauseAll = () => {{ holdTransportSync(); videos.forEach(v => v.pause()); syncStatus.textContent = 'Duraklatıldı.'; }};
   const update = time => {{
     const mins = Math.floor(time / 60); const secs = time - mins * 60;
     document.getElementById('clock').textContent = `${{String(mins).padStart(2,'0')}}:${{secs.toFixed(3).padStart(6,'0')}}`;
@@ -443,7 +374,19 @@ def build_review_html(
   document.getElementById('sync-play').onclick = playAll;
   document.getElementById('sync-pause').onclick = pauseAll;
   document.getElementById('sync-zero').onclick = () => {{ pauseAll(); seekAll(0); }};
-  document.querySelectorAll('[data-seek]').forEach(node => node.addEventListener('click', event => {{ event.stopPropagation(); seekAll(Number(node.dataset.seek)); }}));
+  document.querySelectorAll('[data-seek]').forEach(node => node.addEventListener('click', event => {{
+    event.stopPropagation(); pauseAll(); seekAll(Number(node.dataset.seek));
+    document.getElementById('cameras').scrollIntoView({{block:'start'}});
+  }}));
+  const revealHashTarget = () => {{
+    const target = document.getElementById(location.hash.slice(1));
+    if (!target) return;
+    let ancestor = target.parentElement;
+    while (ancestor) {{ if (ancestor.tagName === 'DETAILS') ancestor.open = true; ancestor = ancestor.parentElement; }}
+    target.scrollIntoView({{block:'start'}});
+  }};
+  addEventListener('hashchange', revealHashTarget);
+  if (location.hash) revealHashTarget();
   cards.forEach(card => card.addEventListener('click', () => seekAll(Number(card.dataset.start))));
   document.querySelectorAll('[data-review-event]').forEach(button => {{
     const eventId = button.dataset.reviewEvent;
@@ -637,7 +580,7 @@ def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str
       {within_count} eşik içi · {candidate_count} aday ·
       kapsama kapısı: {"geçti" if coverage.get("coverage_gate_passed") else "başarısız"} · Accuracy: hesaplanmadı.
       Hareket başlığına tıkla → metrikleri aç/kapa.</p>
-      <div class="toolbar" style="margin-bottom:12px"><input id="metric-filter" type="search" placeholder="Metrik ara…" aria-label="Metrik ara" style="min-width:260px;padding:9px 11px;border-radius:9px;border:1px solid #37627b;background:#0b1822;color:var(--text)"><span id="metric-filter-status" aria-live="polite">Tüm ölçümler gösteriliyor</span></div>
+      <div class="toolbar" style="margin-bottom:12px"><input id="metric-filter" type="search" placeholder="Metrik ara…" aria-label="Metrik ara"><span id="metric-filter-status" aria-live="polite">Tüm ölçümler gösteriliyor</span></div>
       {movement_blocks}
       <h2 style="margin-top:18px">Eşik aşan inceleme adayları</h2>
       <ul>{candidate_items}</ul>
@@ -1204,6 +1147,15 @@ def _wholebody_measurement_table(report: dict[str, Any]) -> str:
     )
 
 
+def _detail_section(title: str, section: str) -> str:
+    if not section:
+        return ""
+    return (
+        f'<details class="report-detail"><summary>{_escape(title)}'
+        f'<small>Ayrıntıları aç</small></summary>{section}</details>'
+    )
+
+
 def _decision_evidence_html(
     decisions: dict[str, Any] | None,
     evidence: dict[str, Any] | None,
@@ -1215,11 +1167,19 @@ def _decision_evidence_html(
         raise ScoringContractError("decision evidence events must be a list")
     summary = evidence.get("summary", {})
     partial_total = decisions.get("observed_scope_provisional_deduction_total")
-    rows = "".join(_decision_event_row(event) for event in events)
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        groups.setdefault(event.get("movement_id") or "Performans", []).append(event)
+    rows = "".join(
+        f'<details class="report-detail"><summary>{_escape(movement_id)}'
+        f' · {len(group)} bulgu<small>Kararları incele</small></summary><ul class="decision-list">'
+        + "".join(_decision_event_row(event) for event in group) + "</ul></details>"
+        for movement_id, group in groups.items()
+    )
     if not rows:
-        rows = "<li><span>Görselleştirilebilir kaynak-bağlı karar bulunmadı.</span></li>"
+        rows = "<p>Görselleştirilebilir kaynak-bağlı karar bulunmadı.</p>"
     stat = (
-        '<div class="stat"><span>Kaynak-bağlı küçük hata</span>'
+        '<div class="stat"><span>Kaynak-bağlı kesinti adayı</span>'
         f'<b>{int(summary.get("confirmed_deduction_candidate_count", 0))} · -{_number(partial_total, "")}</b></div>'
     )
     section = f'''<section class="section"><h2>Kaynak-bağlı hata kanıtları</h2>
@@ -1230,7 +1190,7 @@ def _decision_evidence_html(
       {int(summary.get("boundary_uncertain_count", 0))} sınır-belirsiz · {int(summary.get("not_measurable_count", 0))} ölçülemedi.
       Kararı videoda inceleyip kendi kontrolünü kaydedebilirsin.</p>
       <div class="toolbar" style="margin-bottom:10px"><label>İnceleyen adı/kodu <input id="reviewer-name" maxlength="120" autocomplete="off"></label><button type="button" id="export-review">İnceleme kararlarını JSON indir</button><label>İnceleme JSON yükle <input id="import-review" type="file" accept=".json,application/json"></label><button type="button" id="clear-review">Kayıtlı incelemeleri temizle</button><span id="review-status" aria-live="polite">Kayıtlı inceleme · 0 karar</span></div>
-      <ul>{rows}</ul></section>'''
+      <div>{rows}</div></section>'''
     return stat, section
 
 
@@ -1253,11 +1213,12 @@ def _decision_event_row(event: dict[str, Any]) -> str:
     seek = float(window.get("anchor_time_sec", 0.0))
     source = event.get("source") or {}
     source_id = source.get("source_id") or source.get("source_ref") or "kaynak belirtilmedi"
+    title = (event.get("user_explanation") or {}).get("title") or event.get("description") or event.get("metric_id")
     return f'''<li class="decision-row {_escape(event.get("display_color", "gray"))}">
       <code>{_escape(event.get("movement_id") or "PERF")} · {_escape(event.get("display_label"))}</code>
-      <span><b>{_escape(event.get("metric_id") or event.get("event_kind"))}</b> · 3B {_escape(value)} · %95 {_escape(interval_text)} ·
+      <span><b class="decision-title">{_escape(title)}</b>3B {_escape(value)} · %95 {_escape(interval_text)} ·
       kaynak sınırı {_escape(limit_text)} · <b>{_escape(deduction_text)}</b><br>
-      {_escape(event.get("description"))} · kaynak: {_escape(source_id)}</span>
+      {_escape(event.get("description"))}<small class="decision-meta">{_escape(event.get("metric_id") or event.get("event_kind"))} · kaynak: {_escape(source_id)}</small></span>
       <div><button type="button" data-seek="{seek:.6f}">Videoda aç</button>
       <div class="review-actions" style="margin-top:6px">
         <button type="button" data-review-event="{event_id}" data-review-value="confirmed">Doğru</button>

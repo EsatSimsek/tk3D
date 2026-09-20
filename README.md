@@ -170,6 +170,21 @@ kanıtı, kategorik ve teknik uygunluk teşhisleri, kaynak-bağlı provisional
 kararlar, readiness, hata videosu ve HTML inceleme raporları üretir. Teşhis
 adayları otomatik WT kesintisi veya resmî Accuracy skoru değildir.
 
+İnceleme çıktıları ortak açık renkli bir düzen kullanır. HTML'de kamera kaydı,
+hareketler ve hareket başına açılan bulgular öndedir; ayrıntılı ölçümler ve kural
+envanteri açılır bölümlerdedir. **Videoda aç** iki kamerayı duraklatıp aynı kanıt
+anına götürür ve kamera bölümünü gösterir. İnceleyen adı, bağlı JSON içe/dışa
+aktarma ve ölçüm araması korunur. Koşu geçmişi aynı görsel düzeni kullanır.
+
+İşaretli videonun alt paneli Türkçe karakterleri destekleyen ölçüm kartları
+kullanır; ayak açısı şeması açıklamadan ayrı çizilir. İki kamera çıktısı
+1920×1080'dir. İlk üç aktif bulgu görünür; ek bulgu sayısı HTML'ye yönlendirir.
+Okuma duraklamaları **kesinti adayı** olarak belirtilir. Kaynak kareler, FPS ve
+mevcut okuma araları korunur; bu düzen resmî puanlama yetkisi vermez. Yazı
+çizimi Pillow ile, paketle gelen Matplotlib DejaVu yazı tipleriyle yapılır;
+haricî yazı tipi indirilmez. Yeni görünüm yeni koşulara uygulanır, eski
+`outputs/` kayıtları yerinde değiştirilmez.
+
 V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurallık
 makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
 kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i

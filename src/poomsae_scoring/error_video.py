@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 from src.artifact_io import sha256_file
+from src.poomsae_scoring.video_cards import draw_evidence_panel, draw_pause_banner
 
 _sha256 = sha256_file
 
@@ -91,7 +92,7 @@ def render_decision_evidence_video(
             active_frames=active_frames,
             joint_indices=joint_indices,
         )
-        pane_width, pane_height, panel_height = 960, 540, 420
+        pane_width, pane_height, panel_height = 960, 540, 540
         output_size = (pane_width * len(captures), pane_height + panel_height)
         target.parent.mkdir(parents=True, exist_ok=True)
         writer = cv2.VideoWriter(
@@ -129,7 +130,7 @@ def render_decision_evidence_video(
                     panes.append(pane)
                 canvas = np.zeros((output_size[1], output_size[0], 3), dtype=np.uint8)
                 canvas[:pane_height] = np.hstack(panes)
-                _draw_event_panel(canvas, active, frame_index, expected_fps, pane_height)
+                draw_evidence_panel(canvas, active, frame_index, expected_fps, pane_height)
                 writer.write(canvas)
                 rendered_frames += 1
                 source_frames_rendered += 1
@@ -137,7 +138,7 @@ def render_decision_evidence_video(
                     for freeze_index in range(freeze_frames_per_pause):
                         frozen = canvas.copy()
                         seconds_left = (freeze_frames_per_pause - freeze_index) / expected_fps
-                        _draw_freeze_banner(frozen, seconds_left)
+                        draw_pause_banner(frozen, seconds_left)
                         writer.write(frozen)
                         rendered_frames += 1
         finally:
@@ -255,7 +256,7 @@ def _draw_camera_pane(
     observations: dict[tuple[str, int, int], tuple[float, float, float]],
     scale: tuple[float, float],
 ) -> None:
-    cv2.rectangle(pane, (0, 0), (pane.shape[1], 38), (8, 12, 18), -1)
+    cv2.rectangle(pane, (0, 0), (pane.shape[1], 38), (61, 55, 33), -1)
     cv2.putText(pane, camera_id, (16, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.67, (235, 245, 250), 2, cv2.LINE_AA)
     for event_number, event in enumerate(active_events[:3], start=1):
         color = _COLORS.get(event["display_color"], _COLORS["gray"])
@@ -338,141 +339,6 @@ def _draw_geometry(
             _point(pane, point, color)
 
 
-def _draw_event_panel(
-    canvas: np.ndarray,
-    active_events: list[dict[str, Any]],
-    frame_index: int,
-    fps: float,
-    panel_top: int,
-) -> None:
-    cv2.rectangle(canvas, (0, panel_top), (canvas.shape[1], canvas.shape[0]), (7, 12, 18), -1)
-    timing = f"frame {frame_index} | {frame_index / fps:.3f} s"
-    cv2.putText(
-        canvas,
-        timing,
-        (18, panel_top + 25),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (180, 195, 205),
-        1,
-        cv2.LINE_AA,
-    )
-    if not active_events:
-        cv2.putText(
-            canvas,
-            "Bu karede aktif Accuracy veya WholeBody inceleme kaniti yok",
-            (18, panel_top + 65),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.73,
-            (180, 190, 200),
-            2,
-            cv2.LINE_AA,
-        )
-        return
-    movement = active_events[0]
-    heading = f"{movement.get('movement_id') or 'PERF'} | {_ascii(movement.get('movement_name') or '')}"
-    cv2.putText(
-        canvas,
-        heading,
-        (160, panel_top + 25),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.66,
-        (238, 242, 245),
-        2,
-        cv2.LINE_AA,
-    )
-    visible_events = active_events[:3]
-    gap = 12
-    margin = 16
-    card_top = panel_top + 40
-    card_bottom = canvas.shape[0] - 40
-    card_width = (canvas.shape[1] - 2 * margin - gap * (len(visible_events) - 1)) // len(visible_events)
-    for index, event in enumerate(visible_events, start=1):
-        left = margin + (index - 1) * (card_width + gap)
-        right = left + card_width
-        _draw_explanation_card(canvas, event, index, left, card_top, right, card_bottom)
-    note = (
-        "LEJANT: kamera ustundeki renkli cizgi = yalniz gozlenen 2B iz | "
-        "MAVI = muhendislik teshis adayi, puan kesintisi degil | "
-        "alt kutudaki USTTEN 3B SEMA = kaynak aci kurali"
-    )
-    cv2.putText(
-        canvas,
-        note,
-        (18, canvas.shape[0] - 14),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.47,
-        (70, 195, 235),
-        1,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_explanation_card(
-    canvas: np.ndarray,
-    event: dict[str, Any],
-    event_number: int,
-    left: int,
-    top: int,
-    right: int,
-    bottom: int,
-) -> None:
-    color = _COLORS.get(event["display_color"], _COLORS["gray"])
-    cv2.rectangle(canvas, (left, top), (right, bottom), (18, 25, 33), -1)
-    cv2.rectangle(canvas, (left, top), (right, bottom), color, 2)
-    explanation = event.get("user_explanation") or _fallback_explanation(event)
-    points = event.get("deduction_points")
-    deduction = "KESINTI YOK" if points is None else f"-{float(points):g}"
-    header = f"[{event_number}] {explanation['title']} | {_ascii(event['display_label']).upper()} | {deduction}"
-    _put_fitted_text(canvas, header, (left + 12, top + 27), right - left - 24, color, 0.57, 2)
-    lines = [
-        f"KURAL: {explanation['expected']}",
-        f"OLCULEN (KALIBRE 3B): {explanation['measured']} | {explanation['interval']}",
-        explanation["comparison"],
-        explanation["result"],
-        f"NASIL DUZELTILIR: {explanation['correction']}",
-        f"KAYNAK DURUMU: {explanation['source_note']}",
-    ]
-    y = top + 58
-    colors = [
-        (235, 240, 245),
-        (235, 240, 245),
-        color,
-        color,
-        (95, 225, 115),
-        (150, 175, 195),
-    ]
-    for line, line_color in zip(lines, colors, strict=True):
-        y = _put_wrapped_text(
-            canvas,
-            _ascii(line),
-            left + 12,
-            y,
-            right - left - 24,
-            line_color,
-            font_scale=0.47,
-            line_height=20,
-            max_lines=2,
-        )
-        y += 5
-    if (event.get("visual_geometry") or {}).get("kind") == "foot_direction_angle":
-        _draw_foot_rule_schematic(canvas, event, left, right, bottom)
-
-
-def _fallback_explanation(event: dict[str, Any]) -> dict[str, str]:
-    measurement = event.get("measurement") or {}
-    return {
-        "title": event.get("metric_id") or "KATEGORIK KURAL",
-        "expected": event.get("description") or "Kural aciklamasi yok.",
-        "measured": _number(measurement.get("value")),
-        "interval": "Belirsizlik bilgisi yok.",
-        "comparison": "Fark bilgisi yok.",
-        "result": _ascii(event.get("display_label") or "Sonuc yok."),
-        "correction": "Hareketi kaynak tanimina gore kontrol et.",
-        "source_note": "Kaynak bilgisi icin karar JSON'unu incele.",
-    }
-
-
 def _screen_point(
     observation: tuple[float, float, float] | None,
     scale: tuple[float, float],
@@ -496,169 +362,6 @@ def _draw_foot_direction_guide(
     _label(pane, heel, f"[{event_number}] 2B AYAK IZI", color, offset=(-8, -20))
 
 
-def _draw_foot_rule_schematic(
-    canvas: np.ndarray,
-    event: dict[str, Any],
-    left: int,
-    right: int,
-    bottom: int,
-) -> None:
-    box_width = min(330, right - left - 24)
-    box_left = right - box_width - 12
-    box_right = right - 12
-    box_top = bottom - 145
-    box_bottom = bottom - 12
-    cv2.rectangle(canvas, (box_left, box_top), (box_right, box_bottom), (9, 15, 21), -1)
-    cv2.rectangle(canvas, (box_left, box_top), (box_right, box_bottom), (85, 105, 120), 1)
-    cv2.putText(
-        canvas,
-        "USTTEN 3B SEMA (KAMERA GORUNTUSU DEGIL)",
-        (box_left + 10, box_top + 20),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.38,
-        (205, 218, 228),
-        1,
-        cv2.LINE_AA,
-    )
-
-    measurement = event.get("measurement") or {}
-    limits = measurement.get("rule_limits") or []
-    allowed_angle = float(limits[0]) if limits else 30.0
-    measured_value = measurement.get("value")
-    origin = (box_left + 75, box_bottom - 18)
-    reference = np.asarray([0.0, -1.0])
-    radius = 78.0
-
-    overlay = canvas.copy()
-    sector_points = [origin]
-    for angle in np.linspace(-allowed_angle, allowed_angle, 25):
-        sector_points.append(_vector_endpoint(origin, _rotate_vector(reference, float(angle)), radius))
-    cv2.fillPoly(overlay, [np.asarray(sector_points, dtype=np.int32)], (42, 115, 48))
-    cv2.addWeighted(overlay, 0.42, canvas, 0.58, 0.0, canvas)
-
-    reference_end = _vector_endpoint(origin, reference, radius + 6)
-    _dashed_line(canvas, origin, reference_end, (245, 245, 245), 2, dash_length=7.0)
-    for angle in (-allowed_angle, allowed_angle):
-        boundary = _vector_endpoint(origin, _rotate_vector(reference, angle), radius)
-        _line(canvas, origin, boundary, _COLORS["green"], 2)
-    _point(canvas, origin, (235, 235, 235), radius=3)
-
-    if measured_value is not None:
-        displayed_angle = float(np.clip(float(measured_value), -85.0, 85.0))
-        actual_end = _vector_endpoint(origin, _rotate_vector(reference, displayed_angle), radius)
-        color = _COLORS.get(event.get("display_color"), _COLORS["red"])
-        _line(canvas, origin, actual_end, color, 4)
-        cv2.putText(
-            canvas,
-            f"OLCULEN 3B: {float(measured_value):.1f} derece",
-            (box_left + 155, box_top + 62),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.38,
-            color,
-            1,
-            cv2.LINE_AA,
-        )
-    else:
-        cv2.putText(
-            canvas,
-            "3B OLCUM: YETERSIZ KANIT",
-            (box_left + 155, box_top + 68),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.38,
-            _COLORS["gray"],
-            1,
-            cv2.LINE_AA,
-        )
-    cv2.putText(
-        canvas,
-        f"YESIL: hedef en fazla {allowed_angle:g} derece",
-        (box_left + 155, box_bottom - 22),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.38,
-        _COLORS["green"],
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        canvas,
-        "KESIK: 3B durus yonu",
-        (box_left + 155, box_bottom - 7),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.36,
-        (220, 225, 230),
-        1,
-        cv2.LINE_AA,
-    )
-
-
-def _draw_freeze_banner(canvas: np.ndarray, seconds_left: float) -> None:
-    overlay = canvas.copy()
-    cv2.rectangle(overlay, (0, 40), (canvas.shape[1], 102), (15, 24, 145), -1)
-    cv2.addWeighted(overlay, 0.82, canvas, 0.18, 0.0, canvas)
-    message = f"PUAN KESINTISI | OKUMAK ICIN 3 SANIYE DONDURULDU | DEVAM: {seconds_left:.1f} s"
-    text_size = cv2.getTextSize(message, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
-    x = max(18, (canvas.shape[1] - text_size[0]) // 2)
-    cv2.putText(
-        canvas,
-        message,
-        (x, 81),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.82,
-        (245, 248, 252),
-        2,
-        cv2.LINE_AA,
-    )
-
-
-def _vector_endpoint(
-    origin: tuple[int, int],
-    direction: np.ndarray,
-    length: float,
-) -> tuple[int, int]:
-    point = np.asarray(origin, dtype=float) + direction * length
-    return int(round(point[0])), int(round(point[1]))
-
-
-def _rotate_vector(vector: np.ndarray, angle_degrees: float) -> np.ndarray:
-    radians = np.deg2rad(angle_degrees)
-    rotation = np.asarray(
-        [[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]],
-        dtype=float,
-    )
-    return rotation @ vector
-
-
-def _dashed_line(
-    image: np.ndarray,
-    first: tuple[int, int] | None,
-    second: tuple[int, int] | None,
-    color: tuple[int, int, int],
-    thickness: int,
-    dash_length: float = 10.0,
-) -> None:
-    if first is None or second is None:
-        return
-    start, end = np.asarray(first, dtype=float), np.asarray(second, dtype=float)
-    delta = end - start
-    distance = float(np.linalg.norm(delta))
-    if distance <= 1e-6:
-        return
-    direction = delta / distance
-    position = 0.0
-    while position < distance:
-        segment_start = start + direction * position
-        segment_end = start + direction * min(position + dash_length, distance)
-        cv2.line(
-            image,
-            tuple(np.rint(segment_start).astype(int)),
-            tuple(np.rint(segment_end).astype(int)),
-            color,
-            thickness,
-            cv2.LINE_AA,
-        )
-        position += dash_length * 1.8
-
-
 def _label(
     image: np.ndarray,
     point: tuple[int, int] | None,
@@ -672,63 +375,6 @@ def _label(
     origin = (max(4, point[0] + offset[0]), max(18, point[1] + offset[1]))
     cv2.putText(image, _ascii(text), origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, (4, 8, 12), 3, cv2.LINE_AA)
     cv2.putText(image, _ascii(text), origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
-
-
-def _put_fitted_text(
-    image: np.ndarray,
-    text: str,
-    origin: tuple[int, int],
-    max_width: int,
-    color: tuple[int, int, int],
-    font_scale: float,
-    thickness: int,
-) -> None:
-    rendered = _ascii(text)
-    scale = font_scale
-    while scale > 0.34 and cv2.getTextSize(rendered, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0][0] > max_width:
-        scale -= 0.03
-    cv2.putText(image, rendered, origin, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thickness, cv2.LINE_AA)
-
-
-def _put_wrapped_text(
-    image: np.ndarray,
-    text: str,
-    x: int,
-    y: int,
-    max_width: int,
-    color: tuple[int, int, int],
-    *,
-    font_scale: float,
-    line_height: int,
-    max_lines: int,
-) -> int:
-    words = text.split()
-    lines: list[str] = []
-    current = ""
-    for word in words:
-        candidate = word if not current else f"{current} {word}"
-        width = cv2.getTextSize(candidate, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][0]
-        if width <= max_width or not current:
-            current = candidate
-        else:
-            lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    if len(lines) > max_lines:
-        lines = lines[:max_lines]
-        while lines[-1] and cv2.getTextSize(
-            f"{lines[-1]}...",
-            cv2.FONT_HERSHEY_SIMPLEX,
-            font_scale,
-            1,
-        )[0][0] > max_width:
-            lines[-1] = lines[-1][:-1]
-        lines[-1] = f"{lines[-1].rstrip()}..."
-    for line in lines:
-        cv2.putText(image, line, (x, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv2.LINE_AA)
-        y += line_height
-    return y
 
 
 def _line(
