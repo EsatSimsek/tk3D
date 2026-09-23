@@ -10,6 +10,7 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+from src.poomsae_scoring.timeline_review import timeline_review_status
 
 
 _STATUS_PRESENTATION = {
@@ -19,6 +20,7 @@ _STATUS_PRESENTATION = {
     "within_source_range": ("within_source_range", "green", "Kaynak aralığında"),
     "not_applicable": ("not_applicable", "blue", "Uygulanamaz"),
     "diagnostic_review_candidate": ("diagnostic_review_candidate", "blue", "Teşhis adayı — puan yok"),
+    "timeline_unverified": ("timeline_unverified", "amber", "Faz onayı yok — puan yok"),
 }
 
 
@@ -145,6 +147,20 @@ def build_decision_evidence_events(
             )
         anomaly_count = len(alignment_anomalies)
 
+    for event in events:
+        review = timeline_review_status(timeline, movement_id=event.get("movement_id"))
+        event["timeline_review"] = review
+        if review["status"] != "verified":
+            if event["decision_status"] != "diagnostic_review_candidate":
+                event["decision_status"] = "timeline_unverified"
+                event["display_status"], event["display_color"], event["display_label"] = _STATUS_PRESENTATION["timeline_unverified"]
+            else:
+                event["display_label"] += " · Faz onayı yok"
+            event["application_status"] = "review_only"
+            event["deduction_points"] = None
+            explanation = event.setdefault("user_explanation", {})
+            explanation["result"] = "Faz onayı yok; ölçüm taslak zaman aralığına bağlı. Kesinti değerlendirilmedi."
+            explanation["correction"] = "Önce iki kameradan hareketi ve değerlendirme aralığını inceleyin."
     counts = {key: sum(event["decision_status"] == key for event in events) for key in _STATUS_PRESENTATION}
     return {
         "schema_version": 1,
@@ -152,6 +168,7 @@ def build_decision_evidence_events(
         "timeline_id": timeline["timeline_id"],
         "frame_count": timeline["frame_count"],
         "fps": timeline["fps"],
+        "timeline_review": timeline_review_status(timeline),
         "measurement_space": "tk3d_world_3d",
         "camera_overlay_space": "observed_vitpose_2d_visual_trace_only",
         "camera_overlay_warning": (
@@ -162,8 +179,13 @@ def build_decision_evidence_events(
             "event_count": len(events),
             "confirmed_deduction_candidate_count": counts["confirmed_source_bound_minor"],
             "boundary_uncertain_count": counts["boundary_uncertain"],
-            "not_measurable_count": counts["not_measurable"],
+            "not_measurable_count": sum(
+                event["decision_status"] == "not_measurable"
+                or (event["event_kind"] == "numeric_source_bound_decision" and event["measurement"]["value"] is None)
+                for event in events
+            ),
             "within_source_range_count": counts["within_source_range"],
+            "timeline_unverified_count": sum(event["timeline_review"]["status"] != "verified" for event in events),
             "categorical_event_count": len(categorical),
             "diagnostic_review_candidate_count": diagnostic_count,
             "technical_accuracy_review_candidate_count": technical_accuracy_count,
@@ -722,6 +744,8 @@ def _diagnostic_measured_text(value: Any, unit: str) -> str:
 def _result_text(decision: dict[str, Any], expected: str) -> str:
     status = decision["decision_status"]
     points = decision.get("deduction_points")
+    if status == "timeline_unverified":
+        return "Faz onayı yok; ölçüm taslak zaman aralığına bağlı. Kesinti değerlendirilmedi."
     if status == "confirmed_source_bound_minor":
         return f"Sonuc: belirsizlik araligi da sinir disinda; kucuk hata adayi (-{float(points):g})."
     if status == "boundary_uncertain":

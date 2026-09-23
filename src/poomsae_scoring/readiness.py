@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from src.artifact_io import sha256_file
+from src.poomsae_scoring.timeline_review import timeline_review_status
 
 from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
@@ -51,6 +52,9 @@ def assess_accuracy_readiness(
         block("movement_count_mismatch", "MovementTimeline does not contain every PoomsaeSpec movement.")
     if any(segment["label_status"] != "confirmed" for segment in timeline["segments"]):
         block("unconfirmed_timeline_labels", "Every movement interval must be confirmed.")
+    review = timeline_review_status(timeline)
+    if review["status"] != "verified":
+        block("timeline_human_review_unverified", "Content-bound video review is required: " + review["reason"])
     if any(not segment["anchors"] for segment in timeline["segments"]):
         block("missing_phase_anchors", "Every movement interval needs at least one phase anchor.")
 
@@ -73,11 +77,12 @@ def assess_accuracy_readiness(
         "rule_scoring_ready": ready,
         "judge_calibrated_ready": False,
         "official_scoring_ready": False,
+        "timeline_review": review,
         "readiness_scope": "source_bound_rule_scoring_with_wholebody_evidence",
         "component_states": {
             "rule_pack": "ready" if pack["status"] == "active" else "blocked",
             "poomsae_spec": "ready" if spec["status"] == "active" else "blocked",
-            "movement_timeline": "ready" if timeline["status"] == "complete" else "blocked",
+            "movement_timeline": "ready" if timeline["status"] == "complete" and review["status"] == "verified" else "blocked",
             "pose_binding": pose_binding["status"],
             "wholebody_diagnostics": diagnostic_binding["status"],
         },

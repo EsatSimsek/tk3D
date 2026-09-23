@@ -1,6 +1,11 @@
 # TK3D Puanlama Planı
 
-Durum: **uygulama için kabul edilen mimari plan**
+Durum: **tarihsel mimari plan**
+
+21 Eylül 2026: Güncel çalışma sırası ve kabul koşulları
+[Doğrulama ve Geliştirme Planı](DOGRULAMA_VE_GELISTIRME_PLANI.md) içindedir.
+Aşağıdaki uzman doğrulamasını sonraya bırakan öncelik güncel planı temsil
+etmez. Eski zaman etiketlerinin insan tarafından onaylandığı belgelenmemiştir.
 
 Son kaynak doğrulama tarihi: **3 Ağustos 2026**
 

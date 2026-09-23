@@ -11,4 +11,4 @@ scipy>=1.12
 pycocotools>=2.0
 -e ./tools/xtcocotools_compat
 pytest>=8.2
-ruff>=0.6
+ruff==0.16.8

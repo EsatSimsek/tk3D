@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from timeline_review_support import reviewed_timeline
+
 from src.data_structures import (
     COCO_BODY_JOINTS,
     COCO_FACE_INDICES,
@@ -618,13 +620,35 @@ def test_unsigned_profile_cannot_produce_any_score_effect() -> None:
     assert report["summary"]["judge_validated_rule_count"] == 0
     assert report["summary"]["score_effect_count"] == 0
     assert all(rule["judge_source"] is None for rule in report["rule_inventory"])
-    assert any("no threshold carries a referee signature" in line.lower() for line in report["limitations"])
+    assert any("no applicable rule has both" in line.lower() for line in report["limitations"])
+
+
+def test_judge_signature_cannot_bypass_unreviewed_timeline() -> None:
+    profile = validate_technical_accuracy_profile(_judge_signed_profile(value=0.0))
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    pose = _synthetic_pose(timeline["frame_count"])
+    wholebody = _synthetic_wholebody(timeline)
+    blocked = build_technical_accuracy_diagnostics(pose, spec, timeline, profile, wholebody)
+    reviewed = build_technical_accuracy_diagnostics(pose, spec, reviewed_timeline(timeline), profile, wholebody)
+    assert blocked["deductions"] == []
+    assert blocked["numeric_score_enabled"] is False
+    assert blocked["deduction_enabled"] is False
+    assert reviewed["deductions"]
+    for before, after in zip(blocked["movements"], reviewed["movements"], strict=True):
+        for raw, checked in zip(before["rules"], after["rules"], strict=True):
+            assert raw.get("value") == checked.get("value")
+            assert raw["score_effect"] is None
+            assert raw["deduction_points"] is None
+            assert raw["deduction_enabled"] is False
+            assert raw["numeric_score_enabled"] is False
 
 
 def test_judge_signed_threshold_scores_and_names_the_referee_that_authorised_it() -> None:
     profile = validate_technical_accuracy_profile(_judge_signed_profile(value=0.0))
     spec = load_poomsae_spec(SPEC_PATH)
     timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    timeline = reviewed_timeline(timeline)
     report = build_technical_accuracy_diagnostics(
         _synthetic_pose(timeline["frame_count"]), spec, timeline, profile, _synthetic_wholebody(timeline)
     )

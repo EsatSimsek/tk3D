@@ -17,6 +17,7 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+from src.poomsae_scoring.timeline_review import timeline_review_status
 
 
 TECHNICAL_CONFORMANCE_STATUS = "technical_conformance_diagnostic_only"
@@ -67,6 +68,12 @@ def build_technical_conformance(
                 timeline["label_source"],
             )
         )
+        review = timeline_review_status(timeline, movement_id=movement_id)
+        reports[-1]["timeline_review"] = review
+        if review["status"] != "verified":
+            reports[-1]["conformance_status"] = "ambiguous"
+            reports[-1]["reason"] = "timeline_human_review_unverified"
+            reports[-1]["review_required"] = True
 
     if technical_accuracy_diagnostics is not None:
         technical = technical_accuracy_diagnostics

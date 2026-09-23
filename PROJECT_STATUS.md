@@ -1,15 +1,18 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **20 Eylül 2026**
+Son doğrulama tarihi: **24 Eylül 2026**
 
 Dal: **`main`**
 
-Temel commit: **`95fee8d`**; `origin/main` dalına gönderildi. Aşağıdaki görsel
-düzenleme bu commit üzerine uygulanmıştır. Güncel teslim commit'i için
-`git rev-parse HEAD`.
+Temel commit: **`e21ce51`**; önceki tasarım teslimi `origin/main` dalına
+gönderildi. Aşağıdaki P0/P1 ve CI düzeltmesi bu commit üzerine hazırlanmıştır.
+Teslim commit'inin kimliği için `git rev-parse HEAD`; uzak CI sonucu için
+GitHub Actions'ta aynı commit'in `tests` koşusu esas alınır.
 
-Teslim kapsamı: **video alt açıklama panelleri, HTML inceleme ve koşu geçmişi
-tasarımı; hesaplama ve puanlama aynı kalır. `outputs/` Git dışıdır**
+Teslim kapsamı: **doğrulama planı, uzman inceleme paketi ve zaman/faz etiketi
+güven kontrolü. Ölçümler korunur; insan incelemesi belgelenmemiş kapsamda
+kesinti uygulanmaz. Yerel/CI Ruff sürümü ve kural kapsamı eşitlendi.
+`outputs/` Git dışıdır.**
 
 Bu dosya yalnız güncel ve doğrulanmış durumu özetler. Final Polish öncesindeki
 905 satırlık faz/pilot günlüğü
@@ -39,6 +42,23 @@ Sistem **resmî Poomsae puanlamasına veya bağımsız olarak doğrulanmış bil
 doğruluk iddiasına hazır değildir**. Bu sınır kullanıcı çıktılarında fail-closed
 durumlarla açıkça korunur.
 
+22 Eylül 2026'da doğrulama planının P0 ve P1 aşamaları tamamlandı. Mevcut
+M01–M06 zaman çizelgesindeki `manual`, `confirmed` ve confidence beyanlarının
+insan incelemesiyle bağı belgelenmemiştir. Asıl YAML tarihsel veri olarak
+korundu; etkin güven durumu `unverified / missing_review_record` oldu.
+Sayısal ve kategorik kararlar, hakem eşikli teknik kurallar, tam Accuracy,
+readiness ve referans şablonları artık merkezi içerik/kapsam kontrolünü
+kullanır. Ölçümler inceleme amacıyla kalır; toplam `null` ve kullanıcıya
+“Değerlendirilmedi” gösterilir. İnceleme kaydı kişi kimliğini veya bağımsız
+ölçüm doğruluğunu kanıtlayan dijital imza değildir; dış kanıt dosyasının
+içeriği saf sözleşme kontrolünde okunmaz.
+
+Sıradaki aşama P2: iki kameradan altı hareketin gerçek uzman incelemesi.
+[Güncel plan](docs/DOGRULAMA_VE_GELISTIRME_PLANI.md) ve
+[boş uzman formu](docs/PILOT_UZMAN_INCELEME_FORMU.md) hazırdır. Henüz uzman
+incelemesi yapılmadı; üç aday ölçüt ve bağımsız referans yöntemi sonrasında
+kesinleştirilecektir.
+
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
 kontrata çözülür. 10 Eylül 2026 tarihli profil 3.2.1 ile 174 kurallık envanter
@@ -49,14 +69,16 @@ Presentation veya readiness'i değiştiremez.
 
 4 Eylül 2026'da aynı katmana ikinci bir eşik kaynağı eklendi. Bir eşik satırı
 `judge_source` bloğu taşıyabilir; hakemin adı, yetki belgesi, karar tarihi ve
-onay kaydı zorunludur. Yalnız bu bloğu taşıyan kural kesinti adayı üretebilir,
+onay kaydı zorunludur. Yalnız bu bloğu taşıyan ve hareket/faz incelemesi
+doğrulanmış bir kural kesinti adayı üretebilir;
 imzasız eşikler puansız kalır. Kaynak profil düzeyinde değil eşik düzeyindedir,
 çünkü bir hakem görüşmesi otuz iki eşiğin tamamını değil birkaçını kapsar.
 Profil düzeyindeki puansızlık kilidi ve `threshold_policy.origin` kontrolü
 gevşetilmedi; ikisi de imzalı eşik varken aynen çalışır. İmzalar
 `judge_validated_rules` listesiyle birebir eşleşmek ve `active_rules` altkümesi
 olmak zorundadır. Liste bugün boştur, bu yüzden hiçbir kural puana etki etmez ve
-rapor önceki çıktının aynısıdır. Ayrıntı AD-032'dedir.
+hakem eşikli teknik kuralların kesinti etkisi yoktur. Ayrıntı AD-032 ve
+AD-038'dedir.
 
 Taslak zaman çizelgesinin çapaları videoyu kaydırmadan incelenebilir. Ayrı bir
 komut her çapanın çevresindeki kareleri tek bir HTML sayfasına dizer; kayıt
@@ -116,6 +138,52 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+23–24 Eylül 2026 gönderim öncesi CI kontrolü:
+
+- GitHub `35515820379` koşusu Ruff adımında başarısız olmuş; pytest henüz
+  çalışmamıştı. Yerel Ruff 0.15.21 geçerken yeni kurulumun Ruff 0.16.8
+  varsayılanları aynı çalışma ağacında 272 ek lint bulgusu üretti.
+- Ruff 0.16.8 sabitlendi; daha önce kullanılan `E4/E7/E9/F` kural kapsamı
+  açıkça tanımlandı. `required-version` farklı sürüm kullanımını reddeder.
+  Yeni kural aileleri için örtük geçiş yapılmaz; pytest kapsamı azaltılmadı.
+- GitHub Ruff çıktısı dosya/satır açıklaması verir; pytest JUnit çıktısı
+  `pytest-results` artifact'ine kaydedilir.
+- Git dışı araştırma verileri olmadan, sürümlenmiş kaynakların kopyasında
+  tam paket **540 passed, 1 skipped in 104.86s**. Atlanan tek test mevcut
+  gerçek ZED pose dosyasını gerektirir; bu dosya Git'e dahil değildir.
+- JUnit: `outputs/ci-audit-20260923-01/candidate/outputs/pytest-prepush-20260923-01.xml`.
+  Kopya mevcut Python 3.12 bağımlılıklarını kullanmıştır; bağımsız Python
+  3.11 kurulumunun sonucu push sonrası GitHub koşusuyla kontrol edilir.
+- Temiz kaynak kopyasında `tk3d-check`: `Tier 1 clean/lightweight: READY`.
+  Ruff 0.16.8, `pip check` ve `git diff --check` temiz.
+- Ayrıntılı eski CI logu kimlik doğrulaması istediğinden okunamadı; kök
+  neden yerelde iki Ruff sürümüyle karşılaştırılarak yeniden üretildi.
+
+22 Eylül 2026 P0/P1 doğrulaması:
+
+- Başlangıç temiz; `git pull --ff-only` güncel; temel commit `e21ce51`.
+- Ruff ve `git diff --check` temiz. Tam paket: **541 passed in 120.23s**;
+  log `outputs/pytest-trust-full-20260922-01.log`.
+- Gerçek mevcut pose ile `trust-p1-20260922-01` analizi tamamlandı. Yeni
+  inference yapılmadı; pose modelleri, kalibrasyon ve ölçüm eşikleri değişmedi.
+- Aynı güncel 3.2.1 girdilerle temel commit kodunun 3.132 teknik kural değeri
+  yeni sonuçla birebir aynı. WholeBody hareket ölçümleri eski çıktıyla aynı.
+  `benim-denemem-21` teknik profili 3.2.0 olduğundan iki settle-offset değeri
+  farklıydı; ölçüm regresyonu bu eski profil yerine aynı 3.2.1 girdilerle yapıldı.
+- Kaynak pose, kontrol edilen eski raporlar ve `latest_run.json` hash'leri
+  değişmedi. 102 inceleme olayı ve videodaki 741 kaynak kare korunuyor.
+- Video 1920×1080, 741 kare, 60 FPS. 218 ve 637. kareler görsel olarak
+  incelendi; son kare okunabildi. Kesinti uygulanmadığı için önceki videonun
+  kesinti okuma araları eklenmedi; kaynak süre 12,35 saniye korundu.
+- HTML içeriği kontrol edildi. Tarayıcı önizlemesi erişim politikasıyla
+  engellendi; bu teslimde HTML için tarayıcı görsel kontrolü yapılmadı.
+- Uzman paketi: 6 hareket, 12 kamera şeridi, 82 küçük görüntü; hiçbir gerçek
+  onay eklenmedi. Pozitif testlerdeki inceleme kayıtları sentetik fixture'dır.
+- Makinece okunabilir kontrol kaydı:
+  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/trust-p1-verification-20260922-02/verification.json`.
+
+### Önceki tasarım teslimi
 
 20 Eylül 2026 gönderim öncesi kontrol:
 
@@ -359,7 +427,31 @@ Ana session'ın `latest_run.json` işaretçisi smoke için değiştirilmedi.
 
 ## 6. Son CURRENT_ACTIVE Poomsae sonucu
 
-Son yerel regresyon:
+22 Eylül 2026 gerçek kayıt analizi:
+
+`outputs/poomsae_1_zed2i_20260731_trimmed/runs/trust-p1-20260922-01/`
+
+- Run `completed`; analiz durumu `diagnostics_only_no_score`.
+- M01–M06 taslakta mevcut; 6/6 gözlenmiş kapsam, insan incelemesi bulunmadığı
+  için `selected_scope_complete:false` ve `timeline_review:unverified`.
+- 9 sayısal karar inceleme onayı nedeniyle uygulanmadı; bunların 3'ünde
+  ölçülememe durumu da korunuyor. Kesinti toplamı, Accuracy ve resmî skor `null`.
+- 174 kural; 82 puansız teknik aday ve 10 WholeBody adayı dahil 102 olay
+  korunuyor. WholeBody ölçüm kapsamı 67/87; teknik skor etkisi sıfır.
+- Otomatik bölümleme 6 hareket seçiyor. Faz çapalarının taslakla ortalama
+  farkı 6,041667 kare; bu bağımsız ground-truth doğruluğu değildir.
+- Yeni HTML, video, özet ve koşu geçmişi üretildi. Analiz-only run `latest`i
+  değiştirmedi; önceki uygun multiview run gösterilmeye devam ediyor.
+- Uzman inceleme paketi ayrı
+  `outputs/poomsae_1_zed2i_20260731_trimmed/runs/annotation-review-20260922-01/review/fixation_review.html`
+  dosyasındadır. Paket etiket veya onay üretmez.
+
+### Önceki analiz (tarihsel)
+
+Aşağıdaki 0,4 toplam, faz incelemesi kapısı eklenmeden önceki çıktıdır.
+Güncel puan veya doğrulanmış hata kabul edilmez; eski artifact korunur.
+
+Önceki yerel regresyon:
 
 `outputs/poomsae_1_zed2i_20260731_trimmed/runs/benim-denemem-21/`
 
@@ -389,7 +481,8 @@ Son yerel regresyon:
 - bağlı 3B pose: 741 kare, WholeBody-133;
 - kayıt kapsamı: partial sequence; M01–M06 seçili kapsamı `6/6`, tam Poomsae
   kapsamı `6/18`;
-- otomatik segmentasyon `6/6`; faz anchor MAE `6,041667` kare;
+- otomatik segmentasyon `6/6`; faz anchor farkı `6,041667` kare
+  (insan onayı belgelenmemiş taslağa göre; doğruluk kanıtı değil);
 - WholeBody ölçüm kapsamı `67/87`;
 - puansız WholeBody inceleme adayı `10`;
 - technical-conformance inceleme gereken hareket `6/6`;
@@ -463,7 +556,8 @@ Bu nedenle ölçülebilenler:
 - RGB-vs-SVO2 iç sensör tutarlılığı;
 - depth/optimizer acceptance-fallback durumu;
 - temporal, açı ve kemik kararlılığı;
-- tek kayıt içindeki M01–M06 manuel timeline'a göre segment sınır/anchor hatası;
+- tek kayıt içindeki M01–M06 taslak timeline'a göre segment sınır/anchor farkı
+  (referansın insan incelemesi belgelenmemiştir);
 - artifact, provenance ve davranış regresyonu.
 
 Henüz ölçülemeyen/iddia edilemeyenler:
@@ -485,7 +579,8 @@ doğruluğuna devredilmez.
 | Tier 1 clean/lightweight | `READY` | Paket/config/import/fixture ve hafif sözleşmeler hazır |
 | CURRENT_ACTIVE yerel varlıklar | `READY` | Bu makinede bağlı model, video, SVO2, calibration ve pose mevcut |
 | İç multiview kalite | `passed` | Son tam aktif referansta iç geometri/sensör kapıları geçti |
-| `provisional_scoring_ready` | `true` | Kaynak-bağlı provisional analize veri hazırlığı var |
+| `provisional_scoring_ready` | `true` (korunan pose raporu) | Geometrik veri hazırlığı; faz onayı veya kesinti yetkisi değil |
+| `timeline_review` | `unverified` | İnsan incelemesi kaydı yok; kesinti toplamı değerlendirilmedi |
 | `rule_scoring_ready` | `false` | Tam ve doğrulanmış kural kanıtı hazır değil |
 | `judge_supplied_threshold_channel` | `READY` | İmzalı hakem eşiğini kabul eden yol kurulu ve testli |
 | `judge_calibrated_ready` | `false` | Uzman/hakem kalibrasyon verisi yok; imzalı eşik listesi boş |
@@ -499,7 +594,8 @@ doğruluğuna devredilmez.
    dışı yerel araştırma varlıklarıdır; clean checkout tek başına Tier 2 çalışmaz.
 2. Session YAML içinde makineye özgü SVO2/timestamp yolları vardır.
 3. Bağımsız CURRENT_ACTIVE ground truth yoktur.
-4. Manuel doğrulanmış Poomsae timeline yalnız M01–M06 kapsamındadır.
+4. Poomsae taslak timeline yalnız M01–M06 kapsamındadır; bu altı hareket için
+   de insan incelemesi belgelenmemiştir. `manual/confirmed` onay sayılmaz.
 5. El, yüz ve ayak noktaları 133 exportta korunur; BODY-17 ile aynı depth fusion
    veya global optimizer doğrulamasına sahip değildir.
 6. İki kameralı aktif kayıtta dört destekleyici view isteyen cross-view guided
@@ -542,9 +638,11 @@ doğruluğuna devredilmez.
     düzeltmenin yanına tekrarlanabilir bir kontrol de gerekir: elle tarama aynı
     hatayı yeniden yapar.
 
-## 11. Opsiyonel gelecek çalışmaları
+## 11. Sonraki çalışmalar
 
-- M07–M18 için manuel/uzman doğrulanmış hareket ve faz etiketleri;
+- Önce M01–M06'nın uzman incelemesi, üç aday ölçütün tanımı ve bağımsız
+  referansla değerlendirme; sıralama ve kabul ölçütleri güncel plandadır;
+- ardından M07–M18 için uzman incelemesine bağlı hareket ve faz etiketleri;
 - farklı sporcu, seviye, kıyafet, kamera düzeni ve oturumlarla değerlendirme;
 - imkân olduğunda senkron bağımsız mocap/ölçüm ground truth;
 - uzman/hakem annotation ve opsiyonel judge-calibration çalışması;
@@ -552,8 +650,9 @@ doğruluğuna devredilmez.
 - üç veya daha fazla ZED saha düzeninin ayrı pilot ve stres doğrulaması;
 - public dağıtım hedeflenirse license, örnek veri ve indirilebilir asset akışı.
 
-Bu maddeler mevcut dürüst araştırma kapsamının çalışması için zorunlu yeni fazlar
-değildir.
+Mevcut koşullu ölçüm ve inceleme akışı kullanılabilir. Hareket/faz doğruluğu,
+ölçüm doğruluğu ve puan geçerliliği iddiaları için ilgili dış doğrulama
+aşamalarının tamamlanması gerekir.
 
 ## 12. Tarihsel dokümantasyon
 

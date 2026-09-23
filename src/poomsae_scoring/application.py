@@ -18,6 +18,7 @@ import yaml
 from src.artifact_io import load_json_object, sha256_file, write_json_exclusive
 from src.performance import PerformanceCollector, basic_environment_identity, write_performance_report
 from src.poomsae_scoring.contracts import load_movement_timeline, load_poomsae_spec, load_yaml_mapping
+from src.poomsae_scoring.timeline_review import timeline_review_status
 from src.run_outputs import (
     initialize_run_state,
     mark_run_complete,
@@ -700,15 +701,17 @@ def _transfer_timeline_binding(
     reference_times = np.asarray(reference.get("timestamps_sec"), dtype=float)
     new_times = np.asarray(new.get("timestamps_sec"), dtype=float)
     if reference_frames.ndim != 1 or new_frames.ndim != 1 or not np.array_equal(reference_frames, new_frames):
-        raise WorkflowError("New pose frame indices differ from the manually reviewed reference timeline.")
+        raise WorkflowError("New pose frame indices differ from the reference timeline.")
     if reference_times.shape != new_times.shape or not np.allclose(reference_times, new_times, rtol=0.0, atol=1e-9):
-        raise WorkflowError("New pose timestamps differ from the manually reviewed reference timeline.")
+        raise WorkflowError("New pose timestamps differ from the reference timeline.")
     if len(new_frames) != timeline.get("frame_count"):
-        raise WorkflowError("New pose frame count differs from the manually reviewed MovementTimeline.")
+        raise WorkflowError("New pose frame count differs from the reference MovementTimeline.")
     if not np.isclose(float(new.get("sample_fps", 0.0)), float(timeline.get("fps", 0.0)), atol=1e-9):
-        raise WorkflowError("New pose FPS differs from the manually reviewed MovementTimeline.")
+        raise WorkflowError("New pose FPS differs from the reference MovementTimeline.")
 
     transferred = deepcopy(timeline)
+    # A review authorizes exact content, never a newly bound pose/run by inheritance.
+    transferred.pop("review", None)
     transferred["timeline_id"] = f"{timeline['timeline_id']}-{run_id}"
     transferred["source_binding"] = {
         "session_id": session_id,
@@ -766,9 +769,8 @@ def _build_summary(
     expected_count = len(coverage["observed_movement_ids"]) + len(coverage["missing_movement_ids"])
     selected_ids = list(coverage["observed_movement_ids"])
     segment_ids = [segment.get("movement_id") for segment in timeline["segments"]]
-    selected_scope_complete = segment_ids == selected_ids and all(
-        segment.get("label_status") == "confirmed" for segment in timeline["segments"]
-    )
+    timeline_review = timeline_review_status(timeline)
+    selected_scope_complete = segment_ids == selected_ids and timeline_review["status"] == "verified"
     selected_scope_label = (
         selected_ids[0] if len(selected_ids) == 1 else f"{selected_ids[0]}-{selected_ids[-1]}"
     )
@@ -819,6 +821,7 @@ def _build_summary(
             "selected_scope_observed_count": len(selected_ids),
             "selected_scope_expected_count": len(selected_ids),
             "selected_scope_complete": selected_scope_complete,
+            "timeline_review": timeline_review,
             "observed_movement_ids": coverage["observed_movement_ids"],
             "missing_movement_ids": coverage["missing_movement_ids"],
         },

@@ -75,14 +75,16 @@ def _print_summary(summary: dict[str, Any], summary_path: Path) -> None:
         "Gözlenen kapsam provisional kesintisi: "
         f"{_display(results['observed_scope_provisional_deduction_total'])}"
     )
-    print(f"Küçük hata sayısı: {results['confirmed_numeric_minor_count']}")
+    if results.get("provisional_deduction_status") == "not_evaluated_unverified_timeline":
+        print("Faz onayı yok: kesinti toplamı değerlendirilmedi; bu sıfır hata anlamına gelmez.")
+    print(f"Kesinti adayı sayısı: {results['confirmed_numeric_minor_count']}")
     print(f"Ölçülemeyen karar: {results['not_measurable_count']}")
     print(f"Sınır-belirsiz karar: {results['boundary_uncertain_count']}")
     print(
         "Otomatik hareket/faz önerisi: "
         f"{results['automatic_segmentation_selected_count']}/"
         f"{results['automatic_segmentation_expected_count']} · "
-        f"faz MAE {results['automatic_segmentation_phase_anchor_mae_frames']} kare"
+        f"taslakla faz farkı {results['automatic_segmentation_phase_anchor_mae_frames']} kare (doğruluk kanıtı değil)"
     )
     print(
         "WholeBody ölçüm kapsamı: "

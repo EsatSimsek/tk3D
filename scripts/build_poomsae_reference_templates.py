@@ -16,12 +16,16 @@ from src.poomsae_scoring import (  # noqa: E402
     load_movement_timeline,
     load_poomsae_spec,
 )
+from src.poomsae_scoring.timeline_review import (  # noqa: E402
+    timeline_review_digest,
+    timeline_review_status,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Extract one reference pose per movement from a hand-labelled recording. "
+            "Extract one reference pose per movement from a reviewed, hand-labelled recording. "
             "The result is the template library that automatic timeline alignment matches "
             "detected segments against. It covers only the movements the source recording "
             "actually contains, and that limit is written into the output."
@@ -66,10 +70,16 @@ def main() -> None:
     spec = load_poomsae_spec(paths["poomsae_spec"])
     timeline = load_movement_timeline(paths["movement_timeline"], spec)
 
-    if timeline["label_source"] != "manual":
+    if timeline["label_source"] not in {"manual", "manual_reviewed_automatic"}:
         raise SystemExit(
             "Templates must come from a hand-labelled timeline; deriving them from an "
             "automatic one would let the alignment validate itself."
+        )
+    review_status = timeline_review_status(timeline)
+    if review_status["status"] != "verified":
+        raise SystemExit(
+            "Templates require a documented timeline review covering every movement, boundary "
+            f"and phase; manual/confirmed flags alone are insufficient ({review_status['reason']})."
         )
 
     keypoints = np.asarray(pose.get("keypoints_3d_world"), dtype=float)
@@ -88,6 +98,8 @@ def main() -> None:
             f"pose has {keypoints.shape[0]} frames but the timeline declares "
             f"{timeline['frame_count']}; they do not describe the same recording"
         )
+    if timeline["source_binding"].get("pose_file_sha256") != _sha256(paths["pose"]):
+        raise SystemExit("pose SHA-256 does not match the reviewed timeline source binding")
 
     templates: list[dict[str, object]] = []
     for segment in timeline["segments"]:
@@ -145,6 +157,11 @@ def main() -> None:
             "session_id": timeline["source_binding"]["session_id"],
             "run_id": timeline["source_binding"]["run_id"],
             "recording_scope": timeline["coverage"]["recording_scope"],
+            "timeline_review": {
+                "timeline_snapshot": timeline,
+                "timeline_sha256": timeline_review_digest(timeline),
+                "status": review_status,
+            },
         },
         "extraction": {
             "anchor": "fixation",

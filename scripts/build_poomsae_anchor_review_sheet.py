@@ -44,8 +44,8 @@ def main() -> None:
         type=int,
         default=15,
         help=(
-            "How far either side of the proposed anchor to look. The default covers the worst "
-            "error measured against the hand-labelled recording, which was thirteen frames."
+            "How far either side of the proposed anchor to look. This is a review window, "
+            "not a validated detector error bound or phase tolerance."
         ),
     )
     parser.add_argument(
@@ -130,13 +130,17 @@ def main() -> None:
             bindings={
                 "timeline": {"path": _binding_path(timeline_path), "sha256": sha256_file(timeline_path)},
                 "poomsae_spec": {"path": _binding_path(spec_path), "sha256": sha256_file(spec_path)},
+                **{
+                    f"camera:{camera_id}": {"path": _binding_path(path), "sha256": sha256_file(path)}
+                    for camera_id, path in cameras
+                },
             },
         ),
         encoding="utf-8",
     )
     print(output)
     print(f"{len(rows)} movement(s), {len(offsets)} frame(s) each, {len(strips)} strip(s)")
-    print("Open the page, find the frame where the posture is actually held, and correct the timeline.")
+    print("Review the source videos and record proposed corrections separately; preserve the original timeline.")
 
 
 def _grab_frames(video_path: Path, wanted: set[int], timeline: dict, width: int) -> dict[int, str]:
@@ -286,9 +290,12 @@ def _render_html(*, rows, cameras, shots, timeline, anchor_name, bindings) -> st
         f"<h1>{html.escape(timeline['timeline_id'])} — “{html.escape(anchor_name)}” çapa incelemesi</h1>",
         "<p class='note'>Her satır bir hareketin çapasının etrafındaki kareleri gösterir. "
         "Kırmızı çerçeveli kare taslağın önerdiğidir. Duruşun gerçekten tutulduğu kare "
-        "başka biriyse, o karenin numarasını zaman çizelgesine yaz. "
+        "başka biriyse, düzeltme önerisini ayrı bir inceleme kaydına yaz. "
         "Bu sayfa bir öneridir; hiçbir kesinti veya puan iddiası taşımaz.</p>",
-        f"<p class='note'>Etiket kaynağı: <b>{html.escape(str(timeline['label_source']))}</b> · "
+        "<p class='note'><strong>Dosyadaki manual / confirmed ifadeleri tek başına insan onayı değildir.</strong> "
+        "Aşağıdaki güven sayıları doğrulanmış başarı olasılığı değildir. Çevre kareleri ön inceleme içindir; "
+        "hareketi ve geçişini senkron videodan da kontrol edin.</p>",
+        f"<p class='note'>Dosyadaki kaynak beyanı: <b>{html.escape(str(timeline['label_source']))}</b> · "
         f"{len(rows)} hareket · {fps:g} kare/saniye</p>",
     ]
     for row in rows:
@@ -301,8 +308,8 @@ def _render_html(*, rows, cameras, shots, timeline, anchor_name, bindings) -> st
         )
         parts.append(
             f"<div class='meta'>aralık {segment['start_frame']}–{segment['end_frame']} · "
-            f"durum {html.escape(str(segment['label_status']))} · "
-            f"güven {segment['confidence']}</div>"
+            f"dosyadaki etiket {html.escape(str(segment['label_status']))} · "
+            f"kalibre edilmemiş güven değeri {segment['confidence']}</div>"
         )
         for camera_id in cameras:
             parts.append(f"<div class='meta'>{html.escape(camera_id)}</div><div class='strip'>")

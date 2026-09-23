@@ -288,8 +288,9 @@ fail-closed kalır.
 - CURRENT_ACTIVE ZED kaydı için bağımsız mocap/3B ground truth yoktur.
 - Bağımsız 2B annotation ground truth bulunmadığından keypoint 2B doğruluğu
   yalnız iç tutarlılıkla kanıtlanamaz.
-- M01–M06 için sınırlı elle doğrulanmış zaman çizelgesi vardır; tam poomsae
-  segmentasyon doğruluğu sonucu değildir.
+- M01–M06 zaman çizelgesindeki `manual/confirmed` beyanları için insan
+  incelemesi kaydı bulunmamıştır. Bu çizelge doğrulanmamış taslaktır;
+  karşılaştırma farkları bağımsız segmentasyon doğruluğu değildir.
 - Uzman/hakem hata ve puan etiketi yoktur; diagnostic adayların precision,
   recall veya hakem uyumu ölçülemez.
 - İki kamera ve self-consistency ölçüleri mutlak 3B doğruluk sağlamaz.

@@ -1,6 +1,6 @@
 # TK3D
 
-TK3D, senkronize çok-kameralı videodan güvenilir 3B insan pozu üretip bu
+TK3D, senkronize çok-kameralı videodan 3B insan pozu hesaplayıp bu
 kanıtı tekvando poomsae teknik analizine taşıyan bir araştırma ve mühendislik
 projesidir. Güncel ürün hattı iki ZED 2i kamerayla kaydedilmiş RGBD poomsae
 verisini işler.
@@ -14,6 +14,10 @@ verisini işler.
   Final Polish öncesindeki uzun README'nin değiştirilmemiş tarihsel kopyası.
 - [`PROJECT_STATUS.md`](PROJECT_STATUS.md): son doğrulanmış çalışma ağacı,
   testler, ölçümler ve açık sınırlamalar.
+- [`docs/DOGRULAMA_VE_GELISTIRME_PLANI.md`](docs/DOGRULAMA_VE_GELISTIRME_PLANI.md):
+  güncel aşamalar, kabul ölçütleri ve ilerleme kaydı.
+- [`docs/PILOT_UZMAN_INCELEME_FORMU.md`](docs/PILOT_UZMAN_INCELEME_FORMU.md):
+  altı hareket ve üç aday ölçüt için doldurulmamış uzman formu.
 - [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md): clean checkout, yerel
   araştırma ortamı ve tekrarlanabilirlik sözleşmesi.
 - [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md): korunması
@@ -45,7 +49,13 @@ Ana 3B sözleşme metre cinsinden TK3D analiz koordinatlarıdır:
 
 Sistem şu anda resmî ya da hakem-kalibre edilmiş poomsae puanı üretmeye hazır
 değildir. Güncel ZED workflow'u için bağımsız dış 3B ground truth ve uzman/hakem
-etiketi yoktur; hareket zaman çizelgesinin doğrulanmış kapsamı da sınırlıdır.
+etiketi yoktur; mevcut hareket zaman çizelgesinin insan incelemesi belgelenmemiştir.
+Dosyadaki `manual` ve `confirmed` alanları tek başına onay sayılmaz. İçeriğe
+ve kapsama bağlı `review` kaydı bulunmayan fazlar ölçüm üretse de kesinti
+yetkisi vermez; toplam `null` kalır ve rapor “Değerlendirilmedi” gösterir.
+İnceleme kaydı kişinin kimliğini veya biyomekanik doğruluğu kanıtlayan bir
+dijital imza değildir. Yeni pose/run'a taşınan zaman çizelgesi yeniden inceleme
+gerektirir. Kaynaksız eski referans şablonları otomatik hizalamada reddedilir.
 İç geometri veya kalite kapısının geçmesi dış doğruluk kanıtı değildir.
 `provisional_scoring_ready` yalnız kaynak-bağlı analiz için veri hazırlığını,
 `official_scoring_ready:false` ise resmî puan iddiasının kapalı olduğunu belirtir.

@@ -10,6 +10,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from timeline_review_support import reviewed_timeline
 import yaml
 
 from src.poomsae_scoring.application import (
@@ -206,6 +208,10 @@ def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) ->
     _write_pose(reference, timestamps=[0.0, 0.5, 1.0], run_id="reference")
     _write_pose(new, timestamps=[0.0, 0.5, 1.0], run_id="new-run")
     _write_timeline(timeline, reference)
+    original = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    original["review"] = {"synthetic_review_marker": "must not transfer"}
+    timeline.write_text(yaml.safe_dump(original), encoding="utf-8")
+    original_bytes = timeline.read_bytes()
 
     transferred = _transfer_timeline_binding(
         timeline_path=timeline,
@@ -219,6 +225,8 @@ def test_timeline_transfer_requires_identical_video_time_axis(tmp_path: Path) ->
     assert transferred["source_binding"]["pose_file_sha256"] == _sha256(new)
     assert transferred["timeline_id"].endswith("new-run")
     assert transferred["source_binding"]["pose_file"] == _portable_pose_path(new)
+    assert "review" not in transferred
+    assert timeline.read_bytes() == original_bytes
 
 
 def test_portable_pose_path_preserves_external_absolute_path() -> None:
@@ -478,6 +486,10 @@ def test_reference_template_script_covers_only_the_labelled_movements(tmp_path: 
     frame_count = yaml.safe_load(timeline.read_text(encoding="utf-8"))["frame_count"]
     _write_synthetic_pose(pose, frame_count)
 
+    data = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    data["source_binding"]["pose_file_sha256"] = hashlib.sha256(pose.read_bytes()).hexdigest()
+    timeline.write_text(yaml.safe_dump(reviewed_timeline(data), sort_keys=False), encoding="utf-8")
+
     result = _run_script(
         "build_poomsae_reference_templates.py",
         "--pose", pose,
@@ -488,6 +500,20 @@ def test_reference_template_script_covers_only_the_labelled_movements(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     payload = json.loads(output.read_text(encoding="utf-8"))
+    from scripts.build_poomsae_automatic_timeline_draft import _load_templates
+
+    assert _load_templates(output, load_poomsae_spec(SPEC_PATH))["status"] == "reference_pose_templates"
+    legacy = json.loads(output.read_text(encoding="utf-8"))
+    legacy["derived_from"].pop("timeline_review")
+    old_library = tmp_path / "unreviewed-library.json"
+    old_library.write_text(json.dumps(legacy), encoding="utf-8")
+    with pytest.raises(SystemExit, match="content-bound timeline video review"):
+        _load_templates(old_library, load_poomsae_spec(SPEC_PATH))
+    stale = json.loads(output.read_text(encoding="utf-8"))
+    stale["derived_from"]["timeline_review"]["timeline_snapshot"]["segments"][0]["anchors"]["fixation"] += 1
+    old_library.write_text(json.dumps(stale), encoding="utf-8")
+    with pytest.raises(SystemExit, match="content-bound timeline video review"):
+        _load_templates(old_library, load_poomsae_spec(SPEC_PATH))
     assert payload["status"] == "reference_pose_templates"
     assert payload["coverage"]["covered_movement_ids"] == ["M01", "M02"]
     assert payload["coverage"]["template_count"] == 2
@@ -535,6 +561,10 @@ def test_reference_template_script_rejects_a_pose_of_the_wrong_length(tmp_path: 
     _prefix_timeline_yaml(timeline, segment_lengths=[60, 60], gap_frames=[30])
     frame_count = yaml.safe_load(timeline.read_text(encoding="utf-8"))["frame_count"]
     _write_synthetic_pose(pose, frame_count - 10)
+
+    data = yaml.safe_load(timeline.read_text(encoding="utf-8"))
+    data["source_binding"]["pose_file_sha256"] = hashlib.sha256(pose.read_bytes()).hexdigest()
+    timeline.write_text(yaml.safe_dump(reviewed_timeline(data), sort_keys=False), encoding="utf-8")
 
     result = _run_script(
         "build_poomsae_reference_templates.py",

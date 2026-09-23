@@ -90,3 +90,5 @@ def test_reference_comparison_reports_frame_and_second_errors() -> None:
     fixation = comparison["movements"][0]["phases"]["fixation"]
     assert fixation["delta_frames"] == 5
     assert fixation["absolute_error_sec"] == 0.1
+    assert comparison["reference_review_status"]["status"] == "unverified"
+    assert comparison["accuracy_claim_allowed"] is False

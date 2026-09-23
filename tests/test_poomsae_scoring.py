@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from timeline_review_support import reviewed_timeline, synthetic_prefix_timeline
+
 from src.data_structures import coco_hand_joint
 from src.poomsae_scoring import (
     ScoringContractError,
@@ -96,7 +98,7 @@ def _active_spec() -> dict:
 
 
 def _complete_timeline() -> dict:
-    return {
+    return reviewed_timeline({
         "schema_version": 2,
         "timeline_id": "test_timeline",
         "poomsae_id": "test_poomsae",
@@ -138,8 +140,7 @@ def _complete_timeline() -> dict:
                 "label_status": "confirmed",
             },
         ],
-    }
-
+    })
 
 def _event(
     event_id: str,
@@ -313,6 +314,7 @@ def test_project_accuracy_readiness_is_blocked_by_source_and_timeline_gaps(tmp_p
     assert report["pose_binding"]["status"] == "verified"
     blocker_codes = {blocker["code"] for blocker in report["blockers"]}
     assert blocker_codes == {
+        "timeline_human_review_unverified",
         "movement_sequence_not_active",
         "movement_timeline_not_complete",
         "partial_source_recording",
@@ -336,6 +338,7 @@ def test_project_accuracy_readiness_reports_missing_pose_separately(tmp_path: Pa
     assert report["pose_binding"]["status"] == "pose_file_missing"
     blocker_codes = {blocker["code"] for blocker in report["blockers"]}
     assert blocker_codes == {
+        "timeline_human_review_unverified",
         "movement_sequence_not_active",
         "movement_timeline_not_complete",
         "partial_source_recording",
@@ -629,7 +632,7 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
     assert "metric-filter" in rendered
     assert "metric-filter-status" in rendered
     assert "clear-review" in rendered
-    assert "Otomatik hareket ve faz sınırı doğrulaması" in rendered
+    assert "Otomatik hareket ve faz sınırı karşılaştırması" in rendered
     assert "6.00 kare" in rendered
     assert "Oto fixation" in rendered
 
@@ -1094,6 +1097,7 @@ def test_source_bound_accuracy_uses_uncertainty_and_keeps_partial_score_null() -
         ],
     }
 
+    timeline = reviewed_timeline(timeline)
     report = build_source_bound_accuracy_decisions(
         diagnostics,
         spec,
@@ -1255,6 +1259,7 @@ def test_technical_conformance_fuses_identity_uncertainty_and_evidence_quality()
         ],
     }
 
+    timeline = reviewed_timeline(timeline)
     report = build_technical_conformance(wholebody, categorical, spec, timeline)
 
     assert report["status"] == "technical_conformance_diagnostic_only"
@@ -1516,6 +1521,7 @@ def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_secon
         spec,
     )
 
+    timeline = reviewed_timeline(timeline)
     observations = derive_categorical_observations(spec, timeline)
 
     assert len(observations) == 1
@@ -1550,7 +1556,7 @@ def test_derive_categorical_observations_flags_only_gaps_at_or_above_three_secon
 
 def test_source_bound_accuracy_eolgul_forehead_rule_fires_and_gates_boundary() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
-    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+    timeline = synthetic_prefix_timeline(spec, 13)
     profile = load_source_bound_accuracy_profile(SOURCE_BOUND_ACCURACY_PATH)
 
     def diagnostics_with_eolgul(value: float, uncertainty: float) -> dict:
@@ -1572,6 +1578,7 @@ def test_source_bound_accuracy_eolgul_forehead_rule_fires_and_gates_boundary() -
             ],
         }
 
+    timeline = reviewed_timeline(timeline)
     out_of_range = build_source_bound_accuracy_decisions(
         diagnostics_with_eolgul(3.0, 0.1), spec, timeline, profile
     )
@@ -1660,6 +1667,7 @@ def test_source_bound_accuracy_recognizes_complete_performance_scope_name() -> N
         ],
     }
 
+    timeline = reviewed_timeline(timeline)
     report = build_source_bound_accuracy_decisions(diagnostics, spec, timeline, profile)
 
     assert report["scoring_status"] == "eligible_for_separate_full_accuracy_evaluation"
@@ -1710,6 +1718,7 @@ def test_source_bound_accuracy_major_requires_explicit_categorical_observation()
         }
     ]
 
+    timeline = reviewed_timeline(timeline)
     report = build_source_bound_accuracy_decisions(
         diagnostics,
         spec,
@@ -1832,6 +1841,7 @@ def test_accuracy_readiness_verifies_complete_bound_artifact(tmp_path: Path) -> 
         },
     }
 
+    timeline = reviewed_timeline(timeline)
     report = assess_accuracy_readiness(
         load_rule_pack(RULE_PACK_PATH),
         _active_spec(),
@@ -1856,6 +1866,7 @@ def test_accuracy_readiness_fails_closed_when_wholebody_diagnostics_are_missing(
     timeline = _complete_timeline()
     timeline["source_binding"]["pose_file_sha256"] = hashlib.sha256(pose_path.read_bytes()).hexdigest()
 
+    timeline = reviewed_timeline(timeline)
     report = assess_accuracy_readiness(
         load_rule_pack(RULE_PACK_PATH),
         _active_spec(),
@@ -1894,6 +1905,7 @@ def test_accuracy_readiness_blocks_low_wholebody_coverage(tmp_path: Path) -> Non
         },
     }
 
+    timeline = reviewed_timeline(timeline)
     report = assess_accuracy_readiness(
         load_rule_pack(RULE_PACK_PATH),
         _active_spec(),
@@ -2443,7 +2455,7 @@ def test_automatic_timeline_feeds_accuracy_and_presentation_end_to_end() -> None
     assert accuracy["accuracy_score"] is None
     assert accuracy["scoring_status"] == "observed_scope_only_no_accuracy_score"
     assert accuracy["summary"]["applied_categorical_count"] == 0
-    assert accuracy["observed_scope_provisional_deduction_total"] == pytest.approx(0.0)
+    assert accuracy["observed_scope_provisional_deduction_total"] is None
 
     presentation = build_presentation_diagnostics(diagnostics, spec, timeline)
     assert presentation["total_score"] is None

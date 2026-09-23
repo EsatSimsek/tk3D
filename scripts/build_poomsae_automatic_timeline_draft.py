@@ -20,6 +20,8 @@ from src.poomsae_scoring import (  # noqa: E402
     detect_automatic_segments,
     load_poomsae_spec,
 )
+from src.poomsae_scoring.contracts import validate_movement_timeline  # noqa: E402
+from src.poomsae_scoring.timeline_review import timeline_review_digest, timeline_review_status  # noqa: E402
 
 TEMPLATE_STATUS = "reference_pose_templates"
 
@@ -213,11 +215,38 @@ def _load_templates(path: Path, spec: dict) -> dict:
         raise SystemExit(f"not a reference pose template library: {path}")
     if payload.get("poomsae_id") != spec["poomsae_id"]:
         raise SystemExit("template library was built for a different Poomsae")
-    if payload.get("derived_from", {}).get("label_source") != "manual":
+    if payload.get("derived_from", {}).get("label_source") not in {"manual", "manual_reviewed_automatic"}:
         raise SystemExit(
             "templates must come from a hand-labelled recording; matching against "
             "automatically derived templates would let the alignment confirm itself"
         )
+    binding = payload.get("derived_from", {}).get("timeline_review", {})
+    try:
+        timeline = validate_movement_timeline(binding.get("timeline_snapshot"), spec)
+        valid = (
+            timeline_review_status(timeline)["status"] == "verified"
+            and binding.get("timeline_sha256") == timeline_review_digest(timeline)
+            and payload.get("poomsae_version") == spec["version"]
+            and payload["derived_from"].get("timeline_id") == timeline["timeline_id"]
+            and payload.get("bindings", {}).get("pose", {}).get("sha256") == timeline["source_binding"]["pose_file_sha256"]
+        )
+    except (ScoringContractError, AttributeError, KeyError, TypeError):
+        valid = False
+    if not valid:
+        raise SystemExit("reference templates require a valid content-bound timeline video review")
+    segments = {item["movement_id"]: item for item in timeline["segments"]}
+    templates = payload.get("templates")
+    if not isinstance(templates, list) or not templates:
+        raise SystemExit("reviewed template library must contain templates")
+    seen = set()
+    for item in templates:
+        if not isinstance(item, dict):
+            raise SystemExit("reviewed template must be a mapping")
+        movement_id = item.get("movement_id")
+        segment = segments.get(movement_id)
+        if segment is None or movement_id in seen or item.get("anchor_frame") != segment["anchors"].get("fixation"):
+            raise SystemExit("template movement or fixation does not match its reviewed timeline")
+        seen.add(movement_id)
     return payload
 
 

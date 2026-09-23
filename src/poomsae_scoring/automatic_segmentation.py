@@ -18,6 +18,7 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+from src.poomsae_scoring.timeline_review import timeline_review_status
 from src.scoring_readiness import adaptive_motion_threshold, joint_speed
 
 
@@ -46,6 +47,14 @@ def build_automatic_segmentation_diagnostics(
     movement_definitions = [movement_by_id[movement_id] for movement_id in observed_ids]
     detection = detect_automatic_segments(points, fps=fps, movements=movement_definitions)
     comparison = compare_segments_to_reference(detection["segments"], timeline["segments"], fps=fps)
+    reference_review = timeline_review_status(timeline)
+    comparison["reference_review_status"] = reference_review
+    for row in comparison["movements"]:
+        row["reference_review_status"] = timeline_review_status(timeline, row["movement_id"])
+        for phase_id, phase in row.get("phases", {}).items():
+            phase["reference_review_status"] = timeline_review_status(
+                timeline, row["movement_id"], phase_id
+            )
     frame_rows = _frame_rows(
         detection["motion_energy"],
         detection["smoothed_motion_energy"],
@@ -58,6 +67,8 @@ def build_automatic_segmentation_diagnostics(
         "status": AUTOMATIC_SEGMENTATION_STATUS,
         "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
         "movement_timeline_id": timeline["timeline_id"],
+        "reference_review_status": reference_review,
+        "accuracy_claim_allowed": False,
         "selected_scope_movement_ids": observed_ids,
         "detector": {
             "signal": "mean_body17_joint_speed_mps",
@@ -76,6 +87,8 @@ def build_automatic_segmentation_diagnostics(
             "end_boundary_mae_frames": comparison["summary"]["end_boundary_mae_frames"],
             "phase_anchor_mae_frames": comparison["summary"]["phase_anchor_mae_frames"],
             "phase_anchor_max_error_frames": comparison["summary"]["phase_anchor_max_error_frames"],
+            "reference_review_status": reference_review,
+            "accuracy_claim_allowed": False,
         },
         "candidate_episodes": detection["candidate_episodes"],
         "segments": detection["segments"],
@@ -85,12 +98,15 @@ def build_automatic_segmentation_diagnostics(
             "confirmed_timeline_replacement_allowed": False,
             "score_claim_allowed": False,
             "automatic_deduction_allowed": False,
+            "accuracy_claim_allowed": False,
             "boundary_detection_uses_reference_frames": False,
             "reference_timeline_used_only_for_scope_ids_and_post_detection_comparison": True,
         },
         "interpretation": (
             "Hareket ve faz sınırları yalnız 3B BODY-17 hareket sinyalinden önerilir. "
-            "Onaylı timeline değiştirilmez; karşılaştırma sonuçları puan veya kesinti değildir."
+            "Girdi zaman çizelgesi değiştirilmez. Kare farkları bu çizelgeyle uyumu gösterir; "
+            "onay kaydı eksikse doğrulanmamış taslakla karşılaştırmadır. İnceleme kaydı bulunsa "
+            "bile bu tek kayıt karşılaştırması bağımsız doğruluk, puan veya kesinti kanıtı değildir."
         ),
     }
     return report, frame_rows
@@ -252,6 +268,15 @@ def compare_segments_to_reference(
         )
     return {
         "status": "same_pose_reference_comparison",
+        "reference_review_status": {
+            "status": "unverified",
+            "reason": "timeline_review_not_supplied",
+        },
+        "accuracy_claim_allowed": False,
+        "interpretation": (
+            "MAE/error alanları verilen iki etiket dizisi arasındaki kare farklarıdır. "
+            "Bağımsız ground-truth doğruluğu olarak yorumlanamaz."
+        ),
         "summary": {
             "reference_movement_count": len(reference_segments),
             "compared_movement_count": sum(1 for row in rows if row["status"] == "compared"),

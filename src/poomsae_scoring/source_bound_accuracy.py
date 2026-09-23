@@ -13,6 +13,7 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+from src.poomsae_scoring.timeline_review import timeline_review_status
 
 
 DECISION_STATUSES = {
@@ -21,6 +22,7 @@ DECISION_STATUSES = {
     "confirmed_source_bound_minor",
     "not_measurable",
     "not_applicable",
+    "timeline_unverified",
 }
 
 
@@ -102,6 +104,7 @@ def build_source_bound_accuracy_decisions(
 ) -> dict[str, Any]:
     spec = validate_poomsae_spec(poomsae_spec)
     timeline = validate_movement_timeline(movement_timeline, spec)
+    review = timeline_review_status(timeline)
     rules = validate_source_bound_accuracy_profile(profile)
     if rules["poomsae_id"] != spec["poomsae_id"]:
         raise ScoringContractError("Source-bound profile Poomsae id does not match")
@@ -124,7 +127,14 @@ def build_source_bound_accuracy_decisions(
             if not _numeric_rule_applies(rule, movement):
                 continue
             metric = metrics.get(rule["metric_id"])
-            decisions.append(_numeric_decision(rule, movement, metric))
+            decision = _numeric_decision(rule, movement, metric)
+            movement_review = timeline_review_status(timeline, movement_id=movement_id)
+            decision["timeline_review"] = movement_review
+            if movement_review["status"] != "verified":
+                decision["conditional_geometry_status"] = decision["decision_status"]
+                decision["decision_status"] = "timeline_unverified"
+                decision["reason"] = "movement_timeline_review_unverified"
+            decisions.append(decision)
 
     applied_numeric = _deduplicate_confirmed_numeric(decisions, rules["decision_policy"]["minor_points"])
     categorical = _categorical_decisions(
@@ -134,11 +144,15 @@ def build_source_bound_accuracy_decisions(
         timeline,
     )
     applied_categorical = [item for item in categorical if item["application_status"] == "applied"]
-    provisional_total = float(sum(item["deduction_points"] for item in applied_numeric + applied_categorical))
+    provisional_total = (
+        float(sum(item["deduction_points"] for item in applied_numeric + applied_categorical))
+        if review["status"] == "verified" else None
+    )
     complete_score_eligible = (
         spec["status"] == "active"
         and timeline["status"] == "complete"
         and timeline["coverage"]["recording_scope"] == "complete_performance"
+        and review["status"] == "verified"
     )
     report = _json_safe(
         {
@@ -156,14 +170,20 @@ def build_source_bound_accuracy_decisions(
                 else "not_eligible_incomplete_evidence"
             ),
             "accuracy_score_unavailable_reason": (
-                "separate_full_accuracy_evaluation_not_run"
+                "movement_timeline_review_unverified"
+                if review["status"] != "verified"
+                else "separate_full_accuracy_evaluation_not_run"
                 if complete_score_eligible
                 else "incomplete_or_inactive_scoring_evidence"
             ),
             "accuracy_score": None,
             "official_score_status": "not_available",
             "official_score": None,
-            "provisional_deduction_status": "observed_scope_only_not_official",
+            "provisional_deduction_status": (
+                "observed_scope_only_not_official" if review["status"] == "verified"
+                else "not_evaluated_unverified_timeline"
+            ),
+            "timeline_review": review,
             "profile": {"profile_id": rules["profile_id"], "version": rules["version"]},
             "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
             "timeline_id": timeline["timeline_id"],
@@ -176,7 +196,11 @@ def build_source_bound_accuracy_decisions(
                 "numeric_decision_count": len(decisions),
                 "confirmed_numeric_minor_count": len(applied_numeric),
                 "boundary_uncertain_count": sum(item["decision_status"] == "boundary_uncertain" for item in decisions),
-                "not_measurable_count": sum(item["decision_status"] == "not_measurable" for item in decisions),
+                "timeline_unverified_count": sum(item["decision_status"] == "timeline_unverified" for item in decisions),
+                "not_measurable_count": sum(
+                    item.get("conditional_geometry_status", item["decision_status"]) == "not_measurable"
+                    for item in decisions
+                ),
                 "applied_categorical_count": len(applied_categorical),
             },
             "safety_contract": {
@@ -184,6 +208,7 @@ def build_source_bound_accuracy_decisions(
                 "boundary_overlap_creates_deduction": False,
                 "partial_timeline_creates_accuracy_score": False,
                 "historical_geometry_is_current_wt_attachment": False,
+                "unreviewed_timeline_authorizes_deductions": False,
             },
             "interpretation": rules["disclaimer"],
         }
@@ -204,9 +229,14 @@ def validate_source_bound_accuracy_result(payload: dict[str, Any]) -> dict[str, 
         raise ScoringContractError("This source-bound decision contract cannot emit an Accuracy score")
     if data.get("official_score_status") != "not_available" or data.get("official_score") is not None:
         raise ScoringContractError("An official score cannot appear in a source-bound decision package")
-    if data.get("provisional_deduction_status") != "observed_scope_only_not_official":
+    deduction_status = data.get("provisional_deduction_status")
+    if deduction_status not in {"observed_scope_only_not_official", "not_evaluated_unverified_timeline"}:
         raise ScoringContractError("Observed deductions must remain explicitly provisional")
     provisional = data.get("observed_scope_provisional_deduction_total")
+    if deduction_status == "not_evaluated_unverified_timeline":
+        if provisional is not None or data.get("timeline_review", {}).get("status") != "unverified":
+            raise ScoringContractError("Unverified timeline totals must be null and explicitly unverified")
+        return data
     if isinstance(provisional, bool) or not isinstance(provisional, (int, float)) or not math.isfinite(provisional):
         raise ScoringContractError("Observed-scope provisional deduction total must be finite")
     return data
@@ -261,11 +291,9 @@ def derive_categorical_observations(
         anchor_frame = int(segment["end_frame"])
         duration_sec = float(gap_length) / fps
         confidence = min(float(segment["confidence"]), float(next_segment["confidence"]))
-        independently_reviewed = confidence >= minimum_confidence and timeline["label_source"] in {
-            "manual",
-            "manual_reviewed_automatic",
-        } and all(
-            item["label_status"] == "confirmed" for item in (segment, next_segment)
+        independently_reviewed = confidence >= minimum_confidence and all(
+            timeline_review_status(timeline, movement_id=item["movement_id"])["status"] == "verified"
+            for item in (segment, next_segment)
         )
         observations.append(
             {
@@ -414,6 +442,9 @@ def _categorical_decisions(
             timeline["frame_count"],
             profile["decision_policy"]["minimum_observation_confidence"],
         )
+        review = timeline_review_status(timeline, movement_id=observation["movement_id"])
+        if reason is None and review["status"] != "verified":
+            reason = "movement_timeline_review_unverified"
         unit = (observation["movement_id"], rule["error_unit"])
         if reason is None and unit in seen_units:
             reason = "duplicate_error_unit"
@@ -430,6 +461,7 @@ def _categorical_decisions(
                 "application_status": "applied" if reason is None else "not_applied",
                 "reason": reason,
                 "source_ref": rule["source_ref"],
+                "timeline_review": review,
             }
         )
     return results

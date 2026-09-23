@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 import pytest
 
+from timeline_review_support import reviewed_timeline
+
 from src.poomsae_scoring import (
     ScoringContractError,
     build_decision_evidence_events,
@@ -57,6 +59,7 @@ def test_decision_events_preserve_3d_measurement_and_camera_visual_trace_contrac
         "categorical_decisions": [],
     }
 
+    timeline = reviewed_timeline(timeline)
     report = build_decision_evidence_events(decisions, spec, timeline)
 
     event = report["events"][0]
@@ -136,11 +139,13 @@ def test_wholebody_hand_and_head_candidates_become_no_score_video_events() -> No
     assert fist["deduction_points"] is None
     assert fist["visual_geometry"]["kind"] == "hand_shape"
     assert len(fist["visual_geometry"]["joint_indices"]) == 10
-    assert "21 el" in fist["user_explanation"]["correction"]
+    assert "değerlendirme aralığını" in fist["user_explanation"]["correction"]
+    assert fist["timeline_review"]["status"] == "unverified"
     assert head["decision_status"] == "diagnostic_review_candidate"
     assert head["visual_geometry"]["kind"] == "head_torso_direction"
     assert len(head["visual_geometry"]["joint_indices"]) == 14
-    assert "Accuracy puanı düşürülmedi" in head["user_explanation"]["result"]
+    assert "Faz onayı yok" in head["user_explanation"]["result"]
+    assert report["summary"]["timeline_unverified_count"] == 2
 
 
 def test_thresholdless_boolean_technical_candidate_becomes_typed_no_score_event() -> None:

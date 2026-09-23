@@ -10,11 +10,11 @@ Bu belge TK3D repository'sindeki **mevcut çalışan sistemi** anlatır. Özelli
 En önemli kısa cevap şudur:
 
 > Güncel gerçek Poomsae 1 kaydında sistem, yumruğun bittiği kareyi tamamen
-> otomatik olarak keşfetmiyor. Hareket sınırları ve önemli faz kareleri iki
-> kamera görüntüsünden **elle belirlenip doğrulanmış** bir zaman çizelgesinden
+> otomatik olarak keşfetmiyor. Hareket sınırları ve önemli faz kareleri
+> **insan incelemesi belgelenmemiş bir taslak zaman çizelgesinden**
 > okunuyor. 3B sistem daha sonra bu karelerin çevresindeki pozu ve hareketi
 > ölçüyor. Otomatik hareket adayları ve sıra hizalama kodu vardır, fakat güncel
-> tek-komutlu puanlama akışının doğrulanmış zaman çizelgesinin yerine geçmiş
+> tek-komutlu analiz akışının girdi zaman çizelgesinin yerine geçmiş
 > değildir.
 
 ## 1. Taegeuk 1 kuralları toplu olarak nerede?
@@ -153,23 +153,15 @@ Dolayısıyla sistem “yumruk bitti, hemen M02 bitti” demez. Yumruğun hedef
 biçimini `fixation` çevresinde ölçebilir; M02'nin bütün zaman aralığı ise bir
 sonraki hareketin başlangıcına kadar devam eder.
 
-### 2.1. Güncel gerçek kayıtta kullanılan yöntem: doğrulanmış kare etiketleri
+### 2.1. Güncel kayıtta kullanılan yöntem: taslak kare etiketleri
 
-Mevcut kısa kaydın `MovementTimeline` dosyasında `label_source: manual` yazar.
-İş akışı şöyledir:
-
-1. İki senkron ZED kamera görüntüsü birlikte incelendi.
-2. Kukkiwon'daki bilinen Taegeuk 1 sırasına bakıldı.
-3. Her hareketin başladığı ve bir sonraki harekete geçtiği kareler seçildi.
-4. Hareket içindeki `preparation`, `turn`/`step`, `execution` ve `fixation`
-   temsil kareleri işaretlendi.
-5. Başlangıç, geçiş ve fixation kareleri iki kamera temas sayfalarında tekrar
-   kontrol edildi.
-6. Bu nedenle etiketlere `label_status: confirmed` yazıldı.
-
-Buradaki `confirmed`, yalnızca **zaman etiketinin iki kameradan kontrol
-edildiği** anlamına gelir. Tekniğin doğru yapıldığı, resmî hakemin onayladığı
-veya puan kesilmemesi gerektiği anlamına gelmez.
+Mevcut kısa kaydın `MovementTimeline` dosyasında `label_source: manual` ve
+`label_status: confirmed` yazar. 21 Eylül 2026 incelemesinde bunları
+destekleyen inceleyen kimliği ve kaynakla bağlı onay kaydı bulunmamıştır.
+Bu alanlar insan doğrulamasının kanıtı değildir; hazırlayan kişi de mevcut
+kayıtlardan belirlenememiştir. Önceki insan incelemesi anlatımı geri çekilmiştir.
+Yeni `review` sözleşmesi içerik ve kapsam bağı ister; kayıt eksikse ölçümler
+koşullu kalır ve kesinti toplamı değerlendirilmez.
 
 Program çalışırken bu kareleri yeniden tahmin etmek yerine zaman çizelgesini
 okur. `contracts.py` şu güvenlik kontrollerini uygular:
@@ -367,7 +359,8 @@ puanı yine de `null` kalır.
 Bugün için doğru ifade şudur:
 
 - Taegeuk 1'in `M01-M18` sırası projede tanımlıdır.
-- Mevcut kısa video için `M01-M06` zamanları iki kameradan elle doğrulanmıştır.
+- Mevcut kısa video için `M01-M06` zamanları taslak olarak tanımlıdır;
+  insan onayı henüz belgelenmemiştir.
 - Sistem bu etiketli fazlarda ayrıntılı 3B/WholeBody ölçümleri yapar.
 - Genel hareket enerjisiyle otomatik segment adayı üretebilir.
 - Segmentleri bilinen sıraya hizalamak için deneysel yardımcı kod vardır.

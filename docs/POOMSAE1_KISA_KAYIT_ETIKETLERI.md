@@ -1,23 +1,27 @@
 # Poomsae 1 Kısa Kayıt Hareket Etiketleri
 
-Son inceleme: **3 Ağustos 2026**
+Tarihsel etiket kaydı: **3 Ağustos 2026**. Güven düzeltmesi: **21 Eylül 2026**.
+
+**Aşağıdaki kareler doğrulanmamış taslaktır.** Dosyada `manual` ve `confirmed`
+yazsa da inceleyen kimliği veya kaynakla bağlı insan onayı bulunmamıştır.
+Etiketleri kimin hazırladığı mevcut kanıtla belirlenememiştir. Güven sütunundaki
+sayılar kalibre edilmiş doğruluk olasılıkları değildir. Tarihsel çıktıların
+puan/kesinti yorumları bu eksikliği çözmez; yeni çalışma planı
+[buradadır](DOGRULAMA_VE_GELISTIRME_PLANI.md).
 
 ## Kapsam kararı
 
-İki ZED2i kamera görüntüsü birlikte incelendi. `741` karelik kayıt Taegeuk 1
-Jang'ın tamamını içermiyor; resmî 18 hareketlik sıranın yalnız ilk **6
-hareketini** içeriyor. Bu nedenle M07-M18 etiketi üretilmedi ve kayıt için
+Mevcut zaman çizelgesi `741` karelik kayıt için 18 hareketlik sıranın ilk **6
+hareketini** tanımlar. Bu nedenle M07-M18 etiketi üretilmedi ve kayıt için
 toplam Accuracy puanı hesaplanmadı.
 
 MovementTimeline v2 bu durumu `partial_sequence` olarak taşır. Böylece M07-M18
 “etiketlenemedi” veya “algılanamadı” sayılmaz; kaynak kayıtta bulunmayan
 hareketler olarak açıkça ayrılır.
 
-İlk `140` kare hazırlık/bekleme alanıdır. M01-M06 etiketleri iki kamera ve
-bilinen Kukkiwon sırası kullanılarak çıkarılmıştır. Başlangıç, hareket geçişi
-ve fixation kareleri iki kamera temas sayfalarında yeniden incelendiği için
-zaman çizelgesi etiketleri `confirmed` durumundadır. Bu yalnız zaman sınırı
-onayıdır; teknik doğruluk veya hakem onayı değildir.
+Taslak ilk `140` kareyi hazırlık/bekleme alanı olarak ayırır. Başlangıç,
+hareket geçişi ve fixation karelerinin hangi incelemeyle seçildiği
+belgelenmemiştir. Hareket kimliği, sınırlar ve fazlar yeniden incelenecektir.
 
 ## Hareket aralıkları
 

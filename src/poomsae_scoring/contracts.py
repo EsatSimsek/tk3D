@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
+import re
 from typing import Any
 
 import numpy as np
@@ -528,7 +530,7 @@ def validate_movement_timeline(
             "source_binding",
             "coverage",
             "segments",
-        },
+        } | ({"review"} if "review" in data else set()),
         "MovementTimeline",
     )
     if data["schema_version"] != 2:
@@ -680,6 +682,80 @@ def validate_movement_timeline(
         "observed_movement_ids": observed_ids,
         "missing_movement_ids": missing_ids,
     }
+    if "review" in data:
+        data["review"] = validate_timeline_review_record(data["review"], data)
+    if require_complete:
+        from src.poomsae_scoring.timeline_review import timeline_review_status
+
+        review = timeline_review_status(data)
+        if review["status"] != "verified":
+            raise ScoringContractError(
+                "Accuracy scoring requires a content-bound video review of the complete timeline: "
+                + review["reason"]
+            )
+    return data
+
+
+def validate_timeline_review_record(payload: Any, timeline: dict[str, Any]) -> dict[str, Any]:
+    """Validate recorded review metadata; content trust is checked separately.
+
+    A reviewer name and content hashes are not an authenticated identity or a
+    cryptographic signature. This contract does not inspect the evidence file.
+    """
+    data = deepcopy(_require_mapping(payload, "MovementTimeline review"))
+    _require_exact_keys(
+        data,
+        {"schema_version", "reviewer", "reviewed_at", "method", "evidence", "timeline_sha256", "scope"},
+        "MovementTimeline review",
+    )
+    if type(data["schema_version"]) is not int or data["schema_version"] != 1:
+        raise ScoringContractError("MovementTimeline review.schema_version must be 1")
+    reviewer = _require_mapping(data["reviewer"], "review.reviewer")
+    _require_exact_keys(reviewer, {"name", "role"}, "review.reviewer")
+    for field in ("name", "role"):
+        _require_nonempty_string(reviewer[field], f"review.reviewer.{field}")
+    reviewed_at = data["reviewed_at"]
+    if not isinstance(reviewed_at, str) or not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})",
+        reviewed_at,
+    ):
+        raise ScoringContractError("review.reviewed_at must be an ISO timestamp with timezone")
+    try:
+        parsed_at = datetime.fromisoformat(reviewed_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ScoringContractError("review.reviewed_at must be a valid ISO timestamp") from exc
+    if parsed_at.utcoffset() is None:
+        raise ScoringContractError("review.reviewed_at must include a timezone")
+    if data["method"] != "video_review":
+        raise ScoringContractError("review.method must be video_review")
+    evidence = _require_mapping(data["evidence"], "review.evidence")
+    _require_exact_keys(evidence, {"reference", "sha256"}, "review.evidence")
+    _require_nonempty_string(evidence["reference"], "review.evidence.reference")
+    for value, label in (
+        (evidence["sha256"], "review.evidence.sha256"),
+        (data["timeline_sha256"], "review.timeline_sha256"),
+    ):
+        if not _is_sha256(value):
+            raise ScoringContractError(f"{label} must be a 64-character hex digest")
+    if not isinstance(data["scope"], list) or not data["scope"]:
+        raise ScoringContractError("review.scope must be a non-empty list")
+    segments = {segment["movement_id"]: segment for segment in timeline["segments"]}
+    seen: set[str] = set()
+    for item in data["scope"]:
+        item = _require_mapping(item, "review.scope item")
+        _require_exact_keys(item, {"movement_id", "boundaries_reviewed", "phases"}, "review.scope item")
+        movement_id = item["movement_id"]
+        _require_nonempty_string(movement_id, "review.scope movement_id")
+        if movement_id not in segments or movement_id in seen:
+            raise ScoringContractError("review.scope movement ids must be present and unique")
+        seen.add(movement_id)
+        if type(item["boundaries_reviewed"]) is not bool:
+            raise ScoringContractError("review.scope boundaries_reviewed must be boolean")
+        phases = _require_string_list(item["phases"], "review.scope phases")
+        if len(phases) != len(set(phases)) or not set(phases).issubset(segments[movement_id]["anchors"]):
+            raise ScoringContractError("review.scope phases must be present anchors and unique")
+        if not item["boundaries_reviewed"] and not phases:
+            raise ScoringContractError("review.scope must cover boundaries or at least one phase")
     return data
 
 

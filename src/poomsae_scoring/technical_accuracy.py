@@ -25,6 +25,7 @@ from src.poomsae_scoring.contracts import (
     validate_poomsae_spec,
 )
 from src.poomsae_scoring.wholebody_diagnostics import _pose_arrays
+from src.poomsae_scoring.timeline_review import timeline_review_status
 from src.poomsae_scoring.technical_accuracy_metrics import (
     measure_athlete_forward_vector,
     measure_observable_accuracy_metrics,
@@ -650,6 +651,16 @@ def build_technical_accuracy_diagnostics(
         for rule in rules:
             applies = _rule_applies(rule, contract)
             result = _evaluate_rule(rule, contract, segment, measurements, direction, profile) if applies else _not_applicable(rule, contract)
+            review = timeline_review_status(timeline, movement_id=movement_id)
+            result["timeline_review"] = review
+            if review["status"] != "verified":
+                if result["score_effect"]:
+                    result["decision_status"] = "review_candidate_not_deduction"
+                result["score_effect"] = None
+                result["deduction_points"] = None
+                result["deduction_enabled"] = False
+                result["numeric_score_enabled"] = False
+                result["deduction_block_reason"] = "timeline_human_review_unverified"
             results.append(result)
             coverage.append(_coverage_row(result, applies))
             if result["decision_status"] != "no_candidate":
@@ -681,7 +692,12 @@ def build_technical_accuracy_diagnostics(
     landmark_inventory = _build_landmark_inventory(rules)
     judge_rules = [rule for rule in rules if rule["judge_source"] is not None]
     judge_deductions = [_judge_deduction(result) for result in candidates if result["score_effect"]]
-    scored = bool(judge_rules)
+    scored = any(
+        rule["judge_source"] is not None
+        and _rule_applies(rule, movement["contract"])
+        and timeline_review_status(timeline, movement_id=movement["movement_id"])["status"] == "verified"
+        for rule in rules for movement in movement_reports
+    )
     return _json_safe(
         {
             "schema_version": 1,
@@ -699,6 +715,7 @@ def build_technical_accuracy_diagnostics(
             "numeric_score_enabled": scored,
             "deduction_enabled": scored,
             "official_accuracy_claim_allowed": False,
+            "timeline_review": timeline_review_status(timeline),
             "movement_timeline_id": timeline["timeline_id"],
             "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"], "status": spec["status"]},
             "profile": {
@@ -755,7 +772,7 @@ def build_technical_accuracy_diagnostics(
                     f"{len(judge_rules)} threshold(s) carry a recorded referee signature and are the only "
                     "rules in this report allowed to carry a deduction."
                     if scored
-                    else "No threshold carries a referee signature, so no rule in this report can carry a deduction."
+                    else "No applicable rule has both a referee source and a content-bound timeline review; deductions are disabled."
                 ),
             ],
         }

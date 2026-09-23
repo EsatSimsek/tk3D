@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from src.poomsae_scoring.report_style import REPORT_CSS
+from src.poomsae_scoring.timeline_review import timeline_review_status
 
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
@@ -200,6 +201,11 @@ def build_review_html(
             "kayıt kısmi olduğu için tam Accuracy skoru hesaplanmadı."
         )
     )
+    if timeline_review_status(timeline)["status"] != "verified":
+        decision_notice = (
+            "Hareket ve faz zamanlarının bağlı insan incelemesi yok. Ölçümler taslak aralıklara bağlıdır; "
+            "kesinti toplamı değerlendirilmedi. Bu durum sıfır hata anlamına gelmez."
+        )
     history_link = (
         ""
         if not run_history_url
@@ -889,6 +895,7 @@ def _technical_reason_label(reason: Any) -> str:
         "no_thresholded_criterion_was_evaluable": "Eşikle değerlendirilebilir teknik ölçüt yok.",
         "no_conflict_found_in_evaluable_screening_criteria": "Ölçülebilen tarama ölçütlerinde çelişki bulunmadı.",
         "movement_timeline_label_is_not_confirmed": "Hareket zaman çizelgesi etiketi doğrulanmış değil.",
+        "timeline_human_review_unverified": "Hareket ve faz zamanları için bağlı insan incelemesi yok.",
     }.get(str(reason), str(reason))
 
 
@@ -1052,13 +1059,13 @@ def _automatic_segmentation_html(
         '<div class="stat"><span>Otomatik segment/faz</span>'
         f'<b>{selected}/{expected} · {_number(anchor_mae, " kare")}</b></div>'
     )
-    section = f'''<section class="section" id="automatic-segmentation"><h2>Otomatik hareket ve faz sınırı doğrulaması</h2>
-      <div class="notice"><div>⏱</div><div><strong>Onaylı timeline değiştirilmedi; bu bölüm puan üretmez.</strong>
+    section = f'''<section class="section" id="automatic-segmentation"><h2>Otomatik hareket ve faz sınırı karşılaştırması</h2>
+      <div class="notice"><div>⏱</div><div><strong>Girdi zaman çizelgesi değiştirilmedi; farklar bağımsız doğruluk kanıtı değildir.</strong>
       <p>{_escape(report.get("interpretation", ""))}</p></div></div>
       <p style="margin-bottom:12px">{int(summary.get("detected_candidate_count", 0))} hareket kümesi bulundu; {selected}/{expected} hareket seçildi ·
-      başlangıç MAE {_number(summary.get("start_boundary_mae_frames"), " kare")} · bitiş MAE {_number(summary.get("end_boundary_mae_frames"), " kare")} ·
-      faz ankrajı MAE {_number(anchor_mae, " kare")} ({_number(comparison.get("summary", {}).get("phase_anchor_mae_sec"), " sn")}) ·
-      en büyük faz hatası {_number(summary.get("phase_anchor_max_error_frames"), " kare")}.</p>
+      başlangıç ortalama mutlak farkı {_number(summary.get("start_boundary_mae_frames"), " kare")} · bitiş farkı {_number(summary.get("end_boundary_mae_frames"), " kare")} ·
+      faz ankrajı farkı {_number(anchor_mae, " kare")} ({_number(comparison.get("summary", {}).get("phase_anchor_mae_sec"), " sn")}) ·
+      en büyük faz farkı {_number(summary.get("phase_anchor_max_error_frames"), " kare")}.</p>
       <div class="metric-table-wrap"><table class="metric-table"><thead><tr><th>Hareket</th><th>Oto başlangıç</th><th>Referans başlangıç</th>
       <th>Başlangıç farkı</th><th>Oto fixation</th><th>Fixation farkı</th><th>Kanıt</th></tr></thead><tbody>{rows}</tbody></table></div>
     </section>'''
@@ -1182,11 +1189,14 @@ def _decision_evidence_html(
         '<div class="stat"><span>Kaynak-bağlı kesinti adayı</span>'
         f'<b>{int(summary.get("confirmed_deduction_candidate_count", 0))} · -{_number(partial_total, "")}</b></div>'
     )
+    if partial_total is None:
+        stat = '<div class="stat"><span>Kesinti değerlendirmesi</span><b>Değerlendirilmedi</b></div>'
     section = f'''<section class="section"><h2>Kaynak-bağlı hata kanıtları</h2>
       <div class="notice"><div>🎯</div><div><strong>Ölçüm 3B, kamera çizimi yalnız görsel izdir.</strong>
       <p>{_escape(evidence.get("camera_overlay_warning", ""))} Kırmızı kesinti adayı, sarı sınır-belirsiz,
       gri ölçülemedi, yeşil kaynak aralığı içinde anlamına gelir.</p></div></div>
-      <p style="margin-bottom:12px">{len(events)} karar · {int(summary.get("confirmed_deduction_candidate_count", 0))} küçük hata ·
+      <p style="margin-bottom:12px">{len(events)} bulgu · {int(summary.get("confirmed_deduction_candidate_count", 0))} kesinti adayı ·
+      {int(summary.get("timeline_unverified_count", 0))} faz onayı bekleyen bulgu ·
       {int(summary.get("boundary_uncertain_count", 0))} sınır-belirsiz · {int(summary.get("not_measurable_count", 0))} ölçülemedi.
       Kararı videoda inceleyip kendi kontrolünü kaydedebilirsin.</p>
       <div class="toolbar" style="margin-bottom:10px"><label>İnceleyen adı/kodu <input id="reviewer-name" maxlength="120" autocomplete="off"></label><button type="button" id="export-review">İnceleme kararlarını JSON indir</button><label>İnceleme JSON yükle <input id="import-review" type="file" accept=".json,application/json"></label><button type="button" id="clear-review">Kayıtlı incelemeleri temizle</button><span id="review-status" aria-live="polite">Kayıtlı inceleme · 0 karar</span></div>

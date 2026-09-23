@@ -550,6 +550,10 @@ Ayrıntı:
 
 ## AD-028 — Segment tespiti tek yöntemde birleşir: ölçülen hareket-enerjisi dedektörü
 
+21 Eylül 2026 düzeltmesi: Aşağıdaki tarihsel karşılaştırmanın referans
+etiketleri için insan onayı belgelenmemiştir. Sayılar bu taslakla farktır;
+ground-truth hata ya da insan doğrulaması kanıtı değildir. AD-038 geçerlidir.
+
 Karar: Hareket ve faz sınırı önerisi yalnız `automatic_segmentation.py` tarafından
 üretilir. Paralel geliştirilen hold (duruş) tabanlı dedektör
 `src/poomsae_scoring/segmentation.py` ve eş işlevli
@@ -822,6 +826,30 @@ DejaVu yazı tipleriyle çizilir. Sabit kart görselleri sınırlı önbellekte 
 `error_video.py` gözlenen 2B iz, kare sırası ve okuma duraklamalarının sahibi
 olarak kalır. Sunum katmanı ölçüm, eşik, belirsizlik veya kesinti hesaplamaz.
 Yeni çıktı üretimi benzersiz run kullanır; eski kanıt dosyaları değiştirilmez.
+
+## AD-038 — Zaman etiketi beyanı ile bağlı insan incelemesi ayrılır
+
+21 Eylül 2026: Şema v2 eski timeline dosyalarını okumaya devam eder. Opsiyonel
+`review` kaydı kişi/rol, zaman dilimli tarih, video inceleme yöntemi, kanıt
+referansı/hash'i, onaylanan timeline içeriğinin hash'i ve hareket/faz kapsamı
+taşır. `manual/confirmed/confidence` tek başına karar yetkisi vermez.
+
+Merkezi güven kontrolü eksik veya değişmiş içerik bağını doğrulanmamış sayar.
+Onay bloğu dışındaki timeline içeriği digest'e katılır. Kaynak/anchor/sınır
+değişikliği onayı geçersiz kılar; yeni inference run'ına aktarım eski inceleme
+kaydını devretmez. Kısmi kapsam bütün çizelgeye yayılmaz. İsim ve hash kişi
+kimliğinin veya dış ölçüm doğruluğunun kriptografik kanıtı değildir; kanıt
+referansı beyanının dosya içeriği bu saf sözleşme kontrolünde okunmaz.
+
+Koşullu ölçümler korunur. Onaysız kapsam uygulanmış kesinti üretemez; tam
+inceleme yoksa kesinti toplamı `null`dır, sıfır hata gibi gösterilmez.
+Hazırlık, tam Accuracy, tarihsel kaynak-bağlı ve hakem eşikli karar yolları
+aynı güven ayrımını kullanır. HTML olay onayı faz onayı sayılmaz. Şablon
+üretimi/okuması bağlı inceleme ister; otomatik bölümleme farkları bağımsız
+doğruluk diye sunulmaz. Eski artifact'ler tarihsel olarak korunur.
+
+İlk çalışma planı `DOGRULAMA_VE_GELISTIRME_PLANI.md` içindedir. M01–M06
+yeniden insan incelemesi yapılana kadar doğrulanmamış taslak kalır.
 
 ## Karar değiştirme süreci
 

@@ -41,6 +41,15 @@ Python 3.11 üzerinde gerçek CUDA/ZED inference doğrulanmış sayılmaz.
 Bu dosyalar farklı amaç taşır; `requirements-pose.txt` normal CI gereksinimi
 değildir.
 
+Ruff **0.16.8** hem `dev` extras hem `requirements.txt` içinde sabittir;
+`required-version` farklı sürümle sessizce farklı kontrol yapılmasını engeller.
+Projenin önceki Ruff 0.15 kural kapsamı `E4/E7/E9/F` açıkça tanımlıdır.
+0.16'nın genişleyen varsayılanları yeni bir kural geçişi olarak ayrıca
+ele alınmalıdır. Bu seçim mevcut kuralları veya pytest testlerini kapatmaz.
+Yerel sürümü eşitlemek için `.venv312\Scripts\python.exe -m pip install ruff==0.16.8`
+çalıştırılır. GitHub Ruff hatalarını dosya/satır açıklaması olarak gösterir;
+pytest çalışırsa JUnit sonucu `pytest-results` artifact'ine kaydedilir.
+
 ## Tier 1 — clean checkout / CI
 
 Tier 1 GPU, model checkpoint, gerçek video, SVO, historical `outputs/` veya
