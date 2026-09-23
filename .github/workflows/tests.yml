@@ -7,6 +7,8 @@ on:
 jobs:
   pytest:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -33,10 +35,21 @@ jobs:
           python -m ruff --version
           python -m ruff check src scripts tests --output-format github
       - name: Run tests
-        run: python -m pytest -q -p no:cacheprovider --basetemp pytest-temp --junitxml=outputs/ci-pytest.xml
+        run: |
+          python -m pytest -q -p no:cacheprovider --basetemp pytest-temp --junitxml=outputs/ci-pytest.xml
+          $testExitCode = $LASTEXITCODE
+          if (Test-Path 'outputs/ci-pytest.xml') {
+            [xml]$testResults = Get-Content 'outputs/ci-pytest.xml' -Raw -Encoding utf8
+            foreach ($testCase in $testResults.SelectNodes('//testcase[failure or error]')) {
+              $detail = $testCase.GetAttribute('classname') + '.' + $testCase.GetAttribute('name') + ': ' + $testCase.InnerText
+              $detail = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=pytest failure::$detail"
+            }
+          }
+          exit $testExitCode
       - name: Save test results
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pytest-results
           path: outputs/ci-pytest.xml

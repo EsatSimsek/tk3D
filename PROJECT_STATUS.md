@@ -141,6 +141,16 @@ araştırma ortamında doğrulanmıştır. Ayrıntı:
 
 23–24 Eylül 2026 gönderim öncesi CI kontrolü:
 
+- İlk gönderim `a98b2af` için GitHub `35920850299` koşusunda Ruff geçti;
+  ardından pytest başarısız oldu. GitHub ayrıntılı test logu açık API'de
+  sunulmadı. Aynı test yerelde İngilizce Windows `cp1252` çıktı kodlaması
+  zorlandığında yeniden üretildi: Türkçe “üzerine yazılmayacak” mesajı
+  bozuluyor ve test eşleşmesi düşüyordu. Test alt süreçleri ve CI Python
+  UTF-8'e sabitlendi; düzeltme sonrası `cp1252` ile ilgili **37 test geçti**.
+  Aynı kısıtla temiz kaynak kopyasında tam paket **540 passed, 1 skipped in
+  95.18s**; atlanan test Git dışı gerçek ZED pose dosyasını gerektiriyor.
+- CI pytest başarısızlıkları artık JUnit dosyasından GitHub hata açıklamasına
+  aktarılır. Test raporu yükleme eylemi güncel `v7` sürümüne yükseltildi.
 - GitHub `35515820379` koşusu Ruff adımında başarısız olmuş; pytest henüz
   çalışmamıştı. Yerel Ruff 0.15.21 geçerken yeni kurulumun Ruff 0.16.8
   varsayılanları aynı çalışma ağacında 272 ek lint bulgusu üretti.

@@ -49,6 +49,10 @@ ele alınmalıdır. Bu seçim mevcut kuralları veya pytest testlerini kapatmaz.
 Yerel sürümü eşitlemek için `.venv312\Scripts\python.exe -m pip install ruff==0.16.8`
 çalıştırılır. GitHub Ruff hatalarını dosya/satır açıklaması olarak gösterir;
 pytest çalışırsa JUnit sonucu `pytest-results` artifact'ine kaydedilir.
+CI Python çıktı kodlamasını UTF-8 olarak sabitler. Türkçe CLI metinlerini
+denetleyen testlerin alt süreçleri de UTF-8 kullanır; Windows sistem dilinin
+varsayılan kodlaması sonuca etki etmez. Başarısız testlerin JUnit açıklamaları
+GitHub kontrolünde hata olarak görünür.
 
 ## Tier 1 — clean checkout / CI
 

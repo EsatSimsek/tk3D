@@ -316,6 +316,7 @@ def _prefix_timeline_yaml(
 
 def _run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
     existing_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(ROOT)
     if existing_pythonpath:
@@ -324,6 +325,7 @@ def _run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[s
         [sys.executable, str(ROOT / "scripts" / script), *[str(item) for item in args]],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=ROOT,
         env=env,
         check=False,  # the failure cases below assert on returncode themselves
@@ -822,6 +824,8 @@ def test_judge_questionnaire_claims_nothing_and_stays_out_of_the_scoring_run(tmp
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         check=False,
     )
     assert again.returncode != 0
