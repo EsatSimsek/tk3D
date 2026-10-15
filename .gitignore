@@ -48,6 +48,9 @@ data/mads_test/extracted/
 data/mads_test/local/
 data/aist_test/local/
 
+# User-supplied CURRENT_ACTIVE bundle installed by install_shared_assets.ps1
+data/poomsae_1_zed2i_20260731_trimmed/
+
 # Raw ZED recordings are local capture assets
 *.svo
 *.svo2
@@ -61,3 +64,10 @@ check_svo_gaps.py
 # Coverage database (machine-local)
 .coverage
 .coverage.*
+
+# Private engineering notes kept locally, not distributed with the runtime
+/AGENTS.md
+/PROJECT_STATUS.md
+/tk3d_architecture_deep_dive.md
+/docs/**/*.md
+/config/scoring/templates/README.md

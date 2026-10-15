@@ -1,0 +1,47 @@
+session_id: poomsae_1_zed2i_20260731_trimmed
+task_name: poomsae_1_user_trimmed_full_body
+fps: 60.0
+
+cameras:
+  - camera_id: zed_35151067
+    video_path: ../../data/poomsae_1_zed2i_20260731_trimmed/videos/zed_35151067.avi
+    calibration_video_path: null
+  - camera_id: zed_37137479
+    video_path: ../../data/poomsae_1_zed2i_20260731_trimmed/videos/zed_37137479.avi
+    calibration_video_path: null
+
+sync:
+  method: derived_common_frame_crop
+  offsets:
+    zed_35151067: 0
+    zed_37137479: 0
+  offsets_sec:
+    zed_35151067: 0.0
+    zed_37137479: 0.0
+
+trim:
+  user_requested: true
+  parent_session_id: poomsae_1_zed2i_20260731_ultra
+  parent_run_id: poomsae1-zed2i-ultra-full-20260801
+  source_start_frame_inclusive: 190
+  source_end_frame_inclusive: 930
+  removed_start_frames: 190
+  removed_end_frames: 259
+  source_start_sec: 3.1666666666666665
+  source_end_sec_inclusive: 15.5
+  output_frame_count: 741
+  output_duration_sec: 12.35
+
+zed:
+  depth_sources:
+    - camera_id: zed_35151067
+      svo_path: ../../data/poomsae_1_zed2i_20260731_trimmed/svo/ZED-2i_SN35151067_2026-07-31_18-31-08.svo2
+      timestamp_mapping_report: ../../data/poomsae_1_zed2i_20260731_trimmed/reports/zed_35151067_timestamp_mapping.json
+      prepared_frame_offset: 190
+      imu_gravity_rotation_applied: true
+    - camera_id: zed_37137479
+      svo_path: ../../data/poomsae_1_zed2i_20260731_trimmed/svo/ZED-2i_SN37137479_2026-07-31_18-31-08.svo2
+      timestamp_mapping_report: ../../data/poomsae_1_zed2i_20260731_trimmed/reports/zed_37137479_timestamp_mapping.json
+      prepared_frame_offset: 190
+      imu_gravity_rotation_applied: true
+  imu_usage: gravity/orientation calibration; not framewise athlete motion correction

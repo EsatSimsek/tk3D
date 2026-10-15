@@ -1,384 +1,341 @@
 # TK3D
 
-TK3D, senkronize çok-kameralı videodan 3B insan pozu hesaplayıp bu
-kanıtı tekvando poomsae teknik analizine taşıyan bir araştırma ve mühendislik
-projesidir. Güncel ürün hattı iki ZED 2i kamerayla kaydedilmiş RGBD poomsae
-verisini işler.
+TK3D, iki senkron ZED 2i kaydından WholeBody-133 üç boyutlu insan pozu
+üreten ve sonucu tekvando poomsae inceleme çıktısına dönüştüren Windows tabanlı
+bir araştırma uygulamasıdır.
 
-## Belge haritası
+Bu depo kaynak kodunu, testleri ve çalışma ayarlarını içerir. Yaklaşık 6,9 GB
+olan video, SVO2 ve model dosyaları GitHub'a konmaz. Projeyi paylaşan kişiden
+ayrıca `TK3D_PAYLASIM_PAKETI` klasörünü almanız gerekir.
 
-- `README.md`: güncel ürün özeti, kurulum ve hızlı başlangıç.
-- [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md): mühendisler ve yeni
-  AI/Codex oturumları için ayrıntılı güncel teknik bağlam.
-- [`docs/history/README_PRE_FINAL_POLISH.md`](docs/history/README_PRE_FINAL_POLISH.md):
-  Final Polish öncesindeki uzun README'nin değiştirilmemiş tarihsel kopyası.
-- [`PROJECT_STATUS.md`](PROJECT_STATUS.md): son doğrulanmış çalışma ağacı,
-  testler, ölçümler ve açık sınırlamalar.
-- [`docs/DOGRULAMA_VE_GELISTIRME_PLANI.md`](docs/DOGRULAMA_VE_GELISTIRME_PLANI.md):
-  güncel aşamalar, kabul ölçütleri ve ilerleme kaydı.
-- [`docs/PILOT_UZMAN_INCELEME_FORMU.md`](docs/PILOT_UZMAN_INCELEME_FORMU.md):
-  altı hareket ve üç aday ölçüt için doldurulmamış uzman formu.
-- [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md): clean checkout, yerel
-  araştırma ortamı ve tekrarlanabilirlik sözleşmesi.
-- [`docs/ARCHITECTURE_DECISIONS.md`](docs/ARCHITECTURE_DECISIONS.md): korunması
-  gereken tasarım kararları.
+> TK3D resmî veya hakem-kalibre edilmiş bir poomsae puanı üretmez. Mevcut
+> çıktı; ölçüm, teknik teşhis ve insan inceleme desteğidir. Faz onayı olmayan
+> ölçümler kesintiye dönüştürülmez ve toplam puan `null` kalır.
 
-Yeni bir geliştirme oturumunda önce [`AGENTS.md`](AGENTS.md), sonra
-[`PROJECT_STATUS.md`](PROJECT_STATUS.md) ve
-[`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) okunmalıdır.
+## 1. Doğrulanmış çalışma ortamı
 
-## Güncel kapsam
+Bu sürüm aşağıdaki ortamda çalıştırılmıştır:
 
-Kanonik `CURRENT_ACTIVE` workflow:
+| Bileşen | Doğrulanmış sürüm |
+| --- | --- |
+| İşletim sistemi | Windows 11 x64 |
+| Python | 3.12.14 x64 |
+| GPU | NVIDIA GeForce RTX 4060 Laptop GPU |
+| PyTorch | 2.13.0+cu130 |
+| TorchVision | 0.28.0+cu130 |
+| CUDA runtime | 13.0 |
+| ZED Python API | pyzed 5.4 |
+| RF-DETR | 1.7.0 |
+| Supervision | 0.27.0 |
+| OpenCV | 5.0.0.93 |
+
+Gerçek RGBD inference için native Windows, CUDA destekli NVIDIA GPU ve ZED SDK
+gerekir. Stereolabs güncel gereksinimlerinde compute capability 7.5 veya daha
+yeni NVIDIA GPU ister; 16 GB RAM ve 6 GB üzeri VRAM önerir. Resmî belgeler:
+
+- [Windows için ZED SDK kurulumu](https://docs.stereolabs.com/docs/development/zed-sdk/windows)
+- [ZED Python API kurulumu](https://docs.stereolabs.com/docs/development/api-languages/python)
+- [ZED SDK donanım gereksinimleri](https://docs.stereolabs.com/docs/development/zed-sdk/specifications/)
+- [PyTorch yerel kurulum sayfası](https://pytorch.org/get-started/locally/)
+
+Kurulum, paylaşılan varlıklar ve yeni çıktılar için sistem diskinde en az
+15 GB boş alan ayırın. Uzun koşular daha fazla alan kullanabilir.
+
+## 2. Almanız gereken iki parça
+
+1. GitHub deposu: kaynak kodu ve yapılandırmalar.
+2. Projeyi paylaşan kişiden `TK3D_PAYLASIM_PAKETI`: Git'e giremeyen büyük ve
+   makine-dışı varlıklar.
+
+Paketin beklenen yapısı şöyledir:
 
 ```text
-iki ZED 2i kamera
-  -> senkron AVI RGB + eşlenmiş SVO2 depth
-  -> RF-DETR Small kişi tespiti + ByteTrack takibi
-  -> ViTPose-Huge WholeBody 2B (133 nokta)
-  -> robust çok-kameralı triangulation
-  -> kapılı ZED depth fusion (BODY-17)
-  -> güvenilirlik + BODY-17 global optimizasyon + 3B stabilizasyon
-  -> keypoints_3d_world[t, 133, 3]
-  -> kaynak-bağlı Poomsae analiz ve insan inceleme çıktıları
+TK3D_PAYLASIM_PAKETI/
+├── README.md
+├── SHA256SUMS.txt
+├── repo/
+│   ├── data/poomsae_1_zed2i_20260731_trimmed/
+│   │   ├── videos/                 # iki kırpılmış 741-kare AVI
+│   │   ├── svo/                    # iki özgün SVO2 depth kaydı
+│   │   ├── reports/                # AVI-SVO zaman eşleme raporları
+│   │   └── reference/              # doğrulanmış 3B pose + gözlenen 2B CSV
+│   ├── outputs/poomsae_1_zed2i_20260731_trimmed/
+│   │   └── calibration/cameras.json
+│   └── weights/
+│       └── vitpose_huge_wholebody_256x192.pth
+├── user_home/.roboflow/models/
+│   └── rf-detr-small.pth
+└── extras/
+    └── zed_fusion_calibration.json
 ```
 
-Ana 3B sözleşme metre cinsinden TK3D analiz koordinatlarıdır:
-`x=sağ`, `y=ileri`, `z=yukarı`. BODY-17 üzerinde çalışan bir iyileştirme tüm
-133 noktalı çıktıyı küçültemez veya silemez.
+Dosya veya klasör adlarını değiştirmeyin. Kurucu betik tüm zorunlu dosyaları
+`SHA256SUMS.txt` ile doğrular; eksik veya bozuk pakette kopyalama başlamaz.
 
-Sistem şu anda resmî ya da hakem-kalibre edilmiş poomsae puanı üretmeye hazır
-değildir. Güncel ZED workflow'u için bağımsız dış 3B ground truth ve uzman/hakem
-etiketi yoktur; mevcut hareket zaman çizelgesinin insan incelemesi belgelenmemiştir.
-Dosyadaki `manual` ve `confirmed` alanları tek başına onay sayılmaz. İçeriğe
-ve kapsama bağlı `review` kaydı bulunmayan fazlar ölçüm üretse de kesinti
-yetkisi vermez; toplam `null` kalır ve rapor “Değerlendirilmedi” gösterir.
-İnceleme kaydı kişinin kimliğini veya biyomekanik doğruluğu kanıtlayan bir
-dijital imza değildir. Yeni pose/run'a taşınan zaman çizelgesi yeniden inceleme
-gerektirir. Kaynaksız eski referans şablonları otomatik hizalamada reddedilir.
-İç geometri veya kalite kapısının geçmesi dış doğruluk kanıtı değildir.
-`provisional_scoring_ready` yalnız kaynak-bağlı analiz için veri hazırlığını,
-`official_scoring_ready:false` ise resmî puan iddiasının kapalı olduğunu belirtir.
+## 3. Sıfırdan Windows kurulumu
 
-## Gereksinimler
+### 3.1 Önkoşullar
 
-- Windows ve Python 3.11 veya 3.12
-- Tier 1 geliştirme/test için `requirements.txt`
-- Gerçek pose inference için NVIDIA GPU/CUDA ve `requirements-pose.txt`
-- `weights/vitpose_huge_wholebody_256x192.pth`
-- RF-DETR Small checkpoint/cache
-- Aktif ZED çalışması için ZED SDK, `pyzed`, AVI/SVO2 kayıtları ve üretim
-  kalibrasyonu
+- Git for Windows
+- 64 bit Python 3.12 ve `py` launcher
+- Güncel NVIDIA sürücüsü
+- CUDA 13 ile uyumlu ZED SDK 5.x; bu proje pyzed 5.4 ile doğrulandı
+- `TK3D_PAYLASIM_PAKETI` klasörü
 
-Video, SVO2, checkpoint, sanal ortam ve `outputs/` içeriği repository'ye dahil
-değildir. Ayrıntılı ortam matrisi ve dış varlık sınırı için
-[`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) kullanılmalıdır.
+ZED SDK'yı native Windows'a kurun ve kurulumdan sonra bilgisayarı yeniden
+başlatın. WSL bu kayıt için desteklenen kurulum yolu değildir.
 
-## Kurulum
+### 3.2 Depoyu clone etme ve sanal ortam
 
-Clean-checkout Tier 1 ortamı:
+Aşağıdaki bloğu normal PowerShell'de çalıştırın. GitHub adresini size verilen
+depo adresiyle değiştirin.
 
 ```powershell
+Set-Location "$env:USERPROFILE\Desktop"
+git clone https://github.com/EsatSimsek/tk3D.git
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+
 py -3.12 -m venv .venv312
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\.venv312\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install -r requirements-pose.txt
 python -m pip install -e . --no-deps --no-build-isolation
 ```
 
-Yerel CUDA araştırma ortamının sabitlenmiş bağımlılıkları
-`requirements-pose.txt` içindedir. Bu ortamın kurulumu ve ViTPose checkpoint
-hazırlığı için [`docs/vitpose_windows_setup.md`](docs/vitpose_windows_setup.md)
-izlenmelidir.
+`requirements-pose.txt`, doğrulanan CUDA 13 PyTorch/TorchVision sürümlerini ve
+RF-DETR bağımlılıklarını sabitler. Yalnız CPU ile hafif testler yapılabilir;
+gerçek aktif inference ayarı `cuda:0` kullanır.
 
-## Hazırlık kontrolü
+### 3.3 pyzed'i sanal ortama kurma
 
-`tk3d-check` model yüklemeden paket, giriş noktası, config, output yazılabilirliği
-ve aktif dış varlıkları denetler:
-
-```powershell
-tk3d-check
-tk3d-check --json
-tk3d-check --write-report outputs\reproducibility\environment-local.json
-```
-
-Clean checkout'ta Tier 1 hazırken dış araştırma verileri eksikse genel durumun
-`PARTIALLY_READY` olması beklenir. Yerel `CURRENT_ACTIVE` varlıklarının tümü
-mevcutsa `READY` döner. `NOT_READY`, Tier 1 sözleşmesinin bozuk olduğunu gösterir.
-
-Model ve kalibrasyon ayarlarındaki sayısal eşikler sonlu olmalıdır. `NaN`,
-`Infinity`, `null` ve boolean değerler sayısal eşik olarak reddedilir; hata
-mesajı ilgili alanı belirtir. Video başlıklarında eksik/geçersiz çözünürlük,
-FPS veya kare sayısı varsa hazırlık raporunda ilgili değer `null` olur.
-
-## Çok-kameralı 3B üretim
-
-Kanonik giriş noktası `tk3d-multiview` komutudur. `--session` bir session YAML
-yoludur; gerçek inference üretim kalibrasyonu ve model varlıkları ister.
+Önce `.venv312` etkin olmalıdır. ZED SDK'nın kendi kurucusunu aynı Python ile
+çalıştırın:
 
 ```powershell
-tk3d-multiview `
-  --session outputs\poomsae_1_zed2i_20260731_trimmed\source\session.yaml `
-  --stride 1 `
-  --run-id <benzersiz-run-id>
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv312\Scripts\Activate.ps1
+python "C:\Program Files (x86)\ZED SDK\get_python_api.py"
+python -c "import pyzed.sl as sl; print('pyzed hazır:', sl.__file__)"
 ```
 
-Hızlı bir smoke için `--max-frames` kullanılabilir; smoke sonucu tam koşuyla
-yalnız aynı video aralığı, kamera seti, stride, model ve config altında
-karşılaştırılmalıdır. `stride > 1` inference örneklemesidir; kaynak zaman
-çizelgesini kısaltma yetkisi vermez.
+`Permission denied` görülürse PowerShell'i yönetici olarak açın veya
+`get_python_api.py` dosyasını masaüstüne kopyalayıp etkin sanal ortamın
+`python` komutuyla çalıştırın. `pyzed`, ZED SDK kurulmadan bağımsız bir paket
+gibi kullanılamaz.
 
-Başlıca çıktılar:
+### 3.4 Paylaşım paketini kurma
+
+`$paket` değerini paketin bulunduğu tam Windows yoluyla değiştirin:
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+$paket = "D:\TK3D_PAYLASIM_PAKETI"
+.\scripts\install_shared_assets.ps1 -PackageRoot $paket
+```
+
+Kurucu şu işlemleri yapar:
+
+- AVI, SVO2, zaman eşleme ve referans pose dosyalarını deponun `data` dizinine
+  kopyalar;
+- üretim kalibrasyonunu `outputs/<session_id>/calibration` altına koyar;
+- ViTPose ağırlığını `weights` altına koyar;
+- RF-DETR ağırlığını `%USERPROFILE%\.roboflow\models` altına koyar;
+- kopyalama öncesi ve sonrası SHA-256 doğrulaması yapar;
+- var olan farklı bir dosyanın üzerine `-Force` verilmeden yazmaz.
+
+Yalnız paketi kontrol etmek, hiçbir şey kopyalamamak için:
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+$paket = "D:\TK3D_PAYLASIM_PAKETI"
+.\scripts\install_shared_assets.ps1 -PackageRoot $paket -VerifyOnly
+```
+
+## 4. Kurulum doğrulaması
+
+Bu blok paket, model, CUDA, ZED, video, SVO2, kalibrasyon ve profile hash
+bağlarını kontrol eder. Raporun tam yolu komut sonunda yazılır.
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$report = "outputs\reproducibility\environment-$(Get-Date -Format 'yyyyMMdd-HHmmss').json"
+tk3d-check --write-report $report
+python -c "import torch; print('CUDA:', torch.cuda.is_available()); print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'YOK')"
+Write-Host "Rapor: $((Resolve-Path $report).Path)"
+```
+
+Beklenen sonuç:
 
 ```text
-outputs/<session_id>/runs/<run_id>/
+READY
+Tier 1 clean/lightweight: READY
+CURRENT_ACTIVE local research: READY
+```
+
+`PARTIALLY_READY`, kaynak kodunun kurulabildiğini fakat bir veya daha fazla
+haricî varlığın eksik olduğunu gösterir. Komutun `[WARN]` satırı eksik dosyanın
+tam yolunu verir. `NOT_READY`, kaynak/config sözleşmesinin bozuk olduğunu
+gösterir.
+
+## 5. İlk güvenli smoke koşusu
+
+Smoke, yalnız kurulumun çalıştığını sınar; tam kayıt kalitesiyle
+karşılaştırılmaz. On karelik tanısal koşu kalite kapısını geçmek zorunda
+olmadığı için `--allow-low-quality-output` kullanılır ve `latest_run.json`
+güncellenmez.
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$runId = "clone-smoke-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+tk3d-multiview `
+  --session config\sessions\poomsae1_zed2i_trimmed.yaml `
+  --stride 1 `
+  --max-frames 10 `
+  --allow-low-quality-output `
+  --run-id $runId
+$runPath = "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId"
+Write-Host "Smoke çıktısı: $((Resolve-Path $runPath).Path)"
+```
+
+Smoke sonunda en az şu dosyalar oluşmalıdır:
+
+```text
+outputs/poomsae_1_zed2i_20260731_trimmed/runs/<run_id>/
 ├── run_state.json
 ├── config/
 ├── json/
 │   ├── run_manifest.json
 │   ├── vitpose_session_3d.json
-│   ├── run_quality_report.json
-│   └── performance_report.json       # yalnız profiling açıkken
+│   └── run_quality_report.json
 ├── csv/
 ├── figures/
 └── videos/
 ```
 
-`vitpose_session_3d.json` kare/zaman kimliğini, WholeBody-133 3B noktaları,
-geçerlilik/kalite alanlarını ve provenance bağını taşır. Eksik JSON değerleri
-`null`, CSV değerleri boş hücre olmalıdır; `NaN` veya `inf` downstream çıktıya
-sızmamalıdır.
+## 6. Tam 741-kare 3B koşu
 
-Doğrudan `tk3d-multiview` çalışmasında da hata veya kullanıcı kesintisi yeni
-run'ı `failed` durumuna geçirir ve açılmış video okuyucuları kapatılır.
-`--allow-low-quality-output` ile tutulan tanısal çıktı kalite kapısını
-geçmediyse run `failed` kalır; önceki `latest_run.json` değiştirilmez.
-
-## Poomsae analizi
-
-Kanonik giriş noktası `tk3d-poomsae` komutudur. Varsayılan aktif profil
-`poomsae1_trimmed` mevcut doğrulanmış 3B artifact'i kullanır:
+Tam koşu GPU'da uzun sürebilir. Her seferinde benzersiz `run_id` kullanılır;
+var olan bir run'ın üzerine yazılmaz.
 
 ```powershell
-tk3d-poomsae `
-  --profile poomsae1_trimmed `
-  --run-id <benzersiz-run-id>
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$runId = "full-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+tk3d-multiview `
+  --session config\sessions\poomsae1_zed2i_trimmed.yaml `
+  --stride 1 `
+  --run-id $runId
+$runPath = "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId"
+Write-Host "Tam koşu çıktısı: $((Resolve-Path $runPath).Path)"
 ```
 
-Bağlı videodan stride-1 3B üretimini de yeniden çalıştırmak için:
+Kalite kapısı başarısızsa tanısal dosyalar korunur, run `failed` olur ve önceki
+başarılı `latest_run.json` değiştirilmez. `stride > 1` yalnız inference
+örneklemesidir; çıktı zaman çizelgesi kaynak videonun süresini korur.
+
+## 7. Mevcut doğrulanmış pose ile Poomsae analizi
+
+Bu komut paketle gelen referans pose'u kullanır; ViTPose inference'ı yeniden
+çalıştırmaz. İki kaynak video yine HTML ve işaretli inceleme videosu için
+gereklidir.
 
 ```powershell
-tk3d-poomsae `
-  --profile poomsae1_trimmed `
-  --process-video `
-  --run-id <benzersiz-run-id>
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$runId = "poomsae-review-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+tk3d-poomsae --profile poomsae1_trimmed --run-id $runId
+$runPath = "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId"
+Write-Host "Poomsae çıktısı: $((Resolve-Path $runPath).Path)"
 ```
 
-Bu workflow otomatik segmentasyon önerileri, WholeBody ölçümleri, hareket
-kanıtı, kategorik ve teknik uygunluk teşhisleri, kaynak-bağlı provisional
-kararlar, readiness, hata videosu ve HTML inceleme raporları üretir. Teşhis
-adayları otomatik WT kesintisi veya resmî Accuracy skoru değildir.
+Videodan 3B pose'u yeniden üretip ardından analiz etmek için:
 
-İnceleme çıktıları ortak açık renkli bir düzen kullanır. HTML'de kamera kaydı,
-hareketler ve hareket başına açılan bulgular öndedir; ayrıntılı ölçümler ve kural
-envanteri açılır bölümlerdedir. **Videoda aç** iki kamerayı duraklatıp aynı kanıt
-anına götürür ve kamera bölümünü gösterir. İnceleyen adı, bağlı JSON içe/dışa
-aktarma ve ölçüm araması korunur. Koşu geçmişi aynı görsel düzeni kullanır.
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$runId = "poomsae-full-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+tk3d-poomsae --profile poomsae1_trimmed --process-video --run-id $runId
+Write-Host "Poomsae tam çıktı: $((Resolve-Path "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId").Path)"
+```
 
-İşaretli videonun alt paneli Türkçe karakterleri destekleyen ölçüm kartları
-kullanır; ayak açısı şeması açıklamadan ayrı çizilir. İki kamera çıktısı
-1920×1080'dir. İlk üç aktif bulgu görünür; kaynak-bağlı ölçümler genel teşhis
-adaylarından önce gösterilir, ek bulgu sayısı HTML'ye yönlendirir. Faz onayı
-eksik olsa bile kaynak aralığı dışında kalan ölçümün gözlenen 2B izi kırmızı
-çizilir ve kanıt anında okuma duraklaması eklenir. Bu durumda alt kart ve
-duraklama başlığı **“faz onayı yok, puan yok”** der; kırmızı iz yalnız ölçülen
-bölgeye dikkat çeker, kesinti anlamına gelmez. Onaylı kesinti adaylarının
-duraklaması ayrı etiketlenir. Kaynak kareler ve FPS korunur; eklenen okuma
-araları çıktı videosunun süresini uzatır. Bu düzen resmî puanlama yetkisi
-vermez. Yazı
-çizimi Pillow ile, paketle gelen Matplotlib DejaVu yazı tipleriyle yapılır;
-haricî yazı tipi indirilmez. Yeni görünüm yeni koşulara uygulanır, eski
-`outputs/` kayıtları yerinde değiştirilmez.
+Poomsae workflow'u ölçümler, otomatik segmentasyon önerileri, teknik teşhisler,
+işaretli video ve HTML inceleme ekranı üretir. Bunlar resmî hakem puanı değildir.
 
-V3 kapsamlı teknik-doğruluk katmanı M01–M18 hareket kontratı ve 174 kurallık
-makine-okunur envanter üretir. Pipeline sınırındaki 8 özellik dışında 166
-kuralın ölçüm evaluator yolu vardır; 133 landmarkın tamamı envanterde, 51'i
-aktif eşikli kuralların zorunlu kümesindedir. Aktif videoda yalnız M01–M06
-ölçülür; M07–M18 kontrat/sentetik kapsamdır. Profil 3.2.1'de 75 kural geçici
-tarama kararı üretir; 74 destek ölçümü ise neden alanıyla yalnız ölçüm olarak
-kalır. Her kuralın ölçümü, geçici beklentisi, bağlamı, kararı veya kapanma
-nedeni HTML inceleme ekranında aranabilir. Geçici adaylar skor ve kesintiyi değiştirmez.
-Baş/yüz çıktısı gerçek göz bakışı değil `head_orientation_proxy` olarak
-yorumlanır. Sporcu-yerel yön referansı her run'da açılış duruşundan türetilir ve
-oturum/pose hash'ine bağlanır; türetilemezse 17 yön kuralı fail-closed kalır ve
-gerekçe `json/athlete_local_direction_reference_status.json` içine yazılır.
+## 8. Geliştirici doğrulaması
 
-Bir eşiğin puana etki edebilmesi için hakem imzası taşıması gerekir. Eşik satırı
-`judge_source` bloğu alabilir; hakemin adı, yetki belgesi, karar tarihi ve onay
-kaydı zorunludur ve imzalı eşikler `judge_validated_rules` listesiyle birebir
-eşleşmek zorundadır. İmzasız eşikler puansız kalır, profil düzeyindeki
-puansızlık kilidi imzalı eşik varken de çalışır ve liste boşken rapor önceki
-çıktının aynısıdır. Bugün liste boştur.
-Ayrıntı:
-[`docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md`](docs/TECHNICAL_ACCURACY_DIAGNOSTICS.md).
+Kod değişikliği göndermeden önce:
 
-Elle etiketlenmemiş bir kayıt için hareket zaman çizelgesi **önerisi** ayrı bir
-komutla üretilir; kanonik akış bu taslağı kendiliğinden tüketmez. Taslak, tespit
-edilen segmentleri `config/scoring/templates/` altındaki referans duruşlarla
-eşleştirir, şüpheli eşleşmeleri `ambiguous` işaretler ve hizalama anomalilerini
-ayrı bir rapora yazar. İnsan düzeltmesi olmadan puanlamaya girmez.
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+python -m ruff check src scripts tests
+$testRoot = "outputs\pytest-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+python -m pytest -q -p no:cacheprovider --basetemp $testRoot
+python -m pip check
+git diff --check
+Write-Host "Pytest geçici dizini: $((Resolve-Path $testRoot).Path)"
+```
 
-Taslağın çapaları videoyu kaydırmadan incelenebilir: ayrı bir komut her çapanın
-çevresinde ±15 kare aralıkta beşer kare adımla yedi kare çıkarır ve tek bir HTML
-sayfasına dizer. Kayıt elinizin altındaysa `--camera` ile kamera karesi kullanın;
-yoksa `--pose` ile ölçülen iskelet çizilir, ki o sistemin ölçtüğü geometriyi
-gösterir, sporcunun kendisini değil. Sayfa hiçbir kesinti veya puan iddiası
-taşımaz ve kanonik akışın parçası değildir. Ayrıntı:
-[`docs/AUTOMATIC_TIMELINE_DRAFT.md`](docs/AUTOMATIC_TIMELINE_DRAFT.md).
+Git'e video, SVO2, model, sanal ortam veya `outputs/` içeriği eklemeyin.
 
-Profilde imzasız kalan her değer bir sorudur ve hakemden istenecek liste elle
-tutulmaz, `scripts/build_judge_threshold_questionnaire.py` ile profilden üretilir.
-Çıktı tek bir HTML sayfasıdır; cevabı gelir gelmez iş yapacak sorular önce,
-sayı dışında da eksiği olanlar sonra sıralanır. Bir eşik imzalandığında ilgili
-soru listeden kendiliğinden düşer.
+## 9. Sık karşılaşılan sorunlar
 
-Kural motorunun sentetik yazılım doğrulaması ayrı ve puansızdır. Düzenek 174
-kural ile 133-landmark kapsam envanterini, 75 aktif ve 13 referans-bağlı
-değerlendirilebilir metriğin bağlamsal varyantları için 980 sınır/eksik/non-finite
-vakasını ve 18 WholeBody-133 geometri/uçtan uca kanıt senaryosunu
-hash'li manifest taşıyan makine-okunur JSON/CSV artifact'leri olarak üretir.
-Bu sonuç hakem veya biomekanik doğruluk iddiası değildir. Çalıştırma komutu ve
-yorum sınırları:
-[`docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md`](docs/TECHNICAL_ACCURACY_RULE_VALIDATION.md).
+### `py -3.12` bulunamıyor
 
-Teknik profil `3.2.1`, boolean kuralların beklenen sonucunu
-`boolean_expectations` içinde açıkça tanımlar. Yanlış yön koşulunun beklenen
-değeri `false` olur; ölçülemeyen yön `null` kalır ve hata adayı üretmez.
-Yön referansı bulunması, sayısal eşiği olmayan dört ölçüme karar yetkisi vermez.
-Eski profil kopyaları yeni zorunlu alan olmadan çalıştırılamaz; yeni run'da
-güncel profil kullanılmalıdır. Tarihsel çıktılar otomatik değiştirilmez.
+Python 3.12 x64'ü yeniden kurun ve kurulumda Python Launcher seçeneğini
+etkinleştirin. `py -0p` kurulu Python yollarını listeler.
 
-İnceleme ekranında önce inceleyen adını/kodunu girin; Doğru/Yanlış/Belirsiz
-düğmeleri **gösterilen sistem kararının doğruluğunu** etiketler. JSON dışa/içe
-aktarma şema 2 kullanır: analiz run kimliği, kaynak pose, timeline ve girdi/rapor
-hash'leri bağlanır; her etikette inceleyen ve zaman bulunur. Eski şema 1 veya
-başka run'a ait etiketler otomatik aktarılmaz. Tarayıcı depolaması kapalıysa
-JSON indirin; yalnız bellekteki seçimler sayfa kapanınca kaybolur. Bu etiketler
-puanlamaya otomatik girmez ve tek başına hakem doğrulaması değildir.
+### PowerShell betik çalıştırmayı engelliyor
 
-Analiz başladıktan sonraki Python hataları ve kullanıcı kesintisi run'ı
-`failed` yapar; önceki başarılı run korunur. Disk yazımı da başarısızsa ilk hata
-korunur ve durum dosyasının yazılamadığı ek hata notunda belirtilir. Ani güç
-kesintisi/işlemin zorla öldürülmesi bu korumanın dışındadır.
+Yalnız açık terminal süreci için izin verin:
 
-Önemli Poomsae çıktıları:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+### `No module named pyzed`
+
+`.venv312` etkin değilken ZED Python API kurulmuş olabilir. Sanal ortamı
+etkinleştirip `C:\Program Files (x86)\ZED SDK\get_python_api.py` betiğini aynı
+`python` komutuyla yeniden çalıştırın.
+
+### CUDA `False` veya GPU görünmüyor
+
+NVIDIA sürücüsünü, ZED SDK/CUDA uyumunu ve
+`requirements-pose.txt` kurulumunun hatasız tamamlandığını kontrol edin.
+CPU PyTorch kurulmuşsa gerçek inference başlamaz.
+
+### `tk3d-check` bir dosyada hash uyuşmazlığı bildiriyor
+
+Dosyayı elle yeniden adlandırmayın veya düzenlemeyin. Paylaşım paketini
+`-VerifyOnly` ile kontrol edin; bozuk dosyayı paket sahibinden yeniden alın.
+
+### Kalibrasyon bulunamıyor
+
+Beklenen tam yol:
 
 ```text
-json/poomsae_scoring_summary.json
-json/automatic_segmentation_report.json
-json/wholebody_diagnostics_report.json
-json/athlete_local_direction_reference_status.json
-json/technical_accuracy_diagnostics_report.json
-csv/technical_accuracy_coverage_matrix.csv
-csv/technical_accuracy_landmark_coverage.csv
-json/movement_evidence_report.json
-json/categorical_diagnostics_report.json
-json/technical_conformance_report.json
-json/source_bound_accuracy_decisions.json
-json/rule_scoring_readiness.json
-review/poomsae_scoring_review.html
-review/run_history.html
-videos/poomsae_scoring_annotated.mp4
+C:\Users\<kullanıcı>\Desktop\tk3D\outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras.json
 ```
 
-## Aktif yapılandırma
+Kalibrasyonu yaklaşık/sentetik veriyle üretim kalibrasyonu gibi işaretlemeyin.
 
-- Model/runtime: [`config/model_config.yaml`](config/model_config.yaml)
-- Poomsae profil:
-  [`config/scoring/profiles/poomsae1_trimmed.yaml`](config/scoring/profiles/poomsae1_trimmed.yaml)
-- ViTPose-Huge config:
-  [`config/mmpose_configs/wholebody_2d_keypoint/vitpose/coco-wholebody/td-hm_ViTPose-huge_8xb64-210e_coco-wholebody-256x192.py`](config/mmpose_configs/wholebody_2d_keypoint/vitpose/coco-wholebody/td-hm_ViTPose-huge_8xb64-210e_coco-wholebody-256x192.py)
-- RulePack: `config/scoring/rules/wt_recognized_2024-09-30.yaml`
-- PoomsaeSpec: `config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml`
-- Hareket zaman çizelgesi:
-  `config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml`
-- WholeBody teşhis profili:
-  `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml`
-- Kapsamlı teknik-doğruluk profili:
-  `config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml`
-- Teknik-doğruluk sentetik validation profili:
-  `config/scoring/validation/taegeuk_1_rule_accuracy_validation_v1.yaml`
-- Kaynak-bağlı Accuracy profili:
-  `config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml`
+## 10. Veri sözleşmesi ve güvenlik sınırları
 
-Aktif profil dış `outputs/` varlıklarına SHA-256 bağları içerir. Bu yolları,
-hash'leri veya config'leri yalnız biçimsel temizlik amacıyla değiştirmeyin.
-
-## Çıktı ve güvenlik kuralları
-
-- Her çalışma `outputs/<session_id>/runs/<run_id>/` altında benzersiz ve
-  üzerine yazılamaz bir dizin kullanır.
-- `latest_run.json` yalnız başarıyla tamamlanan ve uygun koşuya ilerletilir;
-  failed/incomplete run önceki başarılı işaretçiyi değiştiremez.
-  Okuyucu run klasörü ile session/run kimliklerini ve `completed` lifecycle
-  kaydını doğrular; lifecycle kaydı olmayan eski klasörler otomatik latest
-  kabul edilmez. `failed` bir run'ı yeniden çalıştırmak için yeni run kimliği gerekir.
-- Workflow içindeki bir subprocess aşaması hata verirse `run_state.json`
-  `running` bırakılmaz; aşama adı, exit code ve `failed` durumu kaydedilir.
-- Her güncel 3B artifact; session/run kimliği, calibration snapshot/hash ve run
-  manifestinin `configs.model_config.sha256` değeriyle bağlanır. Kare indeksleri
-  negatif olmayan tamsayı, zamanlar sonlu sayı ve her iki dizi kesin artan
-  olmalıdır. Stride ve negatif zaman ofseti desteklenir. Sözleşme uyuşmazlığı
-  fail-closed'dur.
-- Yaklaşık calibration açıkça izin verilmedikçe üretim inference'ta kabul
-  edilmez ve puanlama kanıtı sayılmaz.
-- Ham triangulation korunur. Depth fusion veya global optimizer kalite kapısını
-  geçemezse güvenli önceki sonuca dönülür.
-- Hedef kameraya yapılan 2B geri beslemede hedef kamera kendi 3B öncülünden
-  çıkarılmalıdır. Yalnız izdüşümden gelen nokta bağımsız görüntü kanıtı değildir.
-
-## Workflow sınıfları
-
-| Sınıf | Güncel anlamı |
-| --- | --- |
-| `CURRENT_ACTIVE` | İki ZED 2i RGBD → WholeBody-133 3B → `poomsae1_trimmed` analizi |
-| `CURRENT_VALIDATION` | AIST/AIST++ korunmuş ikincil geometri ve uyumluluk smoke'u |
-| `HISTORICAL_BENCHMARK` | MADS Kata F2 gibi kendi koşuluna bağlı tarihsel dış benchmark |
-| `LEGACY` | Sentetik/önceki nesil uyumluluk yolları; kanonik ürün workflow'u değil |
-
-Davranış dondurma ve regresyonda uygun veri varsa birincil karşılaştırma
-`CURRENT_ACTIVE` üzerinde yapılır. AIST veya MADS sonucu güncel ZED RGBD
-doğruluğuna devredilemez.
-
-## Geliştirme ve doğrulama
-
-Python değişikliklerinin varsayılan yerel teslim kapısı:
-
-```powershell
-.\.venv312\Scripts\python.exe -m ruff check src scripts tests
-.\.venv312\Scripts\python.exe -m pytest -q -p no:cacheprovider --basetemp outputs\pytest-local
-.\.venv312\Scripts\python.exe -m pip check
-git diff --check
-```
-
-Gerçek inference davranışı değiştiyse ilgili kısa gerçek smoke ve JSON kalite
-raporu da incelenmelidir. En son gerçekten doğrulanmış test/benchmark sayıları
-için yalnız [`PROJECT_STATUS.md`](PROJECT_STATUS.md) referans alınmalıdır.
-
-## Daha derin belgeler
-
-- Sekiz farklı RGB kamera için kurulum ve geliştirme planı (henüz gerçek
-  sekiz-kamera doğrulaması değil):
-  [`docs/SEKIZ_FARKLI_RGB_KAMERA_KURULUM_RAPORU.md`](docs/SEKIZ_FARKLI_RGB_KAMERA_KURULUM_RAPORU.md)
-- Güncel teknik hafıza: [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
-- Mühendislik sırası: [`docs/ENGINEERING_WORKFLOW.md`](docs/ENGINEERING_WORKFLOW.md)
-- Veri/workflow sınıfları: [`docs/DATASET_NOTES.md`](docs/DATASET_NOTES.md)
-- Legacy sınırı: [`docs/LEGACY_COMPONENTS.md`](docs/LEGACY_COMPONENTS.md)
-- Poomsae kural ve hareket sistemi:
-  [`docs/POOMSAE1_HAREKET_VE_KURAL_SISTEMI.md`](docs/POOMSAE1_HAREKET_VE_KURAL_SISTEMI.md)
-- Otomatik segmentasyon: [`docs/AUTOMATIC_SEGMENTATION.md`](docs/AUTOMATIC_SEGMENTATION.md)
-- Teknik uygunluk: [`docs/TECHNICAL_CONFORMANCE.md`](docs/TECHNICAL_CONFORMANCE.md)
-- Hata taksonomisi: [`docs/TAEGEUK1_ERROR_TAXONOMY.md`](docs/TAEGEUK1_ERROR_TAXONOMY.md)
-- Korunmuş eski README:
-  [`docs/history/README_PRE_FINAL_POLISH.md`](docs/history/README_PRE_FINAL_POLISH.md)
+- Ana çıktı `keypoints_3d_world[t, 133, 3]` ve metre cinsinden TK3D analiz
+  koordinatlarıdır: `x=sağ`, `y=ileri`, `z=yukarı`.
+- Eksik değer JSON'da `null`, CSV'de boş hücredir; `NaN` ve `inf` downstream
+  çıktıya yazılmaz.
+- Global optimizasyon ham triangulation'ı silmez; kalite kapısı başarısızsa
+  güvenli ham sonuca dönülür.
+- 3B izdüşüm arama öncülü veya açık görselleştirme fallback'idir; bağımsız
+  görüntü kanıtı sayılıp tekrar triangulation'a sokulmaz.
+- Kalite karşılaştırmaları aynı video bölümü, kamera seti, stride, model ve
+  yapılandırmayla yapılır. Smoke ve tam koşu kalite kıyası değildir.
+- Geçerli iç geometri, dış 3B ground-truth doğruluğu veya resmî poomsae puan
+  doğruluğu anlamına gelmez.

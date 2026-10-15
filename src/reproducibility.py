@@ -86,7 +86,7 @@ def check_reproducibility(
     if model_config is not None:
         _check_model_assets(checks, root, home, model_config)
     if profile is not None:
-        _check_active_profile_assets(checks, root, profile)
+        _check_active_profile_assets(checks, root, _resolve(root, output_root), profile)
 
     tier1_ready = not any(check.scope == "TIER1" and check.status == "FAIL" for check in checks)
     current_active_ready = tier1_ready and not any(
@@ -310,7 +310,7 @@ def _check_model_assets(
 
 
 def _check_active_profile_assets(
-    checks: list[ReproducibilityCheck], root: Path, profile: dict[str, Any]
+    checks: list[ReproducibilityCheck], root: Path, output_root: Path, profile: dict[str, Any]
 ) -> None:
     for key in ("rule_pack", "poomsae_spec", "movement_timeline", "diagnostic_profile", "accuracy_profile"):
         _yaml_mapping_check(
@@ -348,8 +348,15 @@ def _check_active_profile_assets(
             path=_resolve(root, video.get("path", "")),
             label=f"Active camera video {video.get('camera_id', 'unknown')}",
         )
-    session_root = session_path.parent.parent
-    calibration_path = session_root / "calibration" / "cameras.json"
+    session_id = "missing-session"
+    if session_path.is_file():
+        try:
+            session_payload = yaml.safe_load(session_path.read_text(encoding="utf-8"))
+            if isinstance(session_payload, dict) and isinstance(session_payload.get("session_id"), str):
+                session_id = session_payload["session_id"]
+        except (OSError, yaml.YAMLError):
+            pass
+    calibration_path = output_root / session_id / "calibration" / "cameras.json"
     _check_calibration(checks, calibration_path)
     _check_profile_bindings(checks, root, profile)
     if session_path.is_file():

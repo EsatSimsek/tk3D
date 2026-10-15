@@ -59,6 +59,33 @@ def test_versioned_calibration_fixture_is_valid() -> None:
     assert tuple(bundle.calibrations) == ("fixture-camera",)
 
 
+def test_active_calibration_is_resolved_from_output_root_and_session_id(tmp_path) -> None:
+    _write_minimal_checkout(tmp_path)
+    session_path = tmp_path / "config" / "sessions" / "portable.yaml"
+    session_path.parent.mkdir(parents=True)
+    session_path.write_text(
+        "session_id: portable-session\ncameras: []\n",
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "config" / "scoring" / "profiles" / "poomsae1_trimmed.yaml"
+    import yaml
+
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+    profile["session"] = "config/sessions/portable.yaml"
+    profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
+
+    report = check_reproducibility(
+        tmp_path,
+        output_root=tmp_path / "custom-output",
+        user_home=tmp_path / "empty-home",
+    )
+
+    checks = {check.name: check for check in report.checks}
+    assert checks["active_calibration"].path == str(
+        tmp_path / "custom-output" / "portable-session" / "calibration" / "cameras.json"
+    )
+
+
 def _write_minimal_checkout(root: Path) -> None:
     (root / "config" / "scoring" / "profiles").mkdir(parents=True)
     (root / "config" / "mmpose_configs").mkdir(parents=True)
