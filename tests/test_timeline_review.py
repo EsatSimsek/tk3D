@@ -4,7 +4,7 @@ from copy import deepcopy
 import pytest
 
 from src.poomsae_scoring import (
-    ScoringContractError, build_source_bound_accuracy_decisions,
+    ScoringContractError, build_decision_evidence_events, build_source_bound_accuracy_decisions,
     load_movement_timeline, load_poomsae_spec, load_source_bound_accuracy_profile,
     validate_movement_timeline,
 )
@@ -128,5 +128,12 @@ def test_high_confidence_and_large_angle_never_override_missing_phase_review():
     measured = next(item for item in result["numeric_decisions"] if item["measured_value"] is not None)
     assert measured["measured_value"] == 175.0
     assert measured["conditional_geometry_status"] == "confirmed_source_bound_minor"
+    video_event = next(
+        item for item in build_decision_evidence_events(result, spec, timeline)["events"]
+        if item.get("metric_id") == measured["metric_id"]
+    )
+    assert video_event["conditional_geometry_status"] == "confirmed_source_bound_minor"
+    assert video_event["decision_status"] == "timeline_unverified"
+    assert video_event["deduction_points"] is None
     assert result["categorical_decisions"][0]["deduction_points"] is None
     assert result["categorical_decisions"][0]["reason"] == "movement_timeline_review_unverified"

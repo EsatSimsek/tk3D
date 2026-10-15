@@ -150,10 +150,14 @@ def draw_evidence_panel(canvas: np.ndarray, events: list[dict], frame: int, fps:
     canvas[top:] = np.asarray(panel)[:, :, ::-1]
 
 
-def draw_pause_banner(canvas: np.ndarray, seconds_left: float) -> None:
+def draw_pause_banner(canvas: np.ndarray, seconds_left: float, *, review_only: bool = False) -> None:
     width = canvas.shape[1]
     banner = Image.new("RGB", (width, 48), "#21373D")
     draw = ImageDraw.Draw(banner)
-    _text(draw, "KESİNTİ ADAYI  ·  Resmî puan değil", 24, 11, width - 390, size=20, color="white", bold=True)
+    title = (
+        "İNCELEME DURAKLAMASI  ·  Faz onayı yok, puan yok"
+        if review_only else "KESİNTİ ADAYI  ·  Resmî puan değil"
+    )
+    _text(draw, title, 24, 11, width - 390, size=20, color="white", bold=True)
     _text(draw, f"Okuma arası · {seconds_left:.1f} s", width - 330, 12, 310, size=18, color="#D9E4E1")
     canvas[42:90] = np.asarray(banner)[:, :, ::-1]

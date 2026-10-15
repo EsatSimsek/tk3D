@@ -1,6 +1,6 @@
 # TK3D Güncel Proje Durumu
 
-Son doğrulama tarihi: **24 Eylül 2026**
+Son doğrulama tarihi: **12 Ekim 2026**
 
 Dal: **`main`**
 
@@ -58,6 +58,15 @@ Sıradaki aşama P2: iki kameradan altı hareketin gerçek uzman incelemesi.
 [boş uzman formu](docs/PILOT_UZMAN_INCELEME_FORMU.md) hazırdır. Henüz uzman
 incelemesi yapılmadı; üç aday ölçüt ve bağımsız referans yöntemi sonrasında
 kesinleştirilecektir.
+
+12 Ekim 2026 video inceleme düzenlemesinde, faz onayı eksik kaynak-bağlı
+ölçümler kesintiye çevrilmeden kamerada görünür hâle getirildi. Kaynak aralığı
+dışındaki ölçümün gözlenen 2B bölgesi kırmızı çizilir; alt kart ve üç saniyelik
+okuma duraklaması açıkça **“faz onayı yok, puan yok”** der. Bu çizgi 3B ölçümün
+bağımsız doğruluğu veya hakem kararı değildir. Gerçek `video-review-20261012-01`
+koşusunda kaynak videonun 741 karesi korunup üç okuma duraklamasıyla 1281 karelik
+çıktı oluştu; kesinti adayı sayısı yine sıfır ve toplam puan `null` kaldı.
+Yerel tam paket **542 passed**, Ruff temizdi. Eski koşular değiştirilmedi.
 
 31 Ağustos 2026'da kanonik Poomsae uygulamasına ayrı, puansız v3 teknik
 doğruluk katmanı eklendi. Aktif PoomsaeSpec'in M01–M18 hareketlerinin tamamı
@@ -120,7 +129,7 @@ view isteyen cross-view guided ikinci geçiş için doğal olarak `ZERO_WORK`
 | Bileşen | Doğrulanmış değer |
 | --- | --- |
 | İşletim sistemi | Windows 11 `10.0.26200`, AMD64 |
-| Python | CPython `3.12.13` |
+| Python | CPython `3.12.14` (24 Eylül yeniden denetimi) |
 | NumPy | `2.5.1` |
 | SciPy | `1.18.0` |
 | OpenCV | `5.0.0.93` |
@@ -133,11 +142,33 @@ view isteyen cross-view guided ikinci geçiş için doğal olarak `ZERO_WORK`
 | timm | `1.0.28` |
 
 Paket metadata'sı Python `>=3.11` ister. CI Windows/Python 3.11 ve CPU Torch
-hedefler; gerçek CUDA/ZED inference yalnız yukarıdaki yerel Python 3.12
-araştırma ortamında doğrulanmıştır. Ayrıntı:
+hedefler; gerçek CUDA/ZED inference yerel Python 3.12 araştırma ortamında
+doğrulanmıştır. Önceki ortam kaydı `3.12.13` idi; 24 Eylül yeniden denetiminde
+`3.12.14` ile testler ve ortam kontrolü çalıştırıldı, gerçek inference yeniden
+çalıştırılmadı. Ayrıntı:
 [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md).
 
 ## 4. Güncel test ve kalite kapısı
+
+24 Eylül 2026 RGB8 raporu yeniden denetimi (`main`, `2f95cb1`):
+
+- `git pull --ff-only`: güncel. Uygulama, model/config, aktif profil ve kayıtlar
+  değiştirilmedi; yalnız rapor ve ilgili belgeler güncellendi.
+- İlgili yedi test dosyası: **30 passed in 1.32s**.
+- Tam yerel paket: **541 passed in 81.21s**, atlama yok. JUnit:
+  `outputs/pytest-rgb8-reaudit-full-20260924-01.xml`.
+- `ruff check src scripts tests` ve `pip check` temiz.
+- `tk3d-check --json`: **READY**; bu mevcut ZED araştırma ortamı içindir,
+  yeni sekiz-kamera donanımının hazır olduğunu göstermez.
+- Model yüklemeden sekiz sanal kamerada farklı intrinsics/çözünürlük/distortion
+  ile 133 nokta triangulation, tek aykırı gözlemin reddi, depth'siz RGB dönüşü,
+  ofset işareti ve kalibrasyon stride eşleme kısıtı yeniden üretildi. Kanıt:
+  `outputs/rgb8_report_audit/runs/recheck-20260924-01/verification.json`.
+- [RGB8 raporu](docs/SEKIZ_FARKLI_RGB_KAMERA_KURULUM_RAPORU.md) revizyon 2;
+  kayıt/senkron, çevresel kalibrasyon, zemin hizası ve Poomsae video hazırlama
+  eksiklerini mevcut yeteneklerden ayırır. Sekiz gerçek cihaz kaydı, gerçek
+  RGB8 inference veya dış 3B doğruluk benchmark'ı yapılmadı. Uzak CI bu
+  incelemede yeniden doğrulanmadı; aşağıdaki CI kayıtları tarihseldir.
 
 23–24 Eylül 2026 gönderim öncesi CI kontrolü:
 

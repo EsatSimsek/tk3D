@@ -574,6 +574,7 @@ def _numeric_event(
         "rule_id": decision["rule_id"],
         "description": decision["description"],
         "decision_status": status,
+        "conditional_geometry_status": decision.get("conditional_geometry_status"),
         "display_status": display_status,
         "display_label": label,
         "display_color": color,

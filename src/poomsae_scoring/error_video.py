@@ -84,7 +84,8 @@ def render_decision_evidence_video(
             }
 
         events_by_frame, active_frames, joint_indices = _index_events(events, frame_count)
-        freeze_anchor_frames = _deduction_freeze_anchor_frames(events)
+        reading_pauses = _reading_pause_anchors(events)
+        freeze_anchor_frames = set(reading_pauses)
         freeze_frames_per_pause = int(round(expected_fps * deduction_freeze_seconds))
         observations = _load_observed_2d(
             Path(keypoints_2d_csv).resolve(),
@@ -138,7 +139,11 @@ def render_decision_evidence_video(
                     for freeze_index in range(freeze_frames_per_pause):
                         frozen = canvas.copy()
                         seconds_left = (freeze_frames_per_pause - freeze_index) / expected_fps
-                        draw_pause_banner(frozen, seconds_left)
+                        draw_pause_banner(
+                            frozen,
+                            seconds_left,
+                            review_only=reading_pauses[frame_index] == "review_only",
+                        )
                         writer.write(frozen)
                         rendered_frames += 1
         finally:
@@ -170,6 +175,9 @@ def render_decision_evidence_video(
         "freeze_seconds_per_pause": deduction_freeze_seconds,
         "inserted_freeze_frame_count": inserted_freeze_frames,
         "freeze_anchor_source_frames": sorted(freeze_anchor_frames),
+        "review_pause_anchor_source_frames": sorted(
+            frame for frame, mode in reading_pauses.items() if mode == "review_only"
+        ),
         "source_timeline_preserved": True,
         "output_timeline_extended_for_readability": bool(inserted_freeze_frames),
         "evidence_event_count": len(events),
@@ -180,16 +188,42 @@ def render_decision_evidence_video(
     }
 
 
-def _deduction_freeze_anchor_frames(events: list[dict[str, Any]]) -> set[int]:
-    anchors: set[int] = set()
+def _reading_pause_anchors(events: list[dict[str, Any]]) -> dict[int, str]:
+    anchors: dict[int, str] = {}
     for event in events:
+        window = event.get("evidence_window")
+        if not isinstance(window, dict):
+            continue
+        frame = int(window["anchor_frame"])
         points = event.get("deduction_points")
-        if event.get("decision_status") != "confirmed_source_bound_minor" or points is None:
-            continue
-        if float(points) <= 0.0:
-            continue
-        anchors.add(int(event["evidence_window"]["anchor_frame"]))
+        if event.get("decision_status") == "confirmed_source_bound_minor" and points is not None:
+            if float(points) > 0.0:
+                anchors[frame] = "deduction_candidate"
+        elif _is_unverified_measurement_highlight(event):
+            anchors.setdefault(frame, "review_only")
     return anchors
+
+
+def _is_unverified_measurement_highlight(event: dict[str, Any]) -> bool:
+    return (
+        event.get("event_kind") == "numeric_source_bound_decision"
+        and event.get("decision_status") == "timeline_unverified"
+        and event.get("conditional_geometry_status") == "confirmed_source_bound_minor"
+        and event.get("deduction_points") is None
+        and (event.get("measurement") or {}).get("value") is not None
+        and (event.get("visual_geometry") or {}).get("kind")
+        in {"joint_angle", "foot_direction_angle", "fist_to_thigh_distance"}
+    )
+
+
+def _display_priority(event: dict[str, Any]) -> tuple[int, str]:
+    if event.get("decision_status") == "confirmed_source_bound_minor":
+        return 0, event["event_id"]
+    if _is_unverified_measurement_highlight(event):
+        return 1, event["event_id"]
+    if event.get("event_kind") == "numeric_source_bound_decision":
+        return 2, event["event_id"]
+    return 3 + _STATUS_PRIORITY.get(event.get("decision_status"), 99), event["event_id"]
 
 
 def _index_events(
@@ -214,7 +248,7 @@ def _index_events(
         for frame_index in range(start, end + 1):
             indexed[frame_index].append(event)
     for frame_events in indexed.values():
-        frame_events.sort(key=lambda item: (_STATUS_PRIORITY.get(item["decision_status"], 99), item["event_id"]))
+        frame_events.sort(key=_display_priority)
     return dict(indexed), set(indexed), joints
 
 
@@ -259,7 +293,12 @@ def _draw_camera_pane(
     cv2.rectangle(pane, (0, 0), (pane.shape[1], 38), (61, 55, 33), -1)
     cv2.putText(pane, camera_id, (16, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.67, (235, 245, 250), 2, cv2.LINE_AA)
     for event_number, event in enumerate(active_events[:3], start=1):
-        color = _COLORS.get(event["display_color"], _COLORS["gray"])
+        # Red locates an out-of-range *measurement* here. The card and pause
+        # banner still state that an unreviewed phase has no score effect.
+        color = (
+            _COLORS["red"] if _is_unverified_measurement_highlight(event)
+            else _COLORS.get(event["display_color"], _COLORS["gray"])
+        )
         _draw_geometry(
             pane,
             event,

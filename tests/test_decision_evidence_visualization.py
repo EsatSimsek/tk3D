@@ -15,7 +15,7 @@ from src.poomsae_scoring import (
     load_movement_timeline,
     load_poomsae_spec,
 )
-from src.poomsae_scoring.error_video import render_decision_evidence_video
+from src.poomsae_scoring.error_video import _index_events, render_decision_evidence_video
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -376,6 +376,75 @@ def test_annotated_video_preserves_source_timeline_and_inserts_reading_pause(tmp
     capture = cv2.VideoCapture(str(output))
     assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 9
     capture.release()
+
+
+def test_unverified_source_measurement_stays_scoreless_but_gets_visual_reading_pause(tmp_path: Path) -> None:
+    fps, frame_count = 2.0, 3
+    cameras = {name: tmp_path / f"{name}.avi" for name in ("camera_a", "camera_b")}
+    for path in cameras.values():
+        writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), fps, (320, 180))
+        assert writer.isOpened()
+        for _ in range(frame_count):
+            writer.write(np.full((180, 320, 3), 35, dtype=np.uint8))
+        writer.release()
+
+    keypoints = tmp_path / "keypoints.csv"
+    with keypoints.open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(
+            stream, fieldnames=["frame_idx", "camera_id", "joint_idx", "x", "y", "score", "valid"]
+        )
+        writer.writeheader()
+        for camera_id in cameras:
+            for joint_index, point in zip(
+                (15, 16, 22, 20, 21), ((100, 80), (140, 80), (140, 100), (160, 130), (170, 130)), strict=True
+            ):
+                writer.writerow({
+                    "frame_idx": 1, "camera_id": camera_id, "joint_idx": joint_index,
+                    "x": point[0], "y": point[1], "score": 0.95, "valid": True,
+                })
+
+    window = {"start_frame": 1, "anchor_frame": 1, "end_frame": 1}
+    source_event = {
+        "event_id": "NUM-FOOT", "event_kind": "numeric_source_bound_decision",
+        "movement_id": "M01", "movement_name": "Ap-seogi", "metric_id": "back_foot_yaw_to_stance_direction_deg",
+        "decision_status": "timeline_unverified", "conditional_geometry_status": "confirmed_source_bound_minor",
+        "display_label": "Faz onayı yok — puan yok", "display_color": "amber", "deduction_points": None,
+        "measurement": {"value": 39.35, "unit": "deg", "rule_limits": [30.0]},
+        "visual_geometry": {"kind": "foot_direction_angle", "joint_indices": [15, 16, 22, 20, 21]},
+        "evidence_window": window,
+        "user_explanation": {"title": "Arka ayak açısı", "expected": "En fazla 30 derece", "measured": "39.35 derece"},
+    }
+    diagnostic = {
+        "event_id": "DIA-EMPTY", "event_kind": "wholebody_diagnostic_review_candidate",
+        "movement_id": "M01", "decision_status": "diagnostic_review_candidate",
+        "display_label": "Teşhis adayı — puan yok", "display_color": "blue", "deduction_points": None,
+        "measurement": {"value": 0.1}, "visual_geometry": {"kind": "highlight_joints", "joint_indices": []},
+        "evidence_window": window,
+    }
+    events = {"status": "decision_evidence_events", "frame_count": frame_count, "fps": fps,
+              "measurement_space": "tk3d_world_3d", "camera_overlay_space": "observed_vitpose_2d_visual_trace_only",
+              "camera_overlay_warning": "3D decision; 2D visual trace.",
+              "events": [diagnostic, source_event]}
+    indexed, _, _ = _index_events(events["events"], frame_count)
+    assert indexed[1][0]["event_id"] == "NUM-FOOT"
+
+    output = tmp_path / "review.mp4"
+    report = render_decision_evidence_video(
+        camera_videos=cameras, keypoints_2d_csv=keypoints, evidence_events=events, output_path=output
+    )
+    assert report["freeze_pause_count"] == 1
+    assert report["review_pause_anchor_source_frames"] == [1]
+    assert report["frame_count"] == 9
+    assert source_event["deduction_points"] is None
+    capture = cv2.VideoCapture(str(output))
+    assert capture.isOpened()
+    capture.set(cv2.CAP_PROP_POS_FRAMES, 1)
+    ok, frame = capture.read()
+    capture.release()
+    assert ok
+    # The observed 2B foot trace is red even though the card remains scoreless.
+    patch = frame[260:420, 360:600]
+    assert np.any((patch[:, :, 2] > 130) & (patch[:, :, 2] > patch[:, :, 1] + 35))
 
 
 def _empty_decisions(timeline: dict) -> dict:

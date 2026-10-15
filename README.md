@@ -188,9 +188,15 @@ aktarma ve ölçüm araması korunur. Koşu geçmişi aynı görsel düzeni kull
 
 İşaretli videonun alt paneli Türkçe karakterleri destekleyen ölçüm kartları
 kullanır; ayak açısı şeması açıklamadan ayrı çizilir. İki kamera çıktısı
-1920×1080'dir. İlk üç aktif bulgu görünür; ek bulgu sayısı HTML'ye yönlendirir.
-Okuma duraklamaları **kesinti adayı** olarak belirtilir. Kaynak kareler, FPS ve
-mevcut okuma araları korunur; bu düzen resmî puanlama yetkisi vermez. Yazı
+1920×1080'dir. İlk üç aktif bulgu görünür; kaynak-bağlı ölçümler genel teşhis
+adaylarından önce gösterilir, ek bulgu sayısı HTML'ye yönlendirir. Faz onayı
+eksik olsa bile kaynak aralığı dışında kalan ölçümün gözlenen 2B izi kırmızı
+çizilir ve kanıt anında okuma duraklaması eklenir. Bu durumda alt kart ve
+duraklama başlığı **“faz onayı yok, puan yok”** der; kırmızı iz yalnız ölçülen
+bölgeye dikkat çeker, kesinti anlamına gelmez. Onaylı kesinti adaylarının
+duraklaması ayrı etiketlenir. Kaynak kareler ve FPS korunur; eklenen okuma
+araları çıktı videosunun süresini uzatır. Bu düzen resmî puanlama yetkisi
+vermez. Yazı
 çizimi Pillow ile, paketle gelen Matplotlib DejaVu yazı tipleriyle yapılır;
 haricî yazı tipi indirilmez. Yeni görünüm yeni koşulara uygulanır, eski
 `outputs/` kayıtları yerinde değiştirilmez.
@@ -362,6 +368,9 @@ için yalnız [`PROJECT_STATUS.md`](PROJECT_STATUS.md) referans alınmalıdır.
 
 ## Daha derin belgeler
 
+- Sekiz farklı RGB kamera için kurulum ve geliştirme planı (henüz gerçek
+  sekiz-kamera doğrulaması değil):
+  [`docs/SEKIZ_FARKLI_RGB_KAMERA_KURULUM_RAPORU.md`](docs/SEKIZ_FARKLI_RGB_KAMERA_KURULUM_RAPORU.md)
 - Güncel teknik hafıza: [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md)
 - Mühendislik sırası: [`docs/ENGINEERING_WORKFLOW.md`](docs/ENGINEERING_WORKFLOW.md)
 - Veri/workflow sınıfları: [`docs/DATASET_NOTES.md`](docs/DATASET_NOTES.md)
