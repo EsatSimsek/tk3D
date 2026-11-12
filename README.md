@@ -238,6 +238,43 @@ Kalite kapısı başarısızsa tanısal dosyalar korunur, run `failed` olur ve �
 başarılı `latest_run.json` değiştirilmez. `stride > 1` yalnız inference
 örneklemesidir; çıktı zaman çizelgesi kaynak videonun süresini korur.
 
+### 6.1 Kalibrasyon kayıtla uyuşmuyor
+
+Her 3B koşu, yüksek güvenli 2B noktaların işaretli epipolar sapmasını ölçer
+(`run_quality_report.json` → `calibration_consistency`). Kalibrasyon kayıttan
+sonra kameralar oynatılarak alınmışsa noktalar hep aynı yönde sapar; mutlak
+medyan 3 pikseli aşarsa koşu `failed` olur ve `latest` değişmez.
+
+Bu durumda doğru çözüm kameraları oynatmadan kalibrasyonu yenilemektir. Eski
+bir kayıt için kameralardan birinin yönelimi kaydın kendi noktalarından yeniden
+kestirilebilir. Komut yeni bir dosya yazar; kaynak kalibrasyon değişmez. Çift
+karelerde kestirir, tek karelerde sonucu raporlar. Sonuç iki kameranın kendi
+içinde tutarlı olduğunu gösterir, bağımsız 3B doğruluk kanıtı değildir.
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$session = "outputs\poomsae_1_zed2i_20260731_trimmed"
+python scripts\refine_calibration_from_keypoints.py `
+  --calibration "$session\calibration\cameras.json" `
+  --keypoints-2d "data\poomsae_1_zed2i_20260731_trimmed\reference\csv\vitpose_keypoints_2d_flat.csv" `
+  --reference-camera zed_35151067 `
+  --output "$session\calibration\cameras_keypoint_refined_$(Get-Date -Format 'yyyyMMdd').json"
+```
+
+Seçilen kalibrasyonla 3B ve Poomsae analizi:
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+.\.venv312\Scripts\Activate.ps1
+$runId = "refined-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+tk3d-poomsae --profile poomsae1_trimmed --process-video --run-id $runId `
+  --calibration "outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras_keypoint_refined_20261113.json"
+Write-Host "Çıktı: $((Resolve-Path "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId").Path)"
+```
+
+`tk3d-multiview` de aynı `--calibration` seçeneğini kabul eder.
+
 ## 7. Mevcut doğrulanmış pose ile Poomsae analizi
 
 Bu komut paketle gelen referans pose'u kullanır; ViTPose inference'ı yeniden

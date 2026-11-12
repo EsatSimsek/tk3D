@@ -18,6 +18,7 @@ from src.artifact_contracts import (
     validate_artifact_manifest_binding,
     validate_run_quality_artifact,
 )
+from src.calibration_refinement import calibration_consistency_report
 from src.camera_calibration import PRODUCTION_CALIBRATION_MODES, load_calibration_bundle, save_calibrations
 from src.coordinate_system import (
     ANALYSIS_COORDINATE_SYSTEM,
@@ -117,6 +118,7 @@ class MultiviewRunOptions:
     benchmark_window_start: int = 140
     benchmark_window_end: int = 259
     profiler_baseline_seconds: float | None = None
+    calibration: str | Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +222,13 @@ def _execute_multiview_pose(
         polynomial_order=int(offline_2d_config.get("polynomial_order", 2)),
         min_outlier_distance_px=float(offline_2d_config.get("min_outlier_distance_px", 6.0)),
     )
-    calibrations_path = output_root / session.session_id / "calibration" / "cameras.json"
+    calibrations_path = (
+        (ROOT / args.calibration).resolve()
+        if args.calibration is not None
+        else output_root / session.session_id / "calibration" / "cameras.json"
+    )
+    if args.calibration is not None and not calibrations_path.is_file():
+        raise SystemExit(f"Selected calibration not found: {calibrations_path}")
     if calibrations_path.exists():
         bundle = load_calibration_bundle(calibrations_path)
         calibrations = bundle.calibrations
@@ -987,15 +995,38 @@ def _execute_multiview_pose(
         if body_provenance.size
         else 0.0
     )
-    finite_errors = arrays["reprojection_error"][np.isfinite(arrays["reprojection_error"])]
-    mean_reprojection_error = float(np.mean(finite_errors)) if finite_errors.size else None
-    minimum_body_valid_ratio = float(reliability_config.get("min_output_valid_body_ratio", 0.90))
-    quality_passed = bool(
-        production_ready_calibration
-        and mean_body_valid_ratio >= minimum_body_valid_ratio
-        and mean_reprojection_error is not None
-        and mean_reprojection_error <= max_error
+    # Observed (not temporally recovered) BODY-17 points that survive to the output.
+    observed_valid_body_ratio = (
+        float(np.mean(body_valid & (body_provenance == PROVENANCE_OBSERVED))) if body_valid.size else 0.0
     )
+    # Reprojection is reported only for points that are valid in the output; every
+    # triangulated point is already individually limited to max_error, so a mean
+    # over them compared with the same limit could never fail and is not a gate.
+    output_valid = np.all(np.isfinite(arrays["keypoints_3d_world"]), axis=-1)
+    output_errors = np.where(output_valid, arrays["reprojection_error"], np.nan)
+    finite_errors = output_errors[np.isfinite(output_errors)]
+    mean_reprojection_error = float(np.mean(finite_errors)) if finite_errors.size else None
+    body_errors = output_errors[:, :body_count]
+    reprojection_distribution = {
+        "scope": "output_valid_points_only",
+        "body17": _distribution_px(body_errors[np.isfinite(body_errors)]),
+        "all_133": _distribution_px(finite_errors),
+    }
+    consistency_config = model_config.get("calibration_consistency", {})
+    calibration_consistency = calibration_consistency_report(
+        poses_2d_by_frame,
+        selected_calibrations,
+        min_keypoint_score=float(consistency_config.get("min_keypoint_score", 0.80)),
+        max_abs_signed_median_px=float(consistency_config.get("max_abs_signed_epipolar_median_px", 3.0)),
+        min_correspondences=int(consistency_config.get("min_correspondences", 200)),
+    )
+    minimum_body_valid_ratio = float(reliability_config.get("min_output_valid_body_ratio", 0.90))
+    quality_checks = {
+        "production_ready_calibration": bool(production_ready_calibration),
+        "observed_body17_valid_ratio_at_least_minimum": observed_valid_body_ratio >= minimum_body_valid_ratio,
+        "calibration_consistent_with_recording": bool(calibration_consistency["passed"]),
+    }
+    quality_passed = all(quality_checks.values())
     internal_sensor_consistency = internal_sensor_consistency_status(
         internal_geometry_passed=quality_passed,
         zed_depth_fusion_report=depth_fusion.report,
@@ -1027,6 +1058,10 @@ def _execute_multiview_pose(
             "temporally_recovered_body17_ratio": recovered_body_ratio,
             "mean_reprojection_error_px": mean_reprojection_error,
             "max_reprojection_error_px": max_error,
+            "observed_valid_body17_ratio": observed_valid_body_ratio,
+            "quality_checks": quality_checks,
+            "reprojection_error_distribution": reprojection_distribution,
+            "calibration_consistency": calibration_consistency,
             "reliability_filter": reliability.summary,
             "global_body17_optimization": {
                 "applied": global_optimization.applied,
@@ -1227,6 +1262,13 @@ def _execute_multiview_pose(
         print(f"global_body17_fallback_reason: {global_optimization.report.get('fallback_reason')}")
     print(f"run_id: {run_id}")
     print(f"internal_geometry_quality_status: {'passed' if quality_passed else 'failed'}")
+    for pair in calibration_consistency["pairs"]:
+        print(
+            "calibration_consistency "
+            f"{pair['cameras'][0]}-{pair['cameras'][1]}: signed epipolar median "
+            f"{pair['signed_median_px'] if pair['signed_median_px'] is None else round(pair['signed_median_px'], 2)} px "
+            f"({'passed' if pair['passed'] else 'FAILED'})"
+        )
     print("ground_truth_accuracy_status: not_evaluated_in_this_command")
     print(f"provisional_scoring_ready: {str(provisional_scoring_ready).lower()}")
     print("official_scoring_ready: false")
@@ -1768,6 +1810,19 @@ def _provenance_at_frame(
             else insertion
         )
     return values[selected]
+
+
+def _distribution_px(values: np.ndarray) -> dict:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return {"count": 0, "median": None, "p95": None, "max": None}
+    return {
+        "count": int(finite.size),
+        "median": float(np.median(finite)),
+        "p95": float(np.percentile(finite, 95.0)),
+        "max": float(np.max(finite)),
+    }
 
 
 def _target_sample_count(source_frames: int, max_frames: int | None, stride: int) -> int:

@@ -152,3 +152,32 @@ def test_global_optimizer_falls_back_without_overwriting_initial_data_when_gate_
     assert result.report["fallback_used"]
     assert "body_correction_too_large" in result.report["fallback_reason"]
     np.testing.assert_allclose(result.keypoints_3d, initial, equal_nan=True)
+
+
+def _run(initial, valid, confidence, poses, calibrations):
+    config = GlobalPoseOptimizationConfig(minimum_bone_samples=5, outer_iterations=2, max_solver_evaluations=25, max_p95_correction_m=0.50)
+    frames = np.arange(initial.shape[0])
+    return optimize_body_sequence(initial, valid, confidence, frames, frames / 30.0, poses, calibrations, np.eye(4), config)
+
+
+def test_points_rejected_by_triangulation_get_no_image_observations_when_recovered() -> None:
+    _, poses, calibrations, initial, confidence, valid = _noisy_problem()
+    right_knee = COCO_BODY_JOINTS["right_knee"]
+    rejected = valid.copy()
+    rejected[14:16, right_knee] = False  # geometry rejected; the 2D detections still exist
+    with_2d = _run(initial, rejected, confidence, poses, calibrations)
+    for frame in (14, 15):
+        for pose in poses[frame].values():
+            pose.valid_mask[right_knee] = False
+    without_2d = _run(initial, rejected, confidence, poses, calibrations)
+    assert with_2d.report["observation_count"] == without_2d.report["observation_count"]
+    assert np.all(with_2d.provenance[14:16, right_knee] == PROVENANCE_TEMPORALLY_RECOVERED)
+    assert with_2d.report["comparison_scope"] == "observed_body_points_before_and_after"
+
+
+def test_solver_success_reports_convergence_not_only_a_finite_cost() -> None:
+    _, poses, calibrations, initial, confidence, valid = _noisy_problem()
+    report = _run(initial, valid, confidence, poses, calibrations).report
+    assert report["solver_cost_finite"] is True
+    assert report["solver_success"] == report["solver_converged"]
+    assert "solver_cost_finite" in report["acceptance_gate"]["checks"]

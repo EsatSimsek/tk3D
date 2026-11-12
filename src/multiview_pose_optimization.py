@@ -424,11 +424,15 @@ def optimize_body_sequence(
         valid[:, :body_count],
         config.max_gap_frames,
     )
+    # Image observations constrain only points that triangulation accepted. A short
+    # gap (including a point triangulation rejected) is recovered from temporal and
+    # bone constraints alone; re-admitting its rejected 2D measurement here would
+    # bring back evidence that geometry already excluded.
     observations = _collect_observations(
         frame_ids,
         poses_2d_by_frame,
         calibrations,
-        body_active,
+        body_observed,
         body_count,
         config.min_observation_score,
     )
@@ -467,7 +471,8 @@ def optimize_body_sequence(
     sparsity = problem.jacobian_sparsity()
     camera_weights = _initial_camera_weights(problem, x)
     iteration_reports: list[dict[str, Any]] = []
-    solver_success = False
+    solver_cost_finite = False
+    solver_converged = False
     solver_message = ""
     total_evaluations = 0
 
@@ -485,7 +490,8 @@ def optimize_body_sequence(
             )
             x = result.x
             total_evaluations += int(result.nfev)
-            solver_success = bool(result.success or np.isfinite(result.cost))
+            solver_cost_finite = bool(np.isfinite(result.cost))
+            solver_converged = bool(result.success)
             solver_message = str(result.message)
             updated_weights, camera_errors = _update_camera_weights(problem, x, camera_weights)
             iteration_reports.append(
@@ -520,8 +526,11 @@ def optimize_body_sequence(
     after_errors, after_by_observation = _observation_errors(problem, optimized_body)
     correction = np.linalg.norm(optimized_body[body_observed] - body_seed[body_observed], axis=1)
     before_metrics = _quality_metrics(problem.seed, body_observed, before_errors, reference_lengths, timestamps)
-    after_metrics = _quality_metrics(optimized_body, body_active, after_errors, reference_lengths, timestamps)
-    gate = _acceptance_gate(before_metrics, after_metrics, correction, solver_success, config)
+    # The gate compares the same observed points before and after; interpolated
+    # recovered points are smooth by construction and would bias the comparison.
+    after_metrics = _quality_metrics(optimized_body, body_observed, after_errors, reference_lengths, timestamps)
+    after_including_recovered = _quality_metrics(optimized_body, body_active, after_errors, reference_lengths, timestamps)
+    gate = _acceptance_gate(before_metrics, after_metrics, correction, solver_cost_finite, config)
 
     report = {
         "algorithm": "tk3d_global_body17_bundle_adjustment_v1",
@@ -536,7 +545,11 @@ def optimize_body_sequence(
             np.count_nonzero(body_provenance == PROVENANCE_TEMPORALLY_RECOVERED)
         ),
         "observation_count": int(observations.frame.size),
-        "solver_success": solver_success,
+        # least_squares often stops at max_nfev; that is reported as not converged
+        # rather than as success. The gate requires a finite cost and no metric loss.
+        "solver_success": solver_converged,
+        "solver_converged": solver_converged,
+        "solver_cost_finite": solver_cost_finite,
         "solver_message": solver_message,
         "solver_function_evaluations": total_evaluations,
         "outer_iterations_completed": len(iteration_reports),
@@ -550,6 +563,8 @@ def optimize_body_sequence(
         },
         "before": before_metrics,
         "after": after_metrics,
+        "after_including_recovered": after_including_recovered,
+        "comparison_scope": "observed_body_points_before_and_after",
         "correction_m": _distribution(correction),
         "acceptance_gate": gate,
         "iterations": iteration_reports,
@@ -987,7 +1002,7 @@ def _acceptance_gate(
     after_acceleration_p95 = after["acceleration_mps2"]["p95"]
     correction_p95 = _distribution(correction)["p95"]
     if not solver_success:
-        failures.append("solver_failed")
+        failures.append("solver_cost_not_finite")
     if before_median is not None and after_median is not None:
         limit = max(
             before_median * config.max_median_reprojection_degradation_ratio,
@@ -1019,7 +1034,7 @@ def _acceptance_gate(
         "passed": not failures,
         "reason": None if not failures else ",".join(failures),
         "checks": {
-            "solver_success": solver_success,
+            "solver_cost_finite": solver_success,
             "median_reprojection_not_degraded": "median_reprojection_degraded" not in failures,
             "p95_reprojection_not_degraded": "p95_reprojection_degraded" not in failures,
             "p95_acceleration_not_degraded": "p95_acceleration_degraded" not in failures,

@@ -38,6 +38,10 @@ def main() -> int:
     )
     parser.add_argument("--run-id", help="Optional unique output run id.")
     parser.add_argument(
+        "--calibration",
+        help="With --process-video: explicit calibration JSON for the 3D stage (default: the session calibration).",
+    )
+    parser.add_argument(
         "--profile-performance",
         action="store_true",
         help="Write a separate performance_report.json without changing scoring artifacts.",
@@ -49,6 +53,7 @@ def main() -> int:
             process_video=args.process_video,
             requested_run_id=args.run_id,
             profile_performance=args.profile_performance,
+            calibration=args.calibration,
         )
     except (WorkflowError, OSError, ValueError, yaml.YAMLError, json.JSONDecodeError) as exc:
         parser.exit(1, f"TK3D Poomsae analysis workflow failed: {exc}\n")

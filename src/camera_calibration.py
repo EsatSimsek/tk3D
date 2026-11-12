@@ -17,6 +17,9 @@ PRODUCTION_CALIBRATION_MODES = {
     "aist_official_multiview",
     "mads_official_multiview",
     "zed_fusion_multiview",
+    # Fusion poses with one camera orientation re-estimated from the recording's own
+    # keypoints (src/calibration_refinement.py); carries its own provenance.
+    "zed_fusion_multiview_keypoint_refined",
 }
 
 

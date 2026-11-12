@@ -88,12 +88,14 @@ def run_poomsae_analysis(
     process_video: bool = False,
     requested_run_id: str | None = None,
     profile_performance: bool = False,
+    calibration: str | None = None,
 ) -> PoomsaeAnalysisResult:
     summary_path = run_workflow(
         profile_value=profile_value,
         process_video=process_video,
         requested_run_id=requested_run_id,
         profile_performance=profile_performance,
+        calibration=calibration,
     )
     summary = _read_json(summary_path)
     return PoomsaeAnalysisResult(
@@ -109,7 +111,10 @@ def run_workflow(
     process_video: bool,
     requested_run_id: str | None,
     profile_performance: bool = False,
+    calibration: str | None = None,
 ) -> Path:
+    if calibration is not None and not process_video:
+        raise WorkflowError("--calibration only applies with --process-video.")
     profiler = PerformanceCollector() if profile_performance else None
     run_stage = _run_stage if profiler is None else partial(_run_stage, profiler=profiler)
     profile_path = _resolve_profile(profile_value)
@@ -132,7 +137,7 @@ def run_workflow(
         return _execute_workflow(
             profile_path=profile_path, profile=profile, paths=paths, session=session,
             run_id=run_id, run_root=run_root, process_video=process_video,
-            profiler=profiler, run_stage=run_stage,
+            profiler=profiler, run_stage=run_stage, calibration=calibration,
         )
     except (Exception, KeyboardInterrupt) as exc:
         # A video subprocess owns creation of its output tree. Do not pre-create it.
@@ -155,6 +160,7 @@ def _execute_workflow(
     *, profile_path: Path, profile: dict[str, Any], paths: dict[str, Path],
     session: Any, run_id: str, run_root: Path, process_video: bool,
     profiler: PerformanceCollector | None, run_stage: Any,
+    calibration: str | None = None,
 ) -> Path:
     if process_video:
         _verify_process_inputs(paths["session"], session.session_id, paths["output_root"])
@@ -187,6 +193,7 @@ def _execute_workflow(
             "--run-id",
             run_id,
             "--defer-latest",
+            *(("--calibration", _resolve_path(calibration)) if calibration is not None else ()),
         )
         pose_path = run_root / "json" / "vitpose_session_3d.json"
         _require_file(pose_path, "processed 3D pose")

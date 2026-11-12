@@ -302,6 +302,21 @@ def validate_model_config(config: dict[str, Any]) -> dict[str, Any]:
     )
     if not 0.0 <= minimum_ratio <= 1.0:
         raise ValueError("reliability.min_output_valid_body_ratio must be between 0 and 1")
+    consistency = config.get("calibration_consistency", {})
+    if not isinstance(consistency, dict):
+        raise ValueError("calibration_consistency must be a mapping")
+    unknown = set(consistency) - {"min_keypoint_score", "max_abs_signed_epipolar_median_px", "min_correspondences"}
+    if unknown:
+        raise ValueError(f"calibration_consistency has unknown keys: {sorted(unknown)}")
+    score = _finite_number(consistency.get("min_keypoint_score", 0.80), "calibration_consistency.min_keypoint_score")
+    if not 0.0 <= score <= 1.0:
+        raise ValueError("calibration_consistency.min_keypoint_score must be between 0 and 1")
+    if _finite_number(
+        consistency.get("max_abs_signed_epipolar_median_px", 3.0), "calibration_consistency.max_abs_signed_epipolar_median_px"
+    ) <= 0.0:
+        raise ValueError("calibration_consistency.max_abs_signed_epipolar_median_px must be positive")
+    if int(consistency.get("min_correspondences", 200)) < 1:
+        raise ValueError("calibration_consistency.min_correspondences must be positive")
     return config
 
 

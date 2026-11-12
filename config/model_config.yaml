@@ -136,3 +136,14 @@ reliability:
   max_temporal_acceleration_mps2: 70.0
   minimum_bone_samples: 5
   min_output_valid_body_ratio: 0.90
+
+# Per-run check that the calibration still matches the recorded camera geometry.
+# Signed point-to-epipolar-line distance of high-confidence 2D keypoints; a
+# calibration that no longer matches shows a same-signed bias, while noise is
+# centred on zero. On the 2026-07-31 recording the Fusion calibration (saved 52
+# minutes after recording) gave -10.5 px, a held-out refined pose 0.04 px with a
+# 1.9 px noise median; 3 px separates the two. Unvalidated engineering default.
+calibration_consistency:
+  min_keypoint_score: 0.80
+  max_abs_signed_epipolar_median_px: 3.0
+  min_correspondences: 200

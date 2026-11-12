@@ -64,6 +64,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep diagnostic files when quality gates fail; the run is not promoted as latest.",
     )
+    parser.add_argument(
+        "--calibration",
+        default=None,
+        help="Explicit calibration JSON (default: outputs/<session_id>/calibration/cameras.json).",
+    )
     parser.add_argument("--defer-latest", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--profile-performance",
@@ -121,6 +126,7 @@ def main() -> int:
         benchmark_window_start=args.benchmark_window_start,
         benchmark_window_end=args.benchmark_window_end,
         profiler_baseline_seconds=args.profiler_baseline_seconds,
+        calibration=args.calibration,
     )
     try:
         run_multiview_pose(options)
