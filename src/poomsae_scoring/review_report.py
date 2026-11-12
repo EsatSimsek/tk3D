@@ -7,7 +7,13 @@ from typing import Any
 
 from src.poomsae_scoring.report_style import REPORT_CSS
 from src.poomsae_scoring.timeline_review import timeline_review_status
+from src.poomsae_scoring.fixation_review import FIXATION_REVIEW_JS, fixation_review_section
 
+from src.poomsae_scoring.decision_evidence import (
+    format_expected_text,
+    format_measured_text,
+    unit_label,
+)
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
     validate_movement_timeline,
@@ -69,6 +75,7 @@ def build_review_html(
     technical_accuracy_diagnostics_report: dict[str, Any] | None = None,
     analysis_run_id: str | None = None,
     review_input_hashes: dict[str, str] | None = None,
+    fixation_quality_urls: dict[str, str | None] | None = None,
 ) -> str:
     """Build a self-contained, synchronized two-camera review page."""
     spec = validate_poomsae_spec(poomsae_spec)
@@ -104,6 +111,8 @@ def build_review_html(
             raise ScoringContractError("automatic segmentation report status is invalid")
         if automatic_segmentation_report.get("movement_timeline_id") != timeline["timeline_id"]:
             raise ScoringContractError("automatic segmentation must reference the same MovementTimeline")
+        if "fixation_candidates" in automatic_segmentation_report and not isinstance(automatic_segmentation_report.get("review_binding"), dict):
+            raise ScoringContractError("automatic fixation review binding is missing")
 
     movement_by_id = {movement["movement_id"]: movement for movement in spec["movements"]}
     evidence_by_id = {segment["movement_id"]: segment for segment in evidence_report.get("segments", [])}
@@ -125,13 +134,16 @@ def build_review_html(
         for index, (label, source) in enumerate(video_sources.items())
     )
     movement_cards = "".join(
-        _movement_card(segment, movement_by_id[segment["movement_id"]], evidence_by_id.get(segment["movement_id"]), timeline["fps"])
+        _movement_card(segment, movement_by_id[segment["movement_id"]], evidence_by_id.get(segment["movement_id"]), timeline["fps"],
+                       label_source=timeline.get("label_source"),
+                       review_status=timeline_review_status(timeline, segment["movement_id"])["status"])
         for segment in timeline["segments"]
     )
     missing_cards = "".join(
         f'<span class="missing-chip">{_escape(movement_id)} · {_escape(movement_by_id[movement_id]["display_name"])}</span>'
         for movement_id in missing
     )
+    fixation_link = '<a href="#fixation-review">Otomatik sabitlemeler</a>' if automatic_segmentation_report and "fixation_candidates" in automatic_segmentation_report else ""
     blockers = readiness_report.get("blockers", [])
     blocker_html = "".join(
         f'<li><code>{_escape(item.get("code", "unknown"))}</code><span>{_escape(item.get("message", ""))}</span></li>'
@@ -142,6 +154,8 @@ def build_review_html(
         for source in spec["source_documents"]
     )
     page_data = {
+        "fixation_report": automatic_segmentation_report if automatic_segmentation_report and "fixation_candidates" in automatic_segmentation_report else None,
+        "fixation_review_binding": automatic_segmentation_report.get("review_binding") if automatic_segmentation_report and "fixation_candidates" in automatic_segmentation_report else None,
         "review_binding": build_review_binding(timeline, {
             "spec": spec, "evidence": evidence_report, "readiness": readiness_report,
             "decisions": accuracy_decisions_report, "events": decision_evidence_report,
@@ -225,7 +239,7 @@ def build_review_html(
     <p>{len(video_sources)} kamera, aynı zaman çizelgesi ve hareket/faz ölçümleri tek ekranda.</p></div>
     <div class="pill">Kısmi kayıt · {len(observed)}/{len(spec["movements"])}</div></header>
   <section class="notice"><div>⚠</div><div><strong>Bu çıktı tam veya resmî puan değildir.</strong><p>{_escape(decision_notice)} {_escape(source_end_reason)}</p></div></section>
-  <nav class="report-nav" aria-label="Rapor bölümleri"><a href="#cameras">Kamera kaydı</a><a href="#movements">Hareketler</a><a href="#findings">Bulgular</a><a href="#details">Teknik ayrıntılar</a>{history_link}</nav>
+  <nav class="report-nav" aria-label="Rapor bölümleri"><a href="#cameras">Kamera kaydı</a><a href="#movements">Çizelge etiketleri</a>{fixation_link}<a href="#findings">Bulgular</a><a href="#details">Teknik ayrıntılar</a>{history_link}</nav>
   <section class="stats">
     <div class="stat"><span>Kayıttaki hareket</span><b>{len(observed)} / {len(spec["movements"])}</b></div>
     <div class="stat"><span>Ölçülen faz ankrajı</span><b>{anchor_count}</b></div>
@@ -235,7 +249,9 @@ def build_review_html(
   <section class="section" id="cameras"><div class="eyebrow">01 / Kayıt</div><h2>Senkron kamera incelemesi</h2><div class="videos" style="--camera-count:{len(video_sources)}">{video_html}</div>
     <div class="toolbar"><button type="button" id="sync-play">▶ {len(video_sources)} kamerayı oynat</button><button type="button" id="sync-pause">Ⅱ Duraklat</button><button type="button" id="sync-zero">↺ Başa dön</button><span id="clock">00:00.000</span><span id="sync-status" aria-live="polite">Videolar hazırlanıyor…</span><p>Bir videoda sarınca diğerleri aynı zamana gelir.</p></div>
   </section>
-  <section class="section" id="movements"><div class="eyebrow">02 / Hareketler</div><h2>Kayıtta bulunan hareketler</h2><div class="movement-grid">{movement_cards}</div></section>
+  <section class="section" id="movements"><div class="eyebrow">02 / Hareketler</div><h2>Zaman çizelgesindeki hareketler</h2>
+    <p>Bu kartlardaki zamanlar mevcut etiketlerden gelir; yeni dedektörün sonuçları ayrı gösterilir. {fixation_link}</p>
+    <div class="movement-grid">{movement_cards}</div></section>
   <div id="findings"><div class="eyebrow">03 / Karar incelemesi</div>{decision_section}</div>
   <div id="details"><h2>Teknik ayrıntılar</h2>
     <details class="report-detail"><summary>Ölçüm kapsamı ve teşhis özeti<small>Raporlanan tüm göstergeler</small></summary><div class="stats">{wholebody_stat}{categorical_stat}{technical_stat}{accuracy_diagnostic_stat}{presentation_stat}{automatic_stat}{trial_stat}</div></details>
@@ -253,6 +269,8 @@ def build_review_html(
   </div>
   <section class="section"><h2>Kaynaklar ve yorum sınırı</h2><p>{_escape(evidence_report.get("interpretation", ""))}</p><div class="sources">{sources}</div></section>
   <footer>Timeline: {_escape(timeline["timeline_id"])} · Pose SHA-256 doğrulaması: {_escape(readiness_report.get("pose_binding", {}).get("status", "unknown"))}</footer>
+  <div class="sync-controls">{''.join(f'<a href="{html.escape(url, quote=True)}">{html.escape(label)}</a> ' for label, url in (fixation_quality_urls or {}).items() if url)}</div>
+  {fixation_review_section(automatic_segmentation_report)}
 </main>
 <script id="review-data" type="application/json">{safe_data}</script>
 <script>
@@ -402,7 +420,9 @@ def build_review_html(
       const reviewer = document.getElementById('reviewer-name').value.trim();
       if (!reviewer) {{ updateReviewStatus('Önce inceleyen adını/kodunu girin.'); return; }}
       reviewSelections[eventId] = {{decision:button.dataset.reviewValue, reviewer, reviewed_at:new Date().toISOString()}};
-      document.querySelectorAll(`[data-review-event="${{eventId}}"]`).forEach(item => item.classList.toggle('selected', item === button));
+      // Compare dataset values instead of interpolating the id into a CSS selector, so
+      // quotes or backslashes in an event id cannot break or widen the query.
+      document.querySelectorAll('[data-review-event]').forEach(item => {{ if (item.dataset.reviewEvent === eventId) item.classList.toggle('selected', item === button); }});
       persistReviews();
     }});
   }});
@@ -487,6 +507,7 @@ def build_review_html(
   window.addEventListener('beforeunload', () => reviewVideoObjectUrls.forEach(url => URL.revokeObjectURL(url)));
   updateReviewStatus();
   update(0);
+  {FIXATION_REVIEW_JS}
 }})();
 </script></body></html>
 '''
@@ -497,12 +518,15 @@ def _movement_card(
     movement: dict[str, Any],
     evidence: dict[str, Any] | None,
     fps: float,
+    *, label_source: str | None = None, review_status: str = "unverified",
 ) -> str:
     evidence = evidence or {}
     start_sec = segment["start_frame"] / fps
     end_sec = segment["end_frame"] / fps
+    source_label = "Elle işaret" if label_source == "manual" else "Çizelge etiketi"
+    review_label = "İnceleme kaydı bağlı" if review_status == "verified" else "İnceleme onayı yok"
     anchors = "".join(
-        f'<button type="button" class="anchor" data-seek="{frame / fps:.6f}">{_escape(phase)} · {frame / fps:.2f}s</button>'
+        f'<button type="button" class="anchor" data-seek="{frame / fps:.6f}" title="{source_label}; {review_label}; yeni otomatik öneri değildir">{source_label} · {_escape(phase)} · {frame / fps:.2f}s</button>'
         for phase, frame in segment["anchors"].items()
     )
     valid_ratio = evidence.get("body17_valid_ratio")
@@ -511,7 +535,8 @@ def _movement_card(
     return f'''<article class="movement" data-movement="{_escape(segment["movement_id"])}" data-start="{start_sec:.6f}">
       <div class="movement-top"><span class="movement-id">{_escape(segment["movement_id"])}</span><span>{start_sec:.2f}–{end_sec:.2f}s</span></div>
       <div class="movement-name">{_escape(movement["display_name"])}</div>
-      <div class="metrics"><span>Etiket güveni <b>%{segment["confidence"] * 100:.0f}</b></span><span>BODY-17 <b>{_percent(valid_ratio)}</b></span>
+      <p>{source_label} · {review_label}</p>
+      <div class="metrics"><span>Etikette beyan edilen güven <b>%{segment["confidence"] * 100:.0f}</b> (doğruluk oranı değil)</span><span>BODY-17 <b>{_percent(valid_ratio)}</b></span>
         <span>Reprojection <b>{_number(reprojection, " px")}</b></span><span>Kamera <b>{_number(cameras, "")}</b></span></div>
       <div class="anchors">{anchors}</div>
     </article>'''
@@ -684,20 +709,19 @@ def _wholebody_metric_cell(metric: dict[str, Any]) -> str:
         css_class = "wb-diag"
         dot = "&#8505;"
 
-    value_text = "&mdash;" if value is None else f"{float(value):.2f}"
     label = _CRITERION_LABELS.get(criterion_id, criterion_id)
-
+    operator = None if screening_rule is None else screening_rule.get("operator")
+    # Same formatting path as the evidence events: booleans become Evet/Hayır,
+    # abs_max/min/boolean expectations are written out instead of "—".
+    value_text = "—" if value is None else format_measured_text(value, unit or None, operator=operator)
     if screening_rule is None:
         range_text = "yalnız tanılı"
-    elif screening_rule.get("operator") == "max":
-        range_text = f"eşik ≤ {float(screening_rule['value']):.1f} {_escape(unit)}"
-    elif screening_rule.get("operator") == "min":
-        range_text = f"eşik ≥ {float(screening_rule['value']):.1f} {_escape(unit)}"
-    elif screening_rule.get("operator") == "range":
-        limits = screening_rule["value"]
-        range_text = f"aralık {float(limits[0]):.1f}–{float(limits[1]):.1f} {_escape(unit)}"
     else:
-        range_text = ""
+        raw_limits = screening_rule.get("value")
+        limits = raw_limits if isinstance(raw_limits, list) else [] if raw_limits is None else [raw_limits]
+        range_text = format_expected_text(
+            operator, limits, unit or None, expected_boolean=screening_rule.get("expected_boolean"),
+        ).replace("Olması gereken: ", "eşik: ")
 
     sample_count = metric.get("sample_count")
     uncertainty = metric.get("uncertainty_95")
@@ -714,7 +738,7 @@ def _wholebody_metric_cell(metric: dict[str, Any]) -> str:
     return f'''<div class="wb-m {css_class}" data-metric-search="{_escape(search_text)}">
       <span class="wb-dot">{dot}</span>
       <span class="wb-m-name">{_escape(label)}</span>
-      <span class="wb-m-val">{value_text} {_escape(unit)}</span>
+      <span class="wb-m-val">{_escape(value_text)}</span>
       <span class="wb-m-range">{_escape(detail_text)} · <button type="button" class="anchor" data-seek="{seek:.6f}" style="padding:2px 6px">kanıta git</button></span>
     </div>'''
 
@@ -976,6 +1000,7 @@ def _technical_rule_details(movement: dict[str, Any]) -> str:
     reasons = {"movement_not_present_in_timeline": "Bu hareket mevcut kayıtta yok.",
                "insufficient_valid_samples": "Yeterli geçerli örnek yok.",
                "required_landmark_group_quality_below_minimum": "Gerekli eklem kanıtı kalite sınırının altında.",
+               "required_landmark_quality_below_minimum": "Okunan karelerde gerekli eklemlerden en az biri kalite sınırının altında.",
                "insufficient_valid_landmark_evidence": "Ölçüm için yeterli/geçerli eklem geometrisi yok.",
                "missing_athlete_local_direction_binding": "Oturuma bağlı sporcu yön referansı yok.",
                "no_contextual_screening_target": "Bu teknik için sayısal hedef henüz tanımlı değil.",
@@ -1207,28 +1232,40 @@ def _decision_evidence_html(
 def _decision_event_row(event: dict[str, Any]) -> str:
     measurement = event.get("measurement") or {}
     window = event.get("evidence_window") or {}
-    value = _number(measurement.get("value"), f" {measurement.get('unit', '')}".rstrip())
+    explanation = event.get("user_explanation") or {}
+    # One formatting path: the event already carries its measured/expected texts.
+    value = explanation.get("measured")
+    if not value:
+        value = "—" if not measurement else format_measured_text(
+            measurement.get("value"), measurement.get("unit"), operator=measurement.get("rule_operator")
+        )
     interval = measurement.get("interval_95")
-    interval_text = "—" if not interval else f"{_number(interval[0], '')}–{_number(interval[1], '')}"
-    limits = measurement.get("rule_limits")
-    if measurement.get("rule_operator") == "max" and isinstance(limits, list) and limits:
-        limit_text = f"≤ {_number(limits[0], '')}"
-    elif isinstance(limits, list) and len(limits) == 2:
-        limit_text = f"{_number(limits[0], '')}–{_number(limits[1], '')}"
-    else:
-        limit_text = "—"
+    interval_text = "—" if not interval else f"{_number(interval[0], '')}–{_number(interval[1], '')} {unit_label(measurement.get('unit'))}"
+    limit_text = explanation.get("expected") or "—"
+    for prefix in ("Olması gereken: ", "Olmasi gereken: "):
+        limit_text = limit_text.removeprefix(prefix)
     deduction = event.get("deduction_points")
     deduction_text = "kesinti yok" if deduction is None else f"-{_number(deduction, '')}"
     event_id = _escape(event.get("event_id"))
     seek = float(window.get("anchor_time_sec", 0.0))
     source = event.get("source") or {}
     source_id = source.get("source_id") or source.get("source_ref") or "kaynak belirtilmedi"
-    title = (event.get("user_explanation") or {}).get("title") or event.get("description") or event.get("metric_id")
+    title = explanation.get("title") or event.get("description") or event.get("metric_id")
+    description = event.get("description")
+    description_html = "" if not description or description == title else f"{_escape(description)}<br>"
+    notes = [explanation.get("phase_approval_note")]
+    visual = event.get("visual_geometry") or {}
+    if visual.get("visual_status"):
+        notes.append(f"Kamera çizimi: {visual['visual_status']}.")
+    notes.extend(f"Uyarı: {item}" for item in event.get("presentation_warnings") or [])
+    notes_html = "".join(f'<small class="decision-note" style="display:block;margin-top:4px;color:var(--amber)">{_escape(note)}</small>' for note in notes if note)
+    correction = explanation.get("correction")
+    correction_html = "" if not correction else f'<small class="decision-correction" style="display:block;margin-top:4px">{_escape(correction)}</small>'
     return f'''<li class="decision-row {_escape(event.get("display_color", "gray"))}">
       <code>{_escape(event.get("movement_id") or "PERF")} · {_escape(event.get("display_label"))}</code>
-      <span><b class="decision-title">{_escape(title)}</b>3B {_escape(value)} · %95 {_escape(interval_text)} ·
-      kaynak sınırı {_escape(limit_text)} · <b>{_escape(deduction_text)}</b><br>
-      {_escape(event.get("description"))}<small class="decision-meta">{_escape(event.get("metric_id") or event.get("event_kind"))} · kaynak: {_escape(source_id)}</small></span>
+      <span><b class="decision-title">{_escape(title)}</b>3B {_escape(value)} · beklenen: {_escape(limit_text)} ·
+      %95 {_escape(interval_text)} · <b>{_escape(deduction_text)}</b><br>
+      {description_html}{correction_html}{notes_html}<small class="decision-meta">{_escape(event.get("metric_id") or event.get("event_kind"))} · kaynak: {_escape(source_id)}</small></span>
       <div><button type="button" data-seek="{seek:.6f}">Videoda aç</button>
       <div class="review-actions" style="margin-top:6px">
         <button type="button" data-review-event="{event_id}" data-review-value="confirmed">Doğru</button>

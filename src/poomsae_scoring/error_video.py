@@ -26,10 +26,11 @@ _COLORS = {
 _STATUS_PRIORITY = {
     "confirmed_source_bound_minor": 0,
     "boundary_uncertain": 1,
-    "not_measurable": 2,
-    "diagnostic_review_candidate": 3,
-    "within_source_range": 4,
-    "not_applicable": 5,
+    "timeline_unverified": 2,
+    "not_measurable": 3,
+    "diagnostic_review_candidate": 4,
+    "within_source_range": 5,
+    "not_applicable": 6,
 }
 
 
@@ -328,12 +329,40 @@ def _draw_geometry(
         for index in indices
     }
     kind = visual.get("kind")
+    label = f"[{event_number}] {_overlay_label(event)}"
     if kind == "joint_angle" and len(indices) == 3:
         a, b, c = (points[index] for index in indices)
         _polyline(pane, [a, b, c], color)
         if b is not None:
             cv2.circle(pane, b, 13, color, 3, cv2.LINE_AA)
-            _label(pane, b, f"[{event_number}] DIRSEK", color, offset=(14, -16))
+            _label(pane, b, label, color, offset=(14, -16))
+    elif kind == "segment_direction":
+        anchor = None
+        for segment in visual.get("segments") or []:
+            first = _mean_points(*(points.get(int(index)) for index in segment.get("from", [])))
+            second = _mean_points(*(points.get(int(index)) for index in segment.get("to", [])))
+            _line(pane, first, second, color, 4)
+            _point(pane, first, color, radius=5)
+            _point(pane, second, color, radius=5)
+            anchor = anchor or first or second
+        _label(pane, anchor, label, color, offset=(12, -14))
+    elif kind == "pair_distance":
+        pair = visual.get("pair") or {}
+        first = _mean_points(*(points.get(int(index)) for index in pair.get("from", [])))
+        second = _mean_points(*(points.get(int(index)) for index in pair.get("to", [])))
+        _line(pane, first, second, color, 3)
+        _point(pane, first, color)
+        _point(pane, second, color)
+        _label(pane, first or second, label, color, offset=(12, -14))
+    elif kind in {"point_stability", "boolean_state", "target_position", "highlight_joints"}:
+        drawn = [point for point in points.values() if point is not None]
+        for point in drawn:
+            if kind == "point_stability":
+                cv2.circle(pane, point, 12, color, 2, cv2.LINE_AA)
+            _point(pane, point, color, radius=6)
+        if drawn:
+            top = min(drawn, key=lambda item: item[1])
+            _label(pane, top, label, color, offset=(12, -16))
     elif kind == "foot_direction_angle" and len(indices) == 5:
         front_ankle, back_ankle, heel, big_toe, small_toe = (points[index] for index in indices)
         toe_center = _mean_points(big_toe, small_toe)
@@ -376,6 +405,15 @@ def _draw_geometry(
     else:
         for point in points.values():
             _point(pane, point, color)
+
+
+def _overlay_label(event: dict[str, Any]) -> str:
+    """Short overlay text taken from the event itself, never from the drawing kind."""
+    visual = event.get("visual_geometry") or {}
+    explanation = event.get("user_explanation") or {}
+    text = visual.get("label") or explanation.get("title") or event.get("metric_id") or "BULGU"
+    text = _ascii(str(text).replace("–", "-").replace("—", "-")).upper()
+    return text if len(text) <= 34 else text[:33].rstrip() + "."
 
 
 def _screen_point(

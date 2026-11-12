@@ -110,9 +110,33 @@ def test_review_html_embeds_content_binding_and_valid_javascript(tmp_path):
         {"movement_timeline": {"timeline_id": timeline["timeline_id"]}},
         {"a": "a.mp4", "b": "b.mp4"}, analysis_run_id="analysis-a",
         technical_accuracy_diagnostics_report=technical_accuracy,
+        automatic_segmentation_report={
+            "status": "automatic_segmentation_diagnostic_only",
+            "movement_timeline_id": timeline["timeline_id"],
+            "fixation_candidates": [],
+            "review_binding": {"review_id": "fixation-specific-report"},
+        },
     )
     data = json.loads(re.search(r'<script id="review-data" type="application/json">(.*?)</script>', rendered, re.S)[1])
     assert data["review_binding"]["analysis_run_id"] == "analysis-a"
+    assert data["fixation_review_binding"] == {"review_id": "fixation-specific-report"}
+    assert data["review_binding"] != data["fixation_review_binding"]
+    assert "Elle işaret · fixation · 10.62s" in rendered
+    assert "Elle işaret · İnceleme onayı yok" in rendered
+    assert "doğruluk oranı değil" in rendered
+    assert 'href="#fixation-review"' in rendered
+    assert "binding:fixationBinding" in rendered
+    without_binding = {
+        "status": "automatic_segmentation_diagnostic_only",
+        "movement_timeline_id": timeline["timeline_id"],
+        "fixation_candidates": [],
+    }
+    with pytest.raises(ScoringContractError):
+        build_review_html(
+            spec, timeline, {"timeline": {"timeline_id": timeline["timeline_id"]}},
+            {"movement_timeline": {"timeline_id": timeline["timeline_id"]}},
+            {"a": "a.mp4"}, automatic_segmentation_report=without_binding,
+        )
     assert "tk3d-review-v2-${data.review_binding.review_id}" in rendered
     assert "schema_version:2, binding:data.review_binding" in rendered
     assert "validReviews(payload.reviews)" in rendered

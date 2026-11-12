@@ -38,6 +38,7 @@ def main() -> None:
             {
                 "summary": summary,
                 "summary_path": str(resolved),
+                "run_state_status": _run_state_status(resolved.parent.parent / "run_state.json"),
                 "modified_at_utc": datetime.fromtimestamp(
                     resolved.stat().st_mtime, tz=timezone.utc
                 ).isoformat(),
@@ -54,6 +55,17 @@ def main() -> None:
     output_html.write_text(build_run_history_html(report), encoding="utf-8", newline="")
     print(output_json)
     print(output_html)
+
+
+def _run_state_status(path: Path) -> str | None:
+    """Status recorded by the run lifecycle; unreadable state counts as not completed."""
+    if not path.is_file():
+        return None
+    try:
+        status = _read_json(path).get("status")
+    except (OSError, ValueError, json.JSONDecodeError):
+        return "unreadable"
+    return status if isinstance(status, str) and status else "unreadable"
 
 
 def _read_json(path: Path) -> dict:

@@ -257,10 +257,18 @@ def _execute_workflow(
         config_paths["poomsae_spec"],
         "--reference-timeline",
         config_paths["movement_timeline"],
+        *(arg for video in browser_videos for arg in ("--camera", f"{video['camera_id']}={video['path']}")),
         "--output-json",
         outputs["automatic_segmentation"],
         "--output-csv",
         outputs["automatic_segmentation_signal"],
+    )
+    run_stage(
+        "Sabitleme kanıt denetimi ve bağımsız işaretleme paketi",
+        "scripts/build_fixation_quality_workspace.py",
+        "--report", outputs["automatic_segmentation"],
+        "--keypoints-2d", keypoints_2d_csv,
+        "--output-dir", run_root / "fixation_quality",
     )
     run_stage(
         "WholeBody-133 Poomsae ölçümleri",
@@ -467,6 +475,8 @@ def _execute_workflow(
         outputs["presentation_diagnostics"],
         "--automatic-segmentation",
         outputs["automatic_segmentation"],
+        "--fixation-quality-url", "../fixation_quality/quality_report.html",
+        "--independent-fixation-url", "../fixation_quality/blind_annotation.html",
         "--run-history-url",
         "run_history.html",
         "--analysis-run-id",
@@ -843,6 +853,8 @@ def _build_summary(
             "automatic_segmentation_selected_count": int(
                 automatic_summary.get("selected_movement_count", 0)
             ),
+            "automatic_fixation_observed_count": int(automatic_summary.get("fixation_observed_count", 0)),
+            "automatic_fixation_unresolved_count": int(automatic_summary.get("fixation_unresolved_count", 0)),
             "automatic_segmentation_movement_count_match": bool(
                 automatic_summary.get("movement_count_match", False)
             ),
@@ -922,6 +934,11 @@ def _output_paths(run_root: Path) -> dict[str, Path]:
     return {
         "automatic_segmentation": run_root / "json" / "automatic_segmentation_report.json",
         "automatic_segmentation_signal": run_root / "csv" / "automatic_segmentation_signal.csv",
+        "fixation_quality_report": run_root / "fixation_quality" / "quality_report.html",
+        "independent_fixation_annotation": run_root / "fixation_quality" / "blind_annotation.html",
+        "fixation_audit": run_root / "fixation_quality" / "fixation_audit.json",
+        "fixation_benchmark": run_root / "fixation_quality" / "fixation_benchmark.json",
+        "fixation_sensitivity": run_root / "fixation_quality" / "fixation_sensitivity.json",
         "wholebody_diagnostics": run_root / "json" / "wholebody_diagnostics_report.json",
         "wholebody_metrics": run_root / "csv" / "wholebody_metrics.csv",
         "athlete_direction_reference_status": run_root / "json" / "athlete_local_direction_reference_status.json",

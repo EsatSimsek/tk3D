@@ -12,14 +12,17 @@ from typing import Any
 
 import numpy as np
 
-from src.data_structures import COCO_BODY_JOINT_INDICES
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
     validate_movement_timeline,
     validate_poomsae_spec,
 )
 from src.poomsae_scoring.timeline_review import timeline_review_status
-from src.scoring_readiness import adaptive_motion_threshold, joint_speed
+from src.poomsae_scoring.fixation import (
+    SEGMENTATION_ENERGY_JOINTS, SEGMENTATION_ENERGY_SIGNAL, SEGMENTATION_MINIMUM_FINITE_JOINTS,
+    FixationParameters, build_fixation_timing_diagnostics, evaluate_fixation_candidates, prepare_fixation_signals,
+)
+from src.scoring_readiness import adaptive_motion_threshold
 
 
 AUTOMATIC_SEGMENTATION_STATUS = "automatic_segmentation_diagnostic_only"
@@ -28,26 +31,26 @@ AUTOMATIC_SEGMENTATION_STATUS = "automatic_segmentation_diagnostic_only"
 def build_automatic_segmentation_diagnostics(
     pose_payload: dict[str, Any],
     poomsae_spec: dict[str, Any],
-    reference_timeline: dict[str, Any],
+    reference_timeline: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Build scoreless automatic movement/phase proposals and frame rows."""
     spec = validate_poomsae_spec(poomsae_spec)
-    timeline = validate_movement_timeline(reference_timeline, spec)
+    timeline = validate_movement_timeline(reference_timeline, spec) if reference_timeline is not None else None
     points = np.asarray(pose_payload.get("keypoints_3d_world"), dtype=float)
     if points.ndim != 3 or points.shape[1:] != (133, 3) or points.shape[0] == 0:
         raise ScoringContractError("automatic segmentation requires keypoints_3d_world[t,133,3]")
-    if points.shape[0] != int(timeline["frame_count"]):
+    if timeline is not None and points.shape[0] != int(timeline["frame_count"]):
         raise ScoringContractError("pose frame count does not match the reference timeline")
-    fps = float(pose_payload.get("sample_fps") or timeline["fps"])
-    if not np.isfinite(fps) or fps <= 0 or not np.isclose(fps, float(timeline["fps"]), atol=1e-9):
+    fps = float(pose_payload.get("sample_fps") or (timeline["fps"] if timeline else 0))
+    if not np.isfinite(fps) or fps <= 0 or (timeline is not None and not np.isclose(fps, float(timeline["fps"]), atol=1e-9)):
         raise ScoringContractError("pose FPS does not match the reference timeline")
 
-    observed_ids = list(timeline["coverage"]["observed_movement_ids"])
+    observed_ids = list(timeline["coverage"]["observed_movement_ids"]) if timeline else [item["movement_id"] for item in spec["movements"]]
     movement_by_id = {movement["movement_id"]: movement for movement in spec["movements"]}
     movement_definitions = [movement_by_id[movement_id] for movement_id in observed_ids]
-    detection = detect_automatic_segments(points, fps=fps, movements=movement_definitions)
-    comparison = compare_segments_to_reference(detection["segments"], timeline["segments"], fps=fps)
-    reference_review = timeline_review_status(timeline)
+    detection = detect_automatic_segments(points, fps=fps, movements=movement_definitions, quality=pose_payload)
+    comparison = compare_segments_to_reference(detection["segments"], timeline["segments"] if timeline else [], fps=fps)
+    reference_review = timeline_review_status(timeline) if timeline else {"status": "not_supplied", "reason": "unlabelled_recording"}
     comparison["reference_review_status"] = reference_review
     for row in comparison["movements"]:
         row["reference_review_status"] = timeline_review_status(timeline, row["movement_id"])
@@ -62,21 +65,32 @@ def build_automatic_segmentation_diagnostics(
         detection["thresholds"],
         fps,
     )
+    for row in frame_rows:
+        index = row["frame_index"]
+        for name, values in detection["component_signals"].items():
+            row[f"fixation_{name}_speed"] = _finite_or_none(values[index])
+        candidate = next((item for item in detection["fixation_candidates"] if item["start_frame"] <= index <= item["end_frame"]), None)
+        row["fixation_candidate_id"] = candidate["candidate_episode_id"] if candidate else None
+        row["fixation_candidate_status"] = candidate["status"] if candidate else None
+        row["is_supported_fixation"] = bool(candidate and candidate["fixation_frame"] == index)
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "frame_count": len(points),
+        "fps": fps,
         "status": AUTOMATIC_SEGMENTATION_STATUS,
         "poomsae": {"poomsae_id": spec["poomsae_id"], "version": spec["version"]},
-        "movement_timeline_id": timeline["timeline_id"],
+        "movement_timeline_id": timeline["timeline_id"] if timeline else None,
         "reference_review_status": reference_review,
         "accuracy_claim_allowed": False,
         "selected_scope_movement_ids": observed_ids,
         "detector": {
-            "signal": "mean_body17_joint_speed_mps",
+            "signal": SEGMENTATION_ENERGY_SIGNAL,
             "smoothing": "centered_nanmedian",
             "selection": detection["selection"],
             "parameters": detection["parameters"],
             "thresholds": detection["thresholds"],
             "valid_signal_ratio": detection["valid_signal_ratio"],
+            "fixation": detection["fixation_detector"],
         },
         "summary": {
             "expected_movement_count": len(observed_ids),
@@ -87,11 +101,15 @@ def build_automatic_segmentation_diagnostics(
             "end_boundary_mae_frames": comparison["summary"]["end_boundary_mae_frames"],
             "phase_anchor_mae_frames": comparison["summary"]["phase_anchor_mae_frames"],
             "phase_anchor_max_error_frames": comparison["summary"]["phase_anchor_max_error_frames"],
+            "fixation_observed_count": sum(row["status"] == "hold_observed" for row in detection["fixation_candidates"]),
+            "fixation_unresolved_count": sum(row["status"] != "hold_observed" for row in detection["fixation_candidates"]),
             "reference_review_status": reference_review,
             "accuracy_claim_allowed": False,
         },
         "candidate_episodes": detection["candidate_episodes"],
         "segments": detection["segments"],
+        "fixation_candidates": detection["fixation_candidates"],
+        "fixation_timing_diagnostics": detection["fixation_timing_diagnostics"],
         "reference_comparison": comparison,
         "safety_contract": {
             "diagnostic_only": True,
@@ -101,9 +119,13 @@ def build_automatic_segmentation_diagnostics(
             "accuracy_claim_allowed": False,
             "boundary_detection_uses_reference_frames": False,
             "reference_timeline_used_only_for_scope_ids_and_post_detection_comparison": True,
+            "manual_labels_used_for_fixation_detection_or_thresholds": False,
+            "movement_identity_is_scope_order_hypothesis": True,
         },
         "interpretation": (
-            "Hareket ve faz sınırları yalnız 3B BODY-17 hareket sinyalinden önerilir. "
+            "Sabitleme adayları el, ayak, pelvis ve gövdenin kalite kapılı hareket kanıtından önerilir. "
+            "Elle işaretler doğru kabul edilmez ve dedektörü ayarlamak için kullanılmaz. "
+            "Hareket kimliği kapsam sırasına dayalı varsayımdır; diğer fazlar yaklaşık önerilerdir. "
             "Girdi zaman çizelgesi değiştirilmez. Kare farkları bu çizelgeyle uyumu gösterir; "
             "onay kaydı eksikse doğrulanmamış taslakla karşılaştırmadır. İnceleme kaydı bulunsa "
             "bile bu tek kayıt karşılaştırması bağımsız doğruluk, puan veya kesinti kanıtı değildir."
@@ -117,6 +139,8 @@ def detect_automatic_segments(
     *,
     fps: float,
     movements: list[dict[str, Any]],
+    quality: dict[str, Any] | None = None,
+    fixation_parameters: FixationParameters | None = None,
 ) -> dict[str, Any]:
     """Detect a contiguous movement sequence without using reference boundaries."""
     points = np.asarray(keypoints_3d, dtype=float)
@@ -133,24 +157,31 @@ def detect_automatic_segments(
         if not isinstance(phases, list) or not phases:
             raise ScoringContractError("each movement requires an ordered phase list")
 
-    energy = _body_motion_energy(points, fps)
+    signals = prepare_fixation_signals(points, fps, quality=quality, parameters=fixation_parameters)
+    # Episode detection uses the quality-gated BODY-17 energy, never the hold channels.
+    energy = signals["segmentation_motion_energy"]
     smoothing_frames = _odd_frames(fps * 0.083, minimum=3)
     smoothed = _rolling_nanmedian(energy, smoothing_frames)
-    high_threshold = _finite_motion_threshold(smoothed)
-    onset_threshold = high_threshold * 0.5
+    smoothed[~np.isfinite(energy)] = np.nan
+    usable_motion = np.any(np.isfinite(smoothed) & (smoothed > 1e-12))
+    high_threshold = _finite_motion_threshold(smoothed) if usable_motion else None
+    onset_threshold = high_threshold * 0.5 if high_threshold is not None else None
     min_active_frames = max(3, int(round(fps * 0.05)))
     merge_gap_frames = max(1, int(round(fps * 0.15)))
-    active = np.isfinite(smoothed) & (smoothed >= onset_threshold)
+    active = np.isfinite(smoothed) & (smoothed >= onset_threshold) if onset_threshold is not None else np.zeros(len(points), dtype=bool)
     episodes = _merge_runs(
         _contiguous_runs(active, min_active_frames),
         max_gap_frames=merge_gap_frames,
+        valid=np.isfinite(smoothed),
     )
     episode_rows = [_episode_row(index, start, end, smoothed, fps) for index, (start, end) in enumerate(episodes)]
+    fixation_candidates = evaluate_fixation_candidates(signals, episode_rows)
+    evidence_by_id = {row["candidate_episode_id"]: row for row in fixation_candidates}
     selected_indices, selection = _select_episode_sequence(episode_rows, len(movements), fps)
     selected = [episode_rows[index] for index in selected_indices]
 
     segments: list[dict[str, Any]] = []
-    high_active = np.isfinite(smoothed) & (smoothed >= high_threshold)
+    high_active = np.isfinite(smoothed) & (smoothed >= high_threshold) if high_threshold is not None else active
     valid_signal_ratio = float(np.mean(np.isfinite(smoothed)))
     for index, (movement, episode) in enumerate(zip(movements, selected, strict=False)):
         start = int(episode["start_frame"])
@@ -175,6 +206,9 @@ def detect_automatic_segments(
             fixation_frame=fixation,
         )
         peak = float(episode["peak_motion_energy_mps"])
+        evidence = evidence_by_id[episode["candidate_episode_id"]]
+        anchors["fixation"] = evidence["fixation_frame"]
+        anchor_methods["fixation"] = evidence["reason"]
         strength = min(max(peak / high_threshold - 1.0, 0.0), 1.0) if high_threshold > 0 else 0.0
         selection_bonus = 1.0 if selection["status"] == "exact_cluster_match" else 0.5
         confidence = round(min(0.95, 0.55 + 0.15 * strength + 0.15 * valid_signal_ratio + 0.10 * selection_bonus), 4)
@@ -189,6 +223,8 @@ def detect_automatic_segments(
                 "anchors": anchors,
                 "anchor_methods": anchor_methods,
                 "confidence": confidence,
+                "confidence_kind": "uncalibrated_motion_heuristic_not_probability",
+                "fixation_status": evidence["status"],
                 "label_status": "automatic_diagnostic",
                 "motion_episode": {
                     "candidate_episode_id": episode["candidate_episode_id"],
@@ -204,10 +240,12 @@ def detect_automatic_segments(
         "motion_energy": energy,
         "smoothed_motion_energy": smoothed,
         "thresholds": {
-            "high_motion_mps": round(float(high_threshold), 9),
-            "movement_onset_mps": round(float(onset_threshold), 9),
+            "high_motion_mps": _finite_or_none(high_threshold),
+            "movement_onset_mps": _finite_or_none(onset_threshold),
         },
         "parameters": {
+            "signal_joint_indices": list(SEGMENTATION_ENERGY_JOINTS),
+            "signal_minimum_finite_joints": SEGMENTATION_MINIMUM_FINITE_JOINTS,
             "smoothing_frames": smoothing_frames,
             "minimum_active_frames": min_active_frames,
             "merge_gap_frames": merge_gap_frames,
@@ -216,6 +254,15 @@ def detect_automatic_segments(
         "candidate_episodes": episode_rows,
         "selection": selection,
         "segments": segments,
+        "fixation_candidates": fixation_candidates,
+        "fixation_timing_diagnostics": build_fixation_timing_diagnostics(signals, fixation_candidates),
+        "component_signals": signals["channels"],
+        "fixation_detector": {
+            "parameter_origin": "engineering_defaults_not_expert_validated",
+            "timing_support_is_statistical_confidence_interval": False,
+            **{key: value for key, value in signals.items()
+               if key not in {"channels", "raw_channels", "hand_observations", "segmentation_motion_energy", "times"}},
+        },
     }
 
 
@@ -292,20 +339,6 @@ def compare_segments_to_reference(
     }
 
 
-def _body_motion_energy(points: np.ndarray, fps: float) -> np.ndarray:
-    speeds = joint_speed(points, fps=fps)
-    indices = [index for index in COCO_BODY_JOINT_INDICES if index < speeds.shape[1]]
-    body = speeds[:, indices]
-    finite = np.isfinite(body)
-    counts = np.sum(finite, axis=1)
-    return np.divide(
-        np.nansum(body, axis=1),
-        counts,
-        out=np.full(points.shape[0], np.nan, dtype=float),
-        where=counts > 0,
-    )
-
-
 def _rolling_nanmedian(values: np.ndarray, window: int) -> np.ndarray:
     radius = window // 2
     padded = np.pad(np.asarray(values, dtype=float), (radius, radius), constant_values=np.nan)
@@ -340,10 +373,10 @@ def _contiguous_runs(mask: np.ndarray, minimum_frames: int) -> list[tuple[int, i
     ]
 
 
-def _merge_runs(runs: list[tuple[int, int]], *, max_gap_frames: int) -> list[tuple[int, int]]:
+def _merge_runs(runs: list[tuple[int, int]], *, max_gap_frames: int, valid: np.ndarray) -> list[tuple[int, int]]:
     merged: list[tuple[int, int]] = []
     for start, end in runs:
-        if merged and start - merged[-1][1] - 1 <= max_gap_frames:
+        if merged and start - merged[-1][1] - 1 <= max_gap_frames and np.all(valid[merged[-1][1] + 1:start]):
             merged[-1] = (merged[-1][0], end)
         else:
             merged.append((start, end))
@@ -373,8 +406,10 @@ def _select_episode_sequence(
 ) -> tuple[list[int], dict[str, Any]]:
     if not episodes:
         return [], {"status": "no_motion_episode", "selected_candidate_episode_ids": []}
-    if len(episodes) <= expected_count:
-        status = "exact_episode_count" if len(episodes) == expected_count else "insufficient_episode_count"
+    if len(episodes) < expected_count:
+        return [], {"status": "ambiguous_episode_count", "selected_candidate_episode_ids": []}
+    if len(episodes) == expected_count:
+        status = "exact_episode_count"
         ids = list(range(len(episodes)))
         return ids, {"status": status, "selected_candidate_episode_ids": ids}
 
@@ -393,11 +428,8 @@ def _select_episode_sequence(
         else:
             clusters[-1].append(index)
     exact = [cluster for cluster in clusters if len(cluster) == expected_count]
-    if exact:
-        selected = max(
-            exact,
-            key=lambda cluster: sum(float(episodes[index]["peak_motion_energy_mps"]) for index in cluster),
-        )
+    if len(exact) == 1:
+        selected = exact[0]
         return selected, {
             "status": "exact_cluster_match",
             "split_gap_frames": split_gap,
@@ -405,25 +437,12 @@ def _select_episode_sequence(
             "selected_candidate_episode_ids": selected,
         }
 
-    windows = [list(range(start, start + expected_count)) for start in range(len(episodes) - expected_count + 1)]
-    selected = min(windows, key=lambda window: _window_gap_dispersion(window, episodes))
-    return selected, {
-        "status": "minimum_gap_dispersion_fallback",
+    return [], {
+        "status": "ambiguous_episode_count",
         "split_gap_frames": split_gap,
         "cluster_sizes": [len(cluster) for cluster in clusters],
-        "selected_candidate_episode_ids": selected,
+        "selected_candidate_episode_ids": [],
     }
-
-
-def _window_gap_dispersion(window: list[int], episodes: list[dict[str, Any]]) -> float:
-    gaps = [
-        int(episodes[right]["start_frame"]) - int(episodes[left]["end_frame"]) - 1
-        for left, right in zip(window[:-1], window[1:], strict=True)
-    ]
-    if not gaps:
-        return 0.0
-    median = float(np.median(gaps))
-    return float(np.median(np.abs(np.asarray(gaps, dtype=float) - median)))
 
 
 def _phase_anchors(
@@ -481,11 +500,11 @@ def _frame_rows(
                 "body_motion_energy_mps": _finite_or_none(energy[frame_index]),
                 "smoothed_motion_energy_mps": _finite_or_none(smoothed[frame_index]),
                 "above_onset_threshold": bool(
-                    np.isfinite(smoothed[frame_index])
+                    thresholds["movement_onset_mps"] is not None and np.isfinite(smoothed[frame_index])
                     and smoothed[frame_index] >= thresholds["movement_onset_mps"]
                 ),
                 "above_high_motion_threshold": bool(
-                    np.isfinite(smoothed[frame_index])
+                    thresholds["high_motion_mps"] is not None and np.isfinite(smoothed[frame_index])
                     and smoothed[frame_index] >= thresholds["high_motion_mps"]
                 ),
                 "movement_id": None if segment is None else segment["movement_id"],
@@ -514,8 +533,8 @@ def _mean_or_none(values: list[int]) -> float | None:
     return None if not values else round(float(np.mean(values)), 6)
 
 
-def _finite_or_none(value: float) -> float | None:
-    return round(float(value), 9) if np.isfinite(value) else None
+def _finite_or_none(value: float | None) -> float | None:
+    return round(float(value), 9) if value is not None and np.isfinite(value) else None
 
 
 def _odd_frames(value: float, *, minimum: int) -> int:

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from src.poomsae_scoring.automatic_segmentation import (
     compare_segments_to_reference,
     detect_automatic_segments,
 )
-from src.poomsae_scoring.contracts import ScoringContractError
+from src.poomsae_scoring.fixation import segmentation_motion_energy
 
 
 def _motion_sequence() -> np.ndarray:
@@ -16,14 +15,20 @@ def _motion_sequence() -> np.ndarray:
     # A short pre-performance disturbance followed by three real movements.
     for start, end, displacement in (
         (5, 20, 0.10),
-        (80, 105, 0.25),
-        (140, 165, 0.20),
-        (210, 235, 0.30),
+        (100, 125, 0.25),
+        (160, 185, 0.20),
+        (230, 255, 0.30),
     ):
         increments[start : end + 1] = displacement / (end - start + 1)
     position = np.cumsum(increments)
     points = np.zeros((frame_count, 133, 3), dtype=float)
-    points[:, :17, 0] = position[:, None]
+    points[:, 5:7, 2] = 1.5
+    points[:, 11:13, 2] = 0.9
+    points[:, 13:15, 2] = 0.5
+    points[:, 15:17, 2] = 0.1
+    points[:, 5:17:2, 0] = -0.2
+    points[:, 6:17:2, 0] = 0.2
+    points[:, :17, 0] += position[:, None]
     return points
 
 
@@ -38,16 +43,20 @@ def _movements(count: int) -> list[dict]:
 
 
 def test_detector_discards_preperformance_motion_and_builds_ordered_phases() -> None:
+    points = _motion_sequence()
     result = detect_automatic_segments(
-        _motion_sequence(),
+        points,
         fps=30.0,
         movements=_movements(3),
+        quality={"reliability_valid_mask": np.ones(points.shape[:2], dtype=bool),
+                 "used_cameras": np.full(points.shape[:2], 2),
+                 "reprojection_error": np.zeros(points.shape[:2])},
     )
 
     assert len(result["candidate_episodes"]) == 4
     assert result["selection"]["selected_candidate_episode_ids"] == [1, 2, 3]
     assert [segment["movement_id"] for segment in result["segments"]] == ["M01", "M02", "M03"]
-    assert result["segments"][0]["start_frame"] == 79
+    assert 100 <= result["segments"][0]["start_frame"] <= 102
     assert result["segments"][-1]["end_frame"] == 279
     for segment in result["segments"]:
         anchors = segment["anchors"]
@@ -56,11 +65,28 @@ def test_detector_discards_preperformance_motion_and_builds_ordered_phases() -> 
         assert 0.0 <= segment["confidence"] <= 0.95
 
 
+def test_segmentation_energy_uses_body17_and_requires_supported_joints() -> None:
+    speed = np.zeros((3, 133), dtype=float)
+    speed[:, :17] = 1.0
+    speed[:, 17:] = 100.0  # face/hand speeds must not enter the BODY-17 energy
+    speed[:, 0:5] = 2.0
+    speed[1, 0:4] = np.nan  # 13 supported joints remain
+    speed[2, 0:5] = np.nan  # 12 supported joints: not enough evidence
+
+    energy = segmentation_motion_energy(speed)
+
+    assert energy[0] == (5 * 2.0 + 12 * 1.0) / 17
+    assert energy[1] == (2.0 + 12 * 1.0) / 13
+    assert np.isnan(energy[2])
+
+
 def test_detector_fails_closed_without_usable_motion() -> None:
     points = np.full((30, 133, 3), np.nan, dtype=float)
 
-    with pytest.raises(ScoringContractError, match="no finite positive motion signal"):
-        detect_automatic_segments(points, fps=30.0, movements=_movements(1))
+    result = detect_automatic_segments(points, fps=30.0, movements=_movements(1))
+    assert result["segments"] == []
+    assert result["fixation_candidates"] == []
+    assert result["thresholds"]["high_motion_mps"] is None
 
 
 def test_reference_comparison_reports_frame_and_second_errors() -> None:

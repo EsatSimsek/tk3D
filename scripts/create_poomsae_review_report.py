@@ -27,6 +27,8 @@ def main() -> None:
     parser.add_argument("--technical-conformance")
     parser.add_argument("--presentation-diagnostics")
     parser.add_argument("--automatic-segmentation")
+    parser.add_argument("--fixation-quality-url")
+    parser.add_argument("--independent-fixation-url")
     parser.add_argument("--run-history-url")
     parser.add_argument("--analysis-run-id", help="Analysis run identity (distinct from the source pose run).")
     parser.add_argument("--video-a", required=True)
@@ -160,6 +162,8 @@ def main() -> None:
         technical_accuracy_diagnostics_report=technical_accuracy_diagnostics,
         analysis_run_id=args.analysis_run_id or str(output),
         review_input_hashes={label: record["sha256"] for label, record in input_records.items()},
+        fixation_quality_urls={"Kanıt kaybı ve değerlendirme": args.fixation_quality_url,
+                               "Bağımsız işaretleme": args.independent_fixation_url},
     )
 
     output.parent.mkdir(parents=True, exist_ok=True)

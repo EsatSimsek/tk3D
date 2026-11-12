@@ -15,6 +15,7 @@ from src.poomsae_scoring.technical_accuracy import (
     resolve_movement_accuracy_contracts,
     validate_technical_accuracy_profile,
 )
+from src.poomsae_scoring.technical_accuracy_metrics import METRIC_REGISTRY, measurement_evaluator_status
 
 
 VALIDATION_TOP_LEVEL_KEYS = {
@@ -137,6 +138,10 @@ SCENARIO_CONTRACTS = {
 }
 
 
+# Head yaw inputs (deg) of the direction-to-event semantic scenarios; None = collapsed face.
+HEAD_DIRECTION_TEST_YAWS = (0, 89, 91, -91, 180, None)
+
+
 def load_rule_accuracy_validation_profile(path: str | Path) -> dict[str, Any]:
     return validate_rule_accuracy_validation_profile(
         load_yaml_mapping(path, label="technical accuracy rule validation profile")
@@ -230,11 +235,14 @@ def build_synthetic_wholebody_pose(frame_count: int) -> dict[str, Any]:
     )
     points[:, 23:91, :] = [0.0, 0.0, 1.75]
     points[:, 23 + 8, :] = [0.0, 0.0, 1.68]
-    points[:, 23 + 17 : 23 + 22, :] = [-0.03, 0.0, 1.82]
-    points[:, 23 + 22 : 23 + 27, :] = [0.03, 0.0, 1.82]
+    # The athlete faces +y with right = +x (body right_eye at +x). iBUG-68 face points
+    # are labelled from the viewer: local 17-21 / 36-41 are the athlete's RIGHT brow /
+    # eye, 22-26 / 42-47 the LEFT, so the synthetic face agrees with body eyes 1 and 2.
+    points[:, 23 + 17 : 23 + 22, :] = [0.03, 0.0, 1.82]
+    points[:, 23 + 22 : 23 + 27, :] = [-0.03, 0.0, 1.82]
     points[:, 23 + 27 : 23 + 36, :] = [0.0, 0.03, 1.76]
-    points[:, 23 + 36 : 23 + 42, :] = [-0.03, 0.0, 1.78]
-    points[:, 23 + 42 : 23 + 48, :] = [0.03, 0.0, 1.78]
+    points[:, 23 + 36 : 23 + 42, :] = [0.03, 0.0, 1.78]
+    points[:, 23 + 42 : 23 + 48, :] = [-0.03, 0.0, 1.78]
     for offset, sign in ((91, -1.0), (112, 1.0)):
         wrist = np.asarray([0.45 * sign, 0.0, 1.05])
         points[:, offset, :] = wrist
@@ -334,8 +342,15 @@ def build_rule_accuracy_validation(
         )
         for scenario in validation["geometry_scenarios"]
     ]
+    # A landmark passes when some rule's evaluator reads it, or when it is explicitly
+    # reported as read by no rule with a scope reason (e.g. jaw contour and lips:
+    # no evaluator reads them, so no rule may claim to depend on them).
     landmarks = [
-        {**row, "passed": row["declared_rule_count"] > 0}
+        {
+            **row,
+            "passed": row["declared_rule_count"] > 0
+            or (row["usage_status"] == "not_declared_by_any_rule" and bool(row["blocking_or_scope_reason"])),
+        }
         for row in baseline["landmark_inventory"]
     ]
     scenarios.extend(_direction_semantic_scenarios(base_pose, poomsae_spec, movement_timeline, profile, wholebody))
@@ -406,13 +421,13 @@ def _inventory_row(rule: dict[str, Any]) -> dict[str, Any]:
         and len(landmarks) == len(set(landmarks))
         and all(isinstance(index, int) and 0 <= index < COCO_WHOLEBODY_KEYPOINTS for index in landmarks)
     )
-    expected_evaluator = (
-        "not_applicable_pipeline_limit"
-        if status == "not_observable_with_current_pipeline"
-        else "implemented"
-    )
+    spec = METRIC_REGISTRY.get(rule["metric_id"])
+    expected_evaluator = None if spec is None else measurement_evaluator_status(spec, status)
+    screening_without_evaluator = status in {"active_diagnostic", "blocked_missing_reference"} and expected_evaluator != "implemented"
     passed = (
-        rule["measurement_evaluator_status"] == expected_evaluator
+        spec is not None
+        and not screening_without_evaluator
+        and rule["measurement_evaluator_status"] == expected_evaluator
         and rule["score_effect"] is None
         and rule["deduction_points"] is None
         and rule["numeric_score_enabled"] is False
@@ -584,7 +599,8 @@ def _evaluate_geometry_expectation(
             and report["deductions"] == []
             and report["summary"]["rule_count"] == len(profile["resolved_rules"])
             and report["summary"]["landmark_inventory_count"] == COCO_WHOLEBODY_KEYPOINTS
-            and report["summary"]["landmarks_declared_by_any_rule_count"] == COCO_WHOLEBODY_KEYPOINTS
+            and report["summary"]["landmarks_declared_by_any_rule_count"]
+            == sum(row["declared_rule_count"] > 0 for row in report["landmark_inventory"])
             and report["summary"]["score_effect_count"] == 0
             and report["summary"]["deduction_effect_count"] == 0
             and all(
@@ -708,7 +724,7 @@ def _direction_semantic_scenarios(base_pose, spec, timeline, profile, wholebody)
     # M01 is semantic left: forward +X makes its target +Y.
     reference["initial_forward_vector"] = [1.0, 0.0, 0.0]
     metric = "head_wrong_direction_stable_state"
-    for angle in (0, 89, 91, -91, 180, None):
+    for angle in HEAD_DIRECTION_TEST_YAWS:
         pose = deepcopy(base_pose)
         points = np.asarray(pose["keypoints_3d_world"], dtype=float)
         if angle is None:

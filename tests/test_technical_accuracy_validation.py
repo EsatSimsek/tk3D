@@ -9,7 +9,10 @@ import pytest
 
 from src.poomsae_scoring import ScoringContractError, load_movement_timeline, load_poomsae_spec
 from src.poomsae_scoring.technical_accuracy import load_technical_accuracy_profile
+from src.poomsae_scoring.technical_accuracy_metrics import METRIC_REGISTRY
 from src.poomsae_scoring.technical_accuracy_validation import (
+    HEAD_DIRECTION_TEST_YAWS,
+    SCENARIO_CONTRACTS,
     build_rule_accuracy_validation,
     load_rule_accuracy_validation_profile,
     validate_rule_accuracy_validation_profile,
@@ -25,8 +28,12 @@ VALIDATION_PATH = ROOT / "config" / "scoring" / "validation" / "taegeuk_1_rule_a
 
 
 @pytest.fixture(scope="module")
-def validation_report() -> dict:
-    profile = load_technical_accuracy_profile(PROFILE_PATH)
+def profile() -> dict:
+    return load_technical_accuracy_profile(PROFILE_PATH)
+
+
+@pytest.fixture(scope="module")
+def validation_report(profile: dict) -> dict:
     spec = load_poomsae_spec(SPEC_PATH)
     timeline = load_movement_timeline(TIMELINE_PATH, spec)
     validation = load_rule_accuracy_validation_profile(VALIDATION_PATH)
@@ -36,7 +43,7 @@ def validation_report() -> dict:
 def test_validation_profile_is_strict_and_bound_to_wholebody_133() -> None:
     profile = load_rule_accuracy_validation_profile(VALIDATION_PATH)
     assert profile["required_keypoint_count"] == 133
-    assert len(profile["geometry_scenarios"]) == 12
+    assert {row["scenario_id"] for row in profile["geometry_scenarios"]} == set(SCENARIO_CONTRACTS)
 
     unknown = deepcopy(profile)
     unknown["unknown"] = True
@@ -64,21 +71,22 @@ def test_validation_profile_is_strict_and_bound_to_wholebody_133() -> None:
         validate_rule_accuracy_validation_profile(weakened)
 
 
-def test_all_174_rules_have_explicit_validation_depth(validation_report: dict) -> None:
+def test_every_rule_has_explicit_validation_depth(validation_report: dict, profile: dict) -> None:
     summary = validation_report["summary"]
     inventory = validation_report["rule_validation_inventory"]
+    rule_count = len(profile["resolved_rules"])
 
     assert validation_report["status"] == "passed"
-    assert summary["rule_count"] == 174
-    assert summary["rule_inventory_passed_count"] == 174
-    assert summary["active_rule_count"] == 75
+    assert summary["rule_count"] == rule_count == len(METRIC_REGISTRY)
+    assert summary["rule_inventory_passed_count"] == rule_count
+    assert summary["active_rule_count"] == len(profile["active_rules"])
     assert summary["rule_state_counts"] == {
-        "active_diagnostic": 75,
-        "measurement_only": 74,
-        "blocked_missing_reference": 17,
-        "not_observable_with_current_pipeline": 8,
+        "active_diagnostic": len(profile["active_rules"]),
+        "measurement_only": len(profile["measurement_only_reasons"]),
+        "blocked_missing_reference": len(profile["direction_bound_rules"]),
+        "not_observable_with_current_pipeline": len(profile["not_observable_rules"]),
     }
-    assert len({row["rule_id"] for row in inventory}) == 174
+    assert len({row["rule_id"] for row in inventory}) == rule_count
     assert all(row["passed"] for row in inventory)
     assert {
         row["validation_depth"] for row in inventory
@@ -95,29 +103,36 @@ def test_all_133_landmarks_have_explicit_rule_coverage(validation_report: dict) 
     assert validation_report["summary"]["landmark_count"] == 133
     assert validation_report["summary"]["landmark_passed_count"] == 133
     assert [row["landmark_index"] for row in landmarks] == list(range(133))
-    assert all(row["declared_rule_count"] > 0 and row["passed"] for row in landmarks)
+    assert all(row["passed"] for row in landmarks)
+    # Points no evaluator reads are reported as such, never claimed by a rule.
+    undeclared = {row["landmark_index"] for row in landmarks if row["declared_rule_count"] == 0}
+    assert all(
+        row["usage_status"] == "not_declared_by_any_rule" and row["blocking_or_scope_reason"]
+        for row in landmarks
+        if row["landmark_index"] in undeclared
+    )
+    jaw_and_lips = {23 + index for index in (*range(0, 8), *range(9, 17), *range(48, 68))}
+    assert undeclared == jaw_and_lips
 
 
-def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_report: dict) -> None:
+def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_report: dict, profile: dict) -> None:
     rows = validation_report["classification_cases"]
-    expected_cases = {
-        "pass",
-        "boundary",
-        "opposite_boundary",
-        "fail",
-        "opposite_fail",
-        "missing",
-        "nan",
-        "positive_infinity",
-        "negative_infinity",
-        "wrong_type",
-    }
+    expected_cases = set(load_rule_accuracy_validation_profile(VALIDATION_PATH)["classification_cases"])
     by_metric: dict[str, set[str]] = {}
     for row in rows:
         by_metric.setdefault(row["metric_id"], set()).add(row["case_id"])
 
-    assert len(by_metric) == 88  # 75 active plus 13 reference-bound configured screens.
-    assert len(rows) == 980  # Context-specific stance/technique ranges get separate cases.
+    # Every screening rule (active, or reference-bound with a configured screen) is
+    # classified once per threshold context; stance/technique ranges add contexts.
+    screening = [
+        rule
+        for rule in profile["resolved_rules"]
+        if rule["status"] in {"active_diagnostic", "blocked_missing_reference"}
+        and (rule["threshold"] is not None or rule["expected_boolean"] is not None or rule["contextual_thresholds"])
+    ]
+    assert set(profile["active_rules"]) <= set(by_metric)
+    assert set(by_metric) == {rule["metric_id"] for rule in screening}
+    assert len(rows) == len(expected_cases) * sum(len(rule["contextual_thresholds"] or {"default": None}) for rule in screening)
     assert all(cases == expected_cases for cases in by_metric.values())
     assert all(row["passed"] for row in rows)
     assert all(
@@ -130,15 +145,22 @@ def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_repo
     assert "NaN" not in encoded and "Infinity" not in encoded
 
 
-def test_geometry_scenarios_cover_fail_closed_sensitivity_and_symmetry(validation_report: dict) -> None:
+def test_geometry_scenarios_cover_fail_closed_sensitivity_and_symmetry(validation_report: dict, profile: dict) -> None:
     scenarios = {row["scenario_id"]: row for row in validation_report["geometry_scenarios"]}
-    assert len(scenarios) == 18
+    configured = load_rule_accuracy_validation_profile(VALIDATION_PATH)["geometry_scenarios"]
+    assert len(scenarios) == len(configured) + len(HEAD_DIRECTION_TEST_YAWS)
     assert all(row["passed"] for row in scenarios.values())
     assert scenarios["body17_contract_rejected"]["details"]["raised"] == "ScoringContractError"
     assert scenarios["left_right_mirror"]["details"]["mirror_involution"] is True
     assert scenarios["left_right_mirror"]["details"]["nonzero_baseline_metrics"] is True
     assert all(scenarios["left_right_mirror"]["details"]["mirror_involution_by_array"].values())
-    assert scenarios["valid_direction_binding"]["details"]["evaluated_rule_count"] == 13
+    direction_screens = [
+        rule
+        for rule in profile["resolved_rules"]
+        if rule["status"] == "blocked_missing_reference"
+        and (rule["threshold"] is not None or rule["expected_boolean"] is not None)
+    ]
+    assert scenarios["valid_direction_binding"]["details"]["evaluated_rule_count"] == len(direction_screens)
     for scenario_id in (
         "missing_face_evidence",
         "missing_hand_evidence",

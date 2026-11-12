@@ -97,6 +97,9 @@ def _card(serialized: str, number: int, width: int, height: int) -> Image.Image:
         status += f" · −{float(points):g}"
     elif "puan yok" not in status.lower():
         status += " · puan kesintisi yok"
+    visual_status = (event.get("visual_geometry") or {}).get("visual_status")
+    if visual_status:
+        status += f" · {visual_status}"
     _text(draw, status, 58, 46, width - 76, size=15, color=color)
     measured = explanation.get("measured") or str(measurement.get("value", "Ölçüm yok"))
     if measurement.get("value") is None:
@@ -114,10 +117,16 @@ def _card(serialized: str, number: int, width: int, height: int) -> Image.Image:
     has_schematic = (event.get("visual_geometry") or {}).get("kind") == "foot_direction_angle"
     text_width = width - (226 if has_schematic else 40)
     _text(draw, "İNCELEME NOTU", 20, 307, text_width, size=11, bold=True, color=MUTED)
+    phase_note = explanation.get("phase_approval_note")
+    correction_top = 326
+    if phase_note:
+        # Shown in addition to the metric-specific correction, never instead of it.
+        _text(draw, phase_note, 20, 324, text_width, size=13, lines=2, color=ACCENTS["amber"])
+        correction_top = 362
     _text(draw, explanation.get("correction") or "Hareketi kaynak tanımıyla karşılaştırın.",
-          20, 326, text_width, size=15, lines=2)
+          20, correction_top, text_width, size=15, lines=2)
     _text(draw, explanation.get("source_note") or "Kaynak ayrıntıları karar raporundadır.",
-          20, 374, text_width, size=12, lines=3, color=MUTED)
+          20, correction_top + 46, text_width, size=12, lines=1 if phase_note else 3, color=MUTED)
     if has_schematic:
         _foot_schematic(draw, event, width - 192, 302, 174)
     return card

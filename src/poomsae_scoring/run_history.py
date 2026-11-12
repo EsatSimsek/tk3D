@@ -32,10 +32,19 @@ def build_run_history(
     current = _entry(current_summary, is_current=True)
     prior_entries = []
     skipped = 0
+    skipped_unfinished = 0
     for record in prior_records:
         payload = record.get("summary")
         if not isinstance(payload, dict):
             skipped += 1
+            continue
+        # A run whose run_state.json says it did not complete (failed, running,
+        # preparing) may hold a partial summary; it must never become a baseline.
+        # Legacy runs without run_state.json carry ``None`` and stay eligible.
+        run_state = record.get("run_state_status")
+        if run_state is not None and run_state != "completed":
+            skipped += 1
+            skipped_unfinished += 1
             continue
         try:
             entry = _entry(payload, is_current=False)
@@ -69,6 +78,7 @@ def build_run_history(
             "compatible_prior_count": len(compatible),
             "incompatible_prior_count": len(prior_entries) - len(compatible),
             "skipped_prior_count": skipped,
+            "skipped_unfinished_run_count": skipped_unfinished,
             "baseline_run_id": None if baseline is None else baseline["run_id"],
             "alert_count": 0 if comparison is None else len(comparison["alerts"]),
         },

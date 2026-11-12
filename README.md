@@ -266,6 +266,126 @@ Write-Host "Poomsae tam çıktı: $((Resolve-Path "outputs\poomsae_1_zed2i_20260
 Poomsae workflow'u ölçümler, otomatik segmentasyon önerileri, teknik teşhisler,
 işaretli video ve HTML inceleme ekranı üretir. Bunlar resmî hakem puanı değildir.
 
+İnceleme ekranındaki **Otomatik sabitleme incelemesi** bölümünde bütün hareket
+kümeleri kronolojik gösterilir. El, ayak, pelvis ve gövde için güvenilir iki
+kamera/3B poz kanıtı ile en az kısa bir ortak kararlılık aralığı bulunursa zaman
+önerilir. Hareket yavaşladıysa ama bütün gerekli kanıt bulunmadıysa tamamlanma
+adayı ve eksik kanıt ayrı gösterilir. Kayıt sonu, eksik eklem, yüksek reprojection
+ve stride ile üretilmiş tekrar kareler sabitlenme kanıtı sayılmaz.
+
+Elle yazılmış timeline yalnız ayrı bir **uyum karşılaştırması** olarak okunur;
+otomatik işaretleri veya eşikleri belirlemez ve bu etiketlerin doğru olduğu
+varsayılmaz. Otomatik adayın hareket kimliği de kesin olarak tanınmış sayılmaz.
+Her adayı iki kamerada açıp kareyi değiştirerek **kabul et / seçtiğim kareyi
+kaydet / sabitleme yok / belirsiz** kararlarından birini kaydedebilirsiniz.
+Hareket kimliğini isteğe bağlı seçip sabitleme incelemesini JSON olarak indirin.
+Bu JSON öneriyi değiştirmez; otomatik olarak bir doğrulanmış timeline veya puan
+üretmez. Aynı raporda JSON tekrar yüklenebilir. Yerel tarayıcı kaydı geçici
+olabileceğinden saklamak için JSON indirilmelidir.
+
+Mevcut referans pose ve iki kamera videosuyla yeni, benzersiz bir inceleme koşusu:
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+$runId = "fixation-review-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+.\.venv312\Scripts\python.exe -m scripts.run_poomsae_scoring --profile poomsae1_trimmed --run-id $runId
+if ($LASTEXITCODE -ne 0) { throw 'Poomsae inceleme koşusu başarısız oldu.' }
+$review = "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$runId\review\poomsae_scoring_review.html"
+Write-Host "İnceleme sayfası: $((Resolve-Path $review).Path)"
+```
+
+Etiketsiz yeni bir pose için `scripts.build_poomsae_automatic_segmentation`
+komutu `--reference-timeline` olmadan da JSON, kare-sinyali CSV ve isteğe bağlı
+`--output-html` üretir. `--camera NAME=VIDEO` ile eklenecek tarayıcı uyumlu
+MP4/WebM videoların kaynak pose ile kare sayısı ve FPS'i aynı olmalıdır.
+Videolar verilirse hash'leri, HTML üretilmese de inceleme kaynak bağına yazılır.
+Kamera kullanılmadığında inceleme ekranı kare numaralarını gösterir ancak
+görüntüyle doğrulama yapılamaz. Çıktılar yeni run klasörüne yazılmalı;
+komut var olan dosyanın üzerine yazmayı reddeder. Algoritmanın `confidence`
+değeri kalibre edilmiş doğruluk olasılığı değildir.
+
+### Bağımsız işaretleme, kanıt denetimi ve sürüm karşılaştırması
+
+Ana inceleme sayfasında elle oluşturulmuş çizelge düğmeleri **Elle işaret**,
+diğer çizelgeler **Çizelge etiketi** olarak gösterilir. İnceleme kaydı durumu
+ayrıca belirtilir; etikette beyan edilen güven doğruluk yüzdesi değildir.
+**Otomatik sabitlemeler** bağlantısı yeni dedektörün önerilerine gider.
+Hareketten çıkış, ortak kararlı aralık ve bileşen zamanları ayrı açılabilir.
+
+Otomatik rapordaki `fixation_timing_diagnostics`, ilk önerilen kararlı aralığı
+ek hız yumuşatması olmadan tekrar kontrol eder. En az mevcut minimum süreyi
+sağlayan ilk ortak aralık ve onay karesi raporlanır. Bu kontrol ilk aralığın
+dışındaki daha geç bir düzeltmeyi benimsemez, asıl öneriyi otomatik değiştirmez.
+Kaynak 3B pose önceden filtrelenmiş olabilir; kontrol bağımsız görüntü kanıtı
+değildir. Eller için mutlak hız ve kalçaya göre hızın ölçülebilirliği ayrı
+gösterilir. Kalça eksikken mutlak el hızı ortak sabitlemeyi onaylamaz.
+
+Yeni Poomsae koşuları ayrıca `fixation_quality/` üretir. Ana inceleme ekranından
+kanıt raporuna ve bağımsız işaretleme ekranına geçilebilir. `quality_report.html`
+otomatik adayları ve kaynak ret nedenlerini gösterir. Bağımsız inceleyen kişi
+doğrudan **`blind_annotation.html`** açmalıdır; bu dosya önceki timeline'ı,
+otomatik adayları veya başka inceleyenin etiketlerini içermez.
+
+Tamamlanma, kararlı duruş başlangıcı ve bitişi ayrı olaylardır. Emin olunmayan
+an tek kareye zorlanmadan bir aralıkla işaretlenir. İnceleyen/sporcu/oturum kodu
+girilir; incelenen kapsam ve tamamlanma beyanı kaydedilir. Tarayıcı destekliyorsa
+görüntüden kare alma çözümlenen video karesinin zaman damgasını kullanır.
+Her inceleyenin JSON'u ayrı indirilir. Başka inceleyen için **Yeni inceleme başlat**
+kullanılır. İnceleyen kimliği ve bağımsızlık beyanı uygulama tarafından doğrulanmaz.
+
+Tek inceleyen varsa **İşaretleme turu** alanıyla aynı kayıt farklı zamanlarda
+`tur-1`, `tur-2` olarak yeniden işaretlenebilir. Her tur boş başlatılır; önceki
+JSON yüklenmeden video yeniden incelenir. İnceleyen, sporcu ve oturum kodları
+aynı kalır. Aynı kişinin turları `intra_rater_repeatability`, farklı kişilerin
+incelemeleri `inter_rater_agreement` olarak raporlanır. İki tur iki uzman sayılmaz.
+Tur başına ayrı tarayıcı kaydı ve JSON dosyası vardır. Sürüm 2 JSON tur kodunu
+zorunlu kılar; eski sürüm 1 dosyalar `legacy-1` turuyla okunur.
+
+Var olan kaynak-bağlı V1 raporuyla yeni bir kalite paketi üretmek için
+`$sourceRunId` değerini kendi makinenizde daha önce tamamlanmış bir Poomsae
+koşusunun kimliğiyle değiştirin (örneğin yukarıdaki komutun yazdığı `$runId`):
+
+```powershell
+Set-Location "$env:USERPROFILE\Desktop\tk3D"
+$sourceRunId = '<tamamlanmış-poomsae-run-id>'
+.\.venv312\Scripts\python.exe -m scripts.build_fixation_quality_workspace --report "outputs\poomsae_1_zed2i_20260731_trimmed\runs\$sourceRunId\json\automatic_segmentation_report.json"
+```
+
+Komut benzersiz `$env:USERPROFILE\Desktop\tk3D\outputs\<session_id>\runs\fixation-quality-<id>\`
+klasörünü ve içindeki HTML/JSON dosyalarının tam yollarını yazdırır. Eski run
+değiştirilmez. `fixation_audit.json` kaynak kalite, kamera sayısı, reprojection,
+ret bitleri, kaynak triangulation puanı, ortak gözlem/düşük hareket süreleri ve
+varsa dışa aktarılmış 2B CSV'nin kamera bazlı ölçümlerini içerir. Bu CSV'deki
+geçerlilik ve güven değerleri bağımsız görüntü kanıtı olarak yeniden onaylanmaz.
+
+`fixation_sensitivity.json` aynı pose, hareket kümeleri, filtre ve kalite kapısı
+üzerinde bekleme süresini %75/%100/%125 ve hareket eşiklerini %80/%100/%120
+oranlarında deneyerek karar duyarlılığını gösterir. Geçersiz parametreler
+atlanır ve ayrı listelenir. İnsan etiketleri bu deneye girmez; deney sayısı
+bir doğruluk olasılığı, gözlenen kare aralığı da istatistiksel güven aralığı
+değildir. Araç parametre seçmez veya runtime varsayılanını değiştirmez.
+
+İndirilen JSON dosyaları sonraki çalıştırmada `--annotation 'C:\tam\yol\inceleyen-a.json'`
+ile eklenir; her inceleyen için bu seçenek tekrarlanabilir. `--compare-report`
+aynı videolara ve zaman tabanına sahip başka dedektör raporunu aynı işaretlerle
+karşılaştırır. Bağımsız işaretlerin kimliği video hash'leri ve zaman tabanına
+bağlıdır; farklı pose/dedektör sürümleriyle kullanılabilir. Pose hash'i ayrıca
+denetim provenance'ında korunur.
+
+`fixation_benchmark.json` olayları bire bir eşleştirir; fazladan ve kaçırılan
+olaylar, precision/recall/F1, eşleşen olayların etiket aralığına kare/ms uzaklığı,
+belirsiz bırakılan adaylar ve inceleyenler arası uyuşmazlıklar ayrı raporlanır.
+Varsayılan 50/100/200 ms toleransları betimleyici deney ayarlarıdır; uzman onaylı
+kabul sınırı değildir. İnceleme tamamlanmadıysa metrik üretilmez; insan JSON'u
+yokken durum `awaiting_independent_annotations` olur. Otomatik etkinleştirme ve
+puanlama onayı bu raporla verilmez.
+
+İsteğe bağlı `--split-plan` JSON'u `schema_version: 1` ve `recordings` listesi
+taşır. Her satır `recording_id`, `athlete_id`, `session_id`, `split` alanlarını
+içerir; `split` değeri `development`, `validation` veya `test` olur. Aynı sporcu,
+oturum veya kayıt farklı bölümlere taşındığında araç değerlendirmeyi reddeder.
+Bu grupların ayrılması tek başına dış doğruluk kanıtı değildir.
+
 ## 8. Geliştirici doğrulaması
 
 Kod değişikliği göndermeden önce:

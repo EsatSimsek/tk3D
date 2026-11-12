@@ -3,7 +3,7 @@ validation_id: taegeuk1-rule-accuracy-validation-v1
 status: synthetic_engineering_validation_only
 target_profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
 required_keypoint_count: 133
-synthetic_fixture_id: taegeuk1-wholebody133-synthetic-v2
+synthetic_fixture_id: taegeuk1-wholebody133-synthetic-v3
 classification_cases:
   - pass
   - boundary

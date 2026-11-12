@@ -27,8 +27,20 @@ from src.poomsae_scoring.contracts import (
 from src.poomsae_scoring.wholebody_diagnostics import _pose_arrays
 from src.poomsae_scoring.timeline_review import timeline_review_status
 from src.poomsae_scoring.technical_accuracy_metrics import (
+    FACE_LEFT_EYE_LOCAL,
+    FACE_RIGHT_EYE_LOCAL,
+    FIXATION_ANCHOR,
+    METRIC_REGISTRY,
+    METRIC_UNIT_VOCABULARY,
+    METRIC_UNITS,
+    POST_FIXATION_HOLD,
+    describe_frame_window,
     measure_athlete_forward_vector,
+    apply_landmark_quality_gate,
     measure_observable_accuracy_metrics,
+    measurement_evaluator_status,
+    post_fixation_hold_frames,
+    resolve_metric_landmarks,
 )
 
 
@@ -39,19 +51,7 @@ RULE_STATES = {
     "unmeasurable",
     "not_observable_with_current_pipeline",
 }
-UNITS = {
-    "bool",
-    "deg",
-    "ratio",
-    "sec",
-    "body_ratio",
-    "leg_length",
-    "arm_length",
-    "shoulder_width",
-    "torso_length",
-    "state",
-    "reason_code",
-}
+UNITS = set(METRIC_UNIT_VOCABULARY)
 POLICY_KEYS = {
     "category",
     "numeric_score_enabled",
@@ -100,6 +100,7 @@ QUALITY_KEYS = {
     "max_reprojection_error_px",
     "min_valid_samples",
     "anchor_window_radius_frames",
+    "post_fixation_hold_window_frames",
     "min_group_valid_ratio",
     "max_normalized_frame_jump",
 }
@@ -118,99 +119,18 @@ JUDGE_SOURCE_KEYS = {
 JUDGE_SCORE_EFFECTS = {"deduction_candidate"}
 JUDGE_DECISION_STATUS = "judge_validated_deduction"
 JUDGE_RULE_ELIGIBILITY = "judge_validated_threshold"
-ACTIVE_EVALUATORS = {
-    "head_torso_relative_yaw_deg",
-    "head_roll_relative_shoulders_deg",
-    "head_pitch_relative_torso_deg",
-    "head_fixation_orientation_dispersion_p95_deg",
-    "head_post_fixation_drift_deg",
-    "torso_pelvis_relative_yaw_deg",
-    "torso_lean_p95_deg",
-    "torso_lateral_bend_deg",
-    "shoulder_roll_deg",
-    "pelvis_roll_deg",
-    "torso_fixation_orientation_dispersion_p95_deg",
-    "pelvis_fixation_orientation_dispersion_p95_deg",
-    "torso_post_fixation_drift_deg",
-    "pelvis_post_fixation_drift_deg",
-    "foot_fixation_slip_body_ratio",
-    "stance_fixation_dispersion_body_ratio",
-    "elbow_flare_body_ratio",
-    "shoulder_elbow_wrist_plane_deviation_ratio",
-    "active_arm_fixation_dispersion_body_ratio",
-    "reaction_arm_fixation_dispersion_body_ratio",
-    "arm_late_correction_body_ratio",
-    "wrist_forearm_alignment_deg",
-    "active_hand_fixation_stability",
-    "reaction_hand_fixation_stability",
-    "active_hand_stance_settle_offset",
-    "head_torso_settle_offset",
-    "required_phase_coverage",
-    "movement_contract_exists",
-    "movement_timeline_segment_exists",
-    "expected_movement_order",
-    "movement_phase_order",
-    "expected_technique_contract_resolved",
-    "expected_stance_contract_resolved",
-    "expected_active_side_contract_resolved",
+# Every per-metric fact (unit, value kind, landmarks, window, quality group,
+# producer, applicability, contextual ranges, WholeBody aliases) lives in
+# ``technical_accuracy_metrics.METRIC_REGISTRY``. Nothing here repeats it.
+TECHNIQUE_SCREENING_CONTEXTS = {"arae_makki", "momtong_jireugi", "momtong_an_makki", "eolgul_makki"}
+# Uncertainty band of each stance-contract range (unvalidated engineering values,
+# unchanged); a registry record names the stance key it is screened against.
+STANCE_RANGE_UNCERTAINTY = {
+    "length_leg_ratio": 0.03,
+    "width_shoulder_ratio": 0.05,
+    "front_knee_included_angle_deg": 2.0,
+    "rear_knee_included_angle_deg": 2.0,
 }
-
-
-ADDITIONAL_ACTIVE_EVALUATORS = {
-    "torso_forward_backward_lean_deg",
-    "shoulder_pelvis_roll_difference_deg",
-    "shoulder_height_asymmetry_body_ratio",
-    "pelvis_height_asymmetry_body_ratio",
-    "torso_translation_after_fixation_body_ratio",
-    "pelvis_translation_after_fixation_body_ratio",
-    "body_height_change_during_fixation_ratio",
-    "moving_foot_side_match",
-    "expected_support_or_pivot_foot_match",
-    "stance_length_leg_ratio",
-    "stance_width_shoulder_ratio",
-    "inter_foot_yaw_difference_deg",
-    "foot_crossing_margin_body_ratio",
-    "front_knee_flexion_deg",
-    "rear_knee_flexion_deg",
-    "knee_over_foot_alignment_ratio",
-    "lower_body_fixation_dispersion",
-    "chamber_knee_flexion_deg",
-    "support_leg_stability",
-    "kick_extension_deg",
-    "active_arm_side_match",
-    "shoulder_elevation_body_ratio",
-    "elbow_flexion_deg",
-    "active_arm_extension_ratio",
-    "reaction_hand_target_distance_body_ratio",
-    "reaction_elbow_position_error_body_ratio",
-    "arm_target_overshoot_body_ratio",
-    "wrist_flexion_extension_proxy_deg",
-    "wrist_radial_ulnar_deviation_proxy_deg",
-    "fist_target_height_error_body_ratio",
-    "fist_target_lateral_error_body_ratio",
-    "chamber_precedes_execution",
-    "late_post_fixation_correction",
-    "premature_next_movement_transition",
-    "fixation_pose_stability",
-    "step_length_error_body_ratio",
-    "step_width_error_body_ratio",
-    "post_landing_adjustment",
-    "knee_fixation_dispersion",
-    "stance_width_after_fixation_change",
-    "stance_length_after_fixation_change",
-}
-ACTIVE_EVALUATORS |= ADDITIONAL_ACTIVE_EVALUATORS
-ADDITIONAL_BOOLEAN_EVALUATORS = {
-    "moving_foot_side_match", "expected_support_or_pivot_foot_match", "active_arm_side_match",
-    "chamber_precedes_execution", "premature_next_movement_transition", "fixation_pose_stability",
-}
-STANCE_RANGE_KEYS = {
-    "stance_length_leg_ratio": ("length_leg_ratio", "leg_length", 0.03),
-    "stance_width_shoulder_ratio": ("width_shoulder_ratio", "shoulder_width", 0.05),
-    "front_knee_flexion_deg": ("front_knee_included_angle_deg", "deg", 2.0),
-    "rear_knee_flexion_deg": ("rear_knee_included_angle_deg", "deg", 2.0),
-}
-TECHNIQUE_RANGE_METRICS = {"elbow_flexion_deg", "active_arm_extension_ratio"}
 
 
 def load_technical_accuracy_profile(path: str | Path) -> dict[str, Any]:
@@ -253,6 +173,9 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
     gates["min_valid_samples"] = _positive_integer(gates["min_valid_samples"], "min_valid_samples")
     gates["anchor_window_radius_frames"] = _nonnegative_integer(
         gates["anchor_window_radius_frames"], "anchor_window_radius_frames"
+    )
+    gates["post_fixation_hold_window_frames"] = _positive_integer(
+        gates["post_fixation_hold_window_frames"], "post_fixation_hold_window_frames"
     )
     gates["min_group_valid_ratio"] = _probability(gates["min_group_valid_ratio"], "min_group_valid_ratio")
 
@@ -309,59 +232,72 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
             if metric_id in metric_family:
                 raise ScoringContractError(f"duplicate rule/metric id: {metric_id}")
             metric_family[metric_id] = family
+    _require_catalog_matches_registry(metric_family)
 
     active = _id_set(data["active_rules"], metric_family, "active_rules")
     direction = _id_set(data["direction_bound_rules"], metric_family, "direction_bound_rules")
     not_observable = _id_set(data["not_observable_rules"], metric_family, "not_observable_rules")
     if active & direction or active & not_observable or direction & not_observable:
         raise ScoringContractError("rule state lists must not overlap")
-    if active != ACTIVE_EVALUATORS:
+    registry = {metric_id: METRIC_REGISTRY[metric_id] for metric_id in metric_family}
+    without_evaluator = sorted(metric_id for metric_id in active | direction if not registry[metric_id].implemented)
+    if without_evaluator:
         raise ScoringContractError(
-            "active rules and implemented evaluator inventory differ: "
-            f"missing={sorted(active - ACTIVE_EVALUATORS)}, "
-            f"undefined={sorted(ACTIVE_EVALUATORS - active)}"
+            f"active or direction-bound rules have no implemented evaluator in the registry: {without_evaluator}"
         )
-    thresholdless_active = {
-        "required_phase_coverage",
-        "movement_contract_exists",
-        "movement_timeline_segment_exists",
-        "expected_movement_order",
-        "movement_phase_order",
-        "expected_technique_contract_resolved",
-        "expected_stance_contract_resolved",
-        "expected_active_side_contract_resolved",
+    observable_without_producer = sorted(
+        metric_id for metric_id in set(metric_family) - not_observable if registry[metric_id].producer == "none"
+    )
+    if observable_without_producer:
+        raise ScoringContractError(
+            f"rules registered as never produced must be listed as not observable: {observable_without_producer}"
+        )
+    state_kind_screens = sorted(metric_id for metric_id in active | direction if registry[metric_id].kind == "state")
+    if state_kind_screens:
+        raise ScoringContractError(f"state/reason-code metrics cannot screen: {state_kind_screens}")
+    contextual_metrics = {metric_id for metric_id, spec in registry.items() if spec.contextual_range is not None}
+    technique_metrics = {
+        metric_id for metric_id in contextual_metrics if registry[metric_id].contextual_range[0] == "technique"
     }
-    thresholdless_active |= ADDITIONAL_BOOLEAN_EVALUATORS
-    missing_thresholds = active - set(data["thresholds"]) - thresholdless_active - set(STANCE_RANGE_KEYS) - TECHNIQUE_RANGE_METRICS
+    boolean_metrics = {
+        metric_id for metric_id in active | direction if registry[metric_id].kind == "boolean"
+    }
+    missing_thresholds = active - set(data["thresholds"]) - boolean_metrics - contextual_metrics
     if missing_thresholds:
         raise ScoringContractError(f"active rules lack configured thresholds: {sorted(missing_thresholds)}")
     unknown_thresholds = set(data["thresholds"]) - set(metric_family)
     if unknown_thresholds:
         raise ScoringContractError(f"thresholds reference unknown metrics: {sorted(unknown_thresholds)}")
-    boolean_metrics = thresholdless_active | {
-        "head_turn_direction_sign_match", "head_wrong_direction_stable_state",
-        "front_back_foot_order_match", "expected_direction_change_match",
-        "rotation_direction_sign_match", "expected_direction_contract_resolved",
-    }
     expectations = data["boolean_expectations"]
     if not isinstance(expectations, dict) or set(expectations) != boolean_metrics:
         raise ScoringContractError("boolean_expectations must explicitly cover every boolean rule")
     if any(type(value) is not bool for value in expectations.values()):
         raise ScoringContractError("boolean_expectations values must be booleans")
-    if boolean_metrics & set(data["thresholds"]):
+    boolean_kind = {metric_id for metric_id, spec in registry.items() if spec.kind == "boolean"}
+    if boolean_kind & set(data["thresholds"]):
         raise ScoringContractError("boolean rules cannot have numeric thresholds")
+    for metric_id, threshold in data["thresholds"].items():
+        _require_metric_unit(metric_id, threshold["unit"], f"thresholds.{metric_id}")
+    unknown_stance_keys = sorted(
+        metric_id
+        for metric_id in contextual_metrics - technique_metrics
+        if len(registry[metric_id].contextual_range) != 2
+        or registry[metric_id].contextual_range[1] not in STANCE_RANGE_UNCERTAINTY
+    )
+    if unknown_stance_keys:
+        raise ScoringContractError(f"stance-range metrics name an unknown stance contract key: {unknown_stance_keys}")
     contextual = data["technique_screening_thresholds"]
-    if not isinstance(contextual, dict) or set(contextual) != TECHNIQUE_RANGE_METRICS:
+    if not isinstance(contextual, dict) or set(contextual) != technique_metrics:
         raise ScoringContractError("technique_screening_thresholds inventory mismatch")
     for metric, mapping in contextual.items():
-        if not isinstance(mapping, dict) or set(mapping) != {"arae_makki", "momtong_jireugi", "momtong_an_makki", "eolgul_makki"}:
+        if not isinstance(mapping, dict) or set(mapping) != TECHNIQUE_SCREENING_CONTEXTS:
             raise ScoringContractError("technique screening must cover the four arm techniques")
         for threshold in mapping.values():
             _exact_keys(threshold, THRESHOLD_KEYS, "contextual threshold")
             values = threshold["value"]
-            expected_unit = "deg" if metric == "elbow_flexion_deg" else "arm_length"
-            if threshold["operator"] != "range" or threshold["unit"] != expected_unit:
+            if threshold["operator"] != "range":
                 raise ScoringContractError("contextual threshold must be a typed range")
+            _require_metric_unit(metric, threshold["unit"], f"technique_screening_thresholds.{metric}")
             if not isinstance(values, list) or len(values) != 2:
                 raise ScoringContractError("contextual range needs two limits")
             low, high = [_finite(value, "contextual limit") for value in values]
@@ -625,7 +561,7 @@ def build_technical_accuracy_diagnostics(
     contracts = resolve_movement_accuracy_contracts(spec, profile)
     observed_segments = {segment["movement_id"]: segment for segment in timeline["segments"]}
     old_movements = {movement["movement_id"]: movement for movement in wholebody_diagnostics.get("movements", [])}
-    rules = profile["resolved_rules"]
+    rules = _bind_rules_to_contracts(profile["resolved_rules"], contracts)
     coverage: list[dict[str, Any]] = []
     movement_reports: list[dict[str, Any]] = []
     candidates: list[dict[str, Any]] = []
@@ -689,7 +625,8 @@ def build_technical_accuracy_diagnostics(
         )
 
     state_counts = Counter(row["state"] for row in coverage if row["applies"])
-    landmark_inventory = _build_landmark_inventory(rules)
+    landmark_inventory = _build_landmark_inventory(rules, contracts)
+    configuration_only = [contract["movement_id"] for contract in contracts if contract["movement_id"] not in observed_segments]
     judge_rules = [rule for rule in rules if rule["judge_source"] is not None]
     judge_deductions = [_judge_deduction(result) for result in candidates if result["score_effect"]]
     scored = any(
@@ -763,7 +700,14 @@ def build_technical_accuracy_diagnostics(
             "candidate_events": candidates,
             "movements": movement_reports,
             "limitations": [
-                "M07-M18 are configuration/synthetic scope only because the active recording ends after M06.",
+                *(
+                    [
+                        f"{configuration_only[0]}-{configuration_only[-1]} are configuration/synthetic scope only "
+                        f"because the active recording ends after {sorted(observed_segments)[-1]}."
+                    ]
+                    if configuration_only and observed_segments
+                    else []
+                ),
                 "head_orientation_proxy is not actual eye gaze or visual attention.",
                 "pelvis/body-centre proxies are not centre of mass, pressure, or weight distribution.",
                 "WholeBody hand, face, and foot points do not have the same depth/global-optimizer validation as BODY-17.",
@@ -855,9 +799,13 @@ def resolve_movement_accuracy_contracts(spec_payload: dict[str, Any], profile_pa
             }
         )
         previous_direction = movement["direction"]
-    expected_ids = [f"M{index:02d}" for index in range(1, 19)]
+    # ``expected_movement_order`` reads the sequence number from the id, so the ids
+    # must be the spec's movements numbered M01..Mnn in order.
+    expected_ids = [f"M{index:02d}" for index in range(1, len(spec["movements"]) + 1)]
     if [item["movement_id"] for item in contracts] != expected_ids:
-        raise ScoringContractError("Taegeuk 1 accuracy contracts must resolve exactly M01-M18 in order")
+        raise ScoringContractError(
+            f"accuracy contracts must resolve the spec movements as {expected_ids[0]}-{expected_ids[-1]} in order"
+        )
     return contracts
 
 
@@ -911,14 +859,6 @@ def _movement_measurements(
     fps: float,
 ) -> dict[str, dict[str, Any]]:
     old_metrics = {item["metric_id"]: item for item in (wholebody or {}).get("metrics", [])}
-    aliases = {
-        "head_torso_relative_yaw_deg": "head_torso_yaw_mismatch_deg",
-        "torso_pelvis_relative_yaw_deg": "shoulder_hip_twist_deg",
-        "torso_lean_p95_deg": "torso_lean_p95_deg",
-        "wrist_forearm_alignment_deg": "wrist_forearm_alignment_deg",
-        "active_hand_stance_settle_offset": "hand_foot_settle_difference_sec",
-        "active_arm_target_height_body_ratio": "executing_wrist_height_torso_ratio",
-    }
     result = measure_observable_accuracy_metrics(
         arrays,
         contract,
@@ -927,12 +867,22 @@ def _movement_measurements(
         direction,
         fps,
     )
+    _require_producer(result, {"metrics", "placeholder"}, "measurement module")
+    for metric_id, measurement in result.items():
+        if METRIC_REGISTRY[metric_id].producer == "placeholder" and measurement.get("value") is not None:
+            raise ScoringContractError(
+                f"{metric_id} is registered as a placeholder but produced a value; register its evaluator"
+            )
+    aliases = {spec.metric_id: spec.alias_of for spec in METRIC_REGISTRY.values() if spec.producer == "wholebody_alias"}
+    overlap = set(aliases) & set(result)
+    if overlap:
+        raise ScoringContractError(f"metrics have two implementations: {sorted(overlap)}")
     for target, source in aliases.items():
         metric = old_metrics.get(source)
         if metric is not None:
             result[target] = {
                 "value": metric.get("value"),
-                "unit": _unit_for(target),
+                "unit": METRIC_UNITS[target],
                 "quality_status": "measured" if metric.get("value") is not None else "unmeasurable",
                 "evidence": metric.get("measurement_evidence"),
                 "source_metric_id": source,
@@ -942,47 +892,58 @@ def _movement_measurements(
     fixation = segment["anchors"].get("fixation", end)
     radius = profile["quality_gates"]["anchor_window_radius_frames"]
     frames = np.arange(max(start, fixation - radius), min(end, fixation + radius) + 1)
-    after = np.arange(fixation, end + 1)
+    hold = post_fixation_hold_frames(segment, profile)
+    fixation_window = describe_frame_window("fixation_anchor", frames, radius_frames=radius)
+    hold_window = describe_frame_window(
+        POST_FIXATION_HOLD,
+        hold,
+        configured_length_frames=profile["quality_gates"]["post_fixation_hold_window_frames"],
+        source="quality_gates.post_fixation_hold_window_frames",
+    )
     active = contract["active_arm"]
     reaction = contract["chamber_or_reaction_arm"]
-    rear = contract["rear_or_support_leg"]
+    plane_deviation = _arm_plane_deviation(arrays, frames, active)
+    # Metrics the measurement module does not provide. Each id is computed once here;
+    # measurement-only duplicates (elbow flare, wrist-joint dispersion/correction) are
+    # still reported for audit but carry no screening threshold.
     computed = {
-        "head_roll_relative_shoulders_deg": _window_scalar(arrays, frames, _head_roll),
-        "head_pitch_relative_torso_deg": _window_scalar(arrays, frames, _head_pitch_unsigned),
-        "head_fixation_orientation_dispersion_p95_deg": _orientation_dispersion(
-            arrays, after, "head"
-        ),
-        "head_post_fixation_drift_deg": _orientation_drift(arrays, after, "head"),
-        "torso_lateral_bend_deg": _window_scalar(arrays, frames, _torso_lateral_bend),
-        "shoulder_roll_deg": _window_scalar(arrays, frames, lambda a, f: _line_roll(a, f, "shoulder")),
-        "pelvis_roll_deg": _window_scalar(arrays, frames, lambda a, f: _line_roll(a, f, "hip")),
-        "shoulder_height_asymmetry_body_ratio": _window_scalar(arrays, frames, lambda a, f: _height_asymmetry(a, f, "shoulder")),
-        "pelvis_height_asymmetry_body_ratio": _window_scalar(arrays, frames, lambda a, f: _height_asymmetry(a, f, "hip")),
-        "elbow_flare_body_ratio": _arm_plane_deviation(arrays, frames, active),
-        "shoulder_elbow_wrist_plane_deviation_ratio": _arm_plane_deviation(arrays, frames, active),
-        "active_arm_fixation_dispersion_body_ratio": _joint_dispersion(arrays, after, f"{active}_wrist", "arm", active),
-        "reaction_arm_fixation_dispersion_body_ratio": _joint_dispersion(arrays, after, f"{reaction}_wrist", "arm", reaction),
-        "arm_late_correction_body_ratio": _late_correction(arrays, after, f"{active}_wrist", "arm", active),
-        "rear_knee_flexion_deg": _window_scalar(arrays, frames, lambda a, f: _joint_angle(a, f, rear)),
-        "shoulder_pelvis_roll_difference_deg": _window_scalar(arrays, frames, _shoulder_pelvis_roll_difference),
-        "torso_translation_after_fixation_body_ratio": _centre_dispersion(arrays, after, "shoulder"),
-        "pelvis_translation_after_fixation_body_ratio": _centre_dispersion(arrays, after, "hip"),
-        "body_height_change_during_fixation_ratio": _body_height_change(arrays, after),
-        "torso_fixation_orientation_dispersion_p95_deg": _orientation_dispersion(
-            arrays, after, "shoulder"
-        ),
-        "pelvis_fixation_orientation_dispersion_p95_deg": _orientation_dispersion(
-            arrays, after, "hip"
-        ),
-        "torso_post_fixation_drift_deg": _orientation_drift(arrays, after, "shoulder"),
-        "pelvis_post_fixation_drift_deg": _orientation_drift(arrays, after, "hip"),
+        "head_roll_relative_shoulders_deg": (_window_scalar(arrays, frames, _head_roll), fixation_window),
+        "head_pitch_relative_torso_deg": (_window_scalar(arrays, frames, _head_pitch_unsigned), fixation_window),
+        "head_fixation_orientation_dispersion_p95_deg": (_orientation_dispersion(arrays, hold, "head"), hold_window),
+        "head_post_fixation_drift_deg": (_orientation_drift(arrays, hold, "head"), hold_window),
+        "torso_lateral_bend_deg": (_window_scalar(arrays, frames, _torso_lateral_bend), fixation_window),
+        "shoulder_roll_deg": (_window_scalar(arrays, frames, lambda a, f: _line_roll(a, f, "shoulder")), fixation_window),
+        "pelvis_roll_deg": (_window_scalar(arrays, frames, lambda a, f: _line_roll(a, f, "hip")), fixation_window),
+        "shoulder_elbow_wrist_plane_deviation_ratio": (plane_deviation, fixation_window),
+        "elbow_flare_body_ratio": (plane_deviation, fixation_window),
+        "active_arm_fixation_dispersion_body_ratio": (_joint_dispersion(arrays, hold, f"{active}_wrist", "arm", active), hold_window),
+        "reaction_arm_fixation_dispersion_body_ratio": (_joint_dispersion(arrays, hold, f"{reaction}_wrist", "arm", reaction), hold_window),
+        "arm_late_correction_body_ratio": (_late_correction(arrays, hold, f"{active}_wrist", "arm", active), hold_window),
     }
-    for metric_id, value in computed.items():
+    # Registered per-frame evaluators: one record plus a frame function is a rule.
+    for spec in METRIC_REGISTRY.values():
+        if spec.producer != "frame_function":
+            continue
+        window_frames, window = (frames, fixation_window) if spec.window == FIXATION_ANCHOR else (hold, hold_window)
+        computed[spec.metric_id] = (
+            _window_scalar(arrays, window_frames, lambda a, f, spec=spec: spec.frame_value(a, f, contract)),
+            window,
+        )
+    _require_producer(computed, {"rule_layer", "frame_function"}, "rule layer")
+    overlap = set(computed) & set(result)
+    if overlap:
+        raise ScoringContractError(f"metrics have two implementations: {sorted(overlap)}")
+    for metric_id, (value, window) in computed.items():
         result[metric_id] = {
             "value": value,
-            "unit": _unit_for(metric_id),
+            "unit": METRIC_UNITS[metric_id],
             "quality_status": "measured" if value is not None else "unmeasurable",
-            "evidence": {"start_frame": int(frames[0]), "end_frame": int(frames[-1]), "minimum_valid_samples": profile["quality_gates"]["min_valid_samples"]},
+            "evidence": {
+                "start_frame": int(window["start_frame"]),
+                "end_frame": int(window["end_frame"]),
+                "window": window,
+                "minimum_valid_samples": profile["quality_gates"]["min_valid_samples"],
+            },
             "source_metric_id": None,
         }
     required = {"preparation", "fixation"}
@@ -996,44 +957,28 @@ def _movement_measurements(
     result["expected_technique_contract_resolved"] = _bool_measurement(not any(reason == "unsupported_technique" for reason in contract["blocking_reasons"]))
     result["expected_stance_contract_resolved"] = _bool_measurement(not any(reason == "unsupported_stance" for reason in contract["blocking_reasons"]))
     result["expected_active_side_contract_resolved"] = _bool_measurement(contract["active_arm"] in {"left", "right"})
-    _apply_measurement_quality_gates(result, arrays, segment, profile)
+    contract_ids = (
+        "required_phase_coverage", "movement_contract_exists", "movement_timeline_segment_exists",
+        "expected_movement_order", "movement_phase_order", "expected_technique_contract_resolved",
+        "expected_stance_contract_resolved", "expected_active_side_contract_resolved",
+    )
+    _require_producer({metric_id: None for metric_id in contract_ids}, {"contract"}, "rule-layer contract facts")
+    unregistered = sorted(set(result) - set(METRIC_REGISTRY))
+    if unregistered:
+        raise ScoringContractError(f"measurements produced without a registry record: {unregistered}")
+    apply_landmark_quality_gate(result, arrays, segment, profile, contract)
     return result
 
 
-def _apply_measurement_quality_gates(
-    measurements: dict[str, dict[str, Any]],
-    arrays: dict[str, Any],
-    segment: dict[str, Any],
-    profile: dict[str, Any],
-) -> None:
-    rules = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}
-    quality_metrics = {
+def _require_producer(produced: dict[str, Any], producers: set[str], source: str) -> None:
+    """Every id must be registered and registered to the code path that produced it."""
+    wrong = sorted(
         metric_id
-        for metric_id in measurements
-        if metric_id.endswith("_geometry_quality")
-        or metric_id.endswith("_evidence_quality")
-        or metric_id.endswith("_unmeasurable_reason")
-    }
-    minimum = float(profile["quality_gates"]["min_group_valid_ratio"])
-    frames = np.arange(int(segment["start_frame"]), int(segment["end_frame"]) + 1, dtype=int)
-    for metric_id, measurement in measurements.items():
-        if metric_id in quality_metrics or measurement.get("value") is None:
-            continue
-        rule = rules.get(metric_id)
-        if rule is None or not rule["required_landmarks"]:
-            continue
-        indices = np.asarray(rule["required_landmarks"], dtype=int)
-        ratio = float(np.mean(arrays["quality_mask"][np.ix_(frames, indices)]))
-        evidence = measurement.get("evidence")
-        if not isinstance(evidence, dict):
-            evidence = {}
-            measurement["evidence"] = evidence
-        evidence["required_landmark_valid_ratio"] = ratio
-        evidence["minimum_required_landmark_valid_ratio"] = minimum
-        if ratio < minimum:
-            measurement["value"] = None
-            measurement["quality_status"] = "unmeasurable"
-            measurement["not_measurable_reason"] = "required_landmark_group_quality_below_minimum"
+        for metric_id in produced
+        if metric_id not in METRIC_REGISTRY or METRIC_REGISTRY[metric_id].producer not in producers
+    )
+    if wrong:
+        raise ScoringContractError(f"{source} produced ids registered to another producer or not at all: {wrong}")
 
 
 def _evaluate_rule(
@@ -1068,6 +1013,11 @@ def _evaluate_rule(
             "quality_status": "blocked" if missing_reference else "unmeasurable",
             "skip_or_block_reason": reason,
         }
+    if measurement.get("unit") != rule["unit"]:
+        raise ScoringContractError(
+            f"measurement unit {measurement.get('unit')!r} for {rule['metric_id']} "
+            f"does not match the rule unit {rule['unit']!r}"
+        )
     direction_bound_evaluable = rule["status"] == "blocked_missing_reference" and direction is not None
     has_screening = rule["threshold"] is not None or rule.get("expected_boolean") is not None
     if (rule["status"] != "active_diagnostic" and not direction_bound_evaluable) or not has_screening:
@@ -1154,20 +1104,22 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         status = "not_observable_with_current_pipeline"
     else:
         status = "measurement_only"
+    spec = METRIC_REGISTRY[metric_id]
     threshold = deepcopy(profile["thresholds"].get(metric_id))
     expected_boolean = profile["boolean_expectations"].get(metric_id)
     contextual_thresholds = {}
-    if metric_id in STANCE_RANGE_KEYS:
-        key, context_unit, uncertainty = STANCE_RANGE_KEYS[metric_id]
+    if spec.contextual_range is not None and spec.contextual_range[0] == "stance":
+        key = spec.contextual_range[1]
         contextual_thresholds = {name: {"operator": "range", "value": stance[key],
-                                  "unit": context_unit, "uncertainty_band": uncertainty}
+                                  "unit": spec.unit, "uncertainty_band": STANCE_RANGE_UNCERTAINTY[key]}
                                  for name, stance in profile["stance_contracts"].items()}
-    elif metric_id in TECHNIQUE_RANGE_METRICS:
+    elif spec.contextual_range is not None:
         contextual_thresholds = deepcopy(profile["technique_screening_thresholds"][metric_id])
-    unit = "bool" if expected_boolean is not None else threshold["unit"] if threshold else _unit_for(metric_id)
-    if contextual_thresholds:
-        unit = next(iter(contextual_thresholds.values()))["unit"]
+    # The unit is the one the measurement declares; profile validation has already
+    # refused any threshold (plain or contextual) written in another unit.
+    unit = spec.unit
     judge = (threshold or {}).get("judge_source")
+    evaluator_status = measurement_evaluator_status(spec, status)
     return {
         "rule_id": f"TK3D-T1-V3-{metric_id.upper().replace('_', '-')}",
         "metric_id": metric_id,
@@ -1175,7 +1127,9 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "rule_family": family,
         "label": metric_id.replace("_", " "),
         "description": f"Temporary WholeBody-133 technical-accuracy diagnostic for {metric_id}.",
-        "applicable_movements": [f"M{index:02d}" for index in range(1, 19)],
+        # Bound to the Poomsae spec's movement list when a report is built.
+        "applicable_movements": None,
+        "applicability": spec.applies_to,
         "applicable_techniques": ["all_declared_taegeuk_1_techniques"],
         "evaluation_phase": "phase_specific_or_fixation",
         "aggregation": "robust_window_median_or_explicit_state",
@@ -1186,7 +1140,12 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "threshold": threshold,
         "uncertainty_band": None if threshold is None else threshold["uncertainty_band"],
         "unit": unit,
-        "required_landmarks": _required_landmarks(metric_id),
+        # Contract-independent view (every side a role can take); the runtime gate
+        # resolves the landmarks per movement contract.
+        "required_landmarks": resolve_metric_landmarks(spec),
+        "landmark_declaration": list(spec.landmarks or ()),
+        "evaluation_window": spec.window,
+        "value_kind": spec.kind,
         "minimum_valid_samples": profile["quality_gates"]["min_valid_samples"],
         "required_reference_frame": "athlete_local_direction" if metric_id in direction else "gravity_relative_or_body_relative",
         "evidence_quality_requirements": ["exact_133_points", "finite_required_landmarks", "camera_and_reprojection_gate", "minimum_valid_samples"],
@@ -1202,14 +1161,13 @@ def _resolved_rule(profile: dict[str, Any], metric_id: str, family: str, active:
         "rule_eligibility": JUDGE_RULE_ELIGIBILITY if judge else profile["policy"]["rule_eligibility"],
         "numeric_score_enabled": judge is not None,
         "deduction_points": judge["deduction_points"] if judge else None,
-        "measurement_evaluator_status": (
-            "not_applicable_pipeline_limit"
-            if status == "not_observable_with_current_pipeline"
-            else "implemented"
-        ),
+        "measurement_evaluator_status": evaluator_status,
+        "measurement_producer": spec.producer,
         "measurement_evaluator_id": (
             None
-            if status == "not_observable_with_current_pipeline"
+            if evaluator_status != "implemented"
+            else f"wholebody_diagnostics.{spec.alias_of}"
+            if spec.alias_of
             else f"wholebody_133_geometry_v3.{family}"
         ),
     }
@@ -1228,11 +1186,13 @@ def _contextual_rule(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str
 
 
 def _rule_applies(rule: dict[str, Any], contract: dict[str, Any]) -> bool:
-    if rule["metric_id"] in {"moving_foot_side_match", "expected_support_or_pivot_foot_match"} and contract["expected_moving_foot"] is None:
+    applicability = METRIC_REGISTRY[rule["metric_id"]].applies_to
+    if applicability == "expected_moving_foot" and contract["expected_moving_foot"] is None:
         return False
-    if rule["rule_family"] == "kick" and "ap_chagi" not in contract["technique_types"]:
+    if applicability == "kick" and "ap_chagi" not in contract["technique_types"]:
         return False
-    return contract["movement_id"] in rule["applicable_movements"]
+    movements = rule["applicable_movements"]
+    return movements is None or contract["movement_id"] in movements
 
 
 def _validate_contract_tables(stance: Any, techniques: Any) -> None:
@@ -1329,104 +1289,46 @@ def _id_set(values: Any, catalog: dict[str, str], label: str) -> set[str]:
     return result
 
 
-def _required_landmarks(metric_id: str) -> list[int]:
-    body = COCO_BODY_JOINTS
-    torso = [body[name] for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip")]
-    arms = [
-        body[name]
-        for name in (
-            "left_shoulder",
-            "right_shoulder",
-            "left_elbow",
-            "right_elbow",
-            "left_wrist",
-            "right_wrist",
+def _require_catalog_matches_registry(metric_family: dict[str, str]) -> None:
+    """The profile catalog and the metric registry must name exactly the same ids."""
+    catalog, registered = set(metric_family), set(METRIC_REGISTRY)
+    unregistered = sorted(catalog - registered)
+    if unregistered:
+        raise ScoringContractError(
+            "metric_catalog ids have no metric registry record (unit, landmarks, evaluator): "
+            f"{unregistered}"
         )
-    ]
-    legs = [
-        body[name]
-        for name in (
-            "left_hip",
-            "right_hip",
-            "left_knee",
-            "right_knee",
-            "left_ankle",
-            "right_ankle",
-        )
-    ]
-    feet = list(COCO_FOOT_JOINTS.values())
-    hands = list(range(COCO_LEFT_HAND_OFFSET, COCO_WHOLEBODY_KEYPOINTS))
-    palm_points = [
-        offset + COCO_HAND_LOCAL_JOINTS[name]
-        for offset in (COCO_LEFT_HAND_OFFSET, COCO_RIGHT_HAND_OFFSET)
-        for name in ("wrist", "index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp")
-    ]
-    eye_clusters = list(range(23 + 36, 23 + 48))
-    brow_and_chin = list(range(23 + 17, 23 + 27)) + [23 + 8]
-    contract_only = {
-        "required_phase_coverage",
-        "movement_contract_exists",
-        "movement_timeline_segment_exists",
-        "expected_movement_order",
-        "movement_phase_order",
-        "expected_technique_contract_resolved",
-        "expected_stance_contract_resolved",
-        "expected_active_side_contract_resolved",
-        "expected_direction_contract_resolved",
-    }
-    if metric_id in contract_only or metric_id in {
-        "centre_of_mass",
-        "centre_of_pressure",
-        "actual_weight_distribution",
-        "ground_reaction_force",
-        "impact_power",
-        "muscle_tension",
-    }:
-        return []
-    if metric_id == "head_face_geometry_quality":
-        return sorted(
-            {
-                body["nose"],
-                body["left_eye"],
-                body["right_eye"],
-                body["left_ear"],
-                body["right_ear"],
-                *COCO_FACE_INDICES,
-                *torso,
-            }
-        )
-    if metric_id.startswith("head_") or metric_id == "actual_eye_gaze":
-        required = eye_clusters + torso
-        if "pitch" in metric_id:
-            required += brow_and_chin
-        return sorted(set(required))
-    if metric_id in {"foot_fixation_slip_body_ratio", "stance_fixation_dispersion_body_ratio"}:
-        return sorted(set(legs + feet + torso))
-    if metric_id in {"active_hand_fixation_stability", "reaction_hand_fixation_stability"}:
-        return sorted(set(arms + palm_points + torso))
-    if metric_id == "active_hand_stance_settle_offset":
-        return sorted(set(arms + legs + torso))
-    if metric_id in {"reaction_hand_target_distance_body_ratio", "arm_target_overshoot_body_ratio",
-                     "late_post_fixation_correction", "premature_next_movement_transition"}:
-        return sorted(set(arms + palm_points + torso))
-    if metric_id in {"fist_target_height_error_body_ratio", "fist_target_lateral_error_body_ratio"}:
-        return sorted(set(arms + palm_points + torso + legs + brow_and_chin))
-    if metric_id == "fixation_pose_stability":
-        return sorted(set(arms + palm_points + torso + legs))
-    if any(token in metric_id for token in ("foot", "stance", "knee", "leg", "landing", "pivot")):
-        return sorted(set(legs + feet + torso))
-    if any(token in metric_id for token in ("arm", "elbow", "wrist", "hand", "fist", "chamber")):
-        if any(token in metric_id for token in ("hand", "fist")):
-            return sorted(set(arms + hands + torso))
-        return sorted(set(arms + torso))
-    return torso
+    uncatalogued = sorted(registered - catalog)
+    if uncatalogued:
+        raise ScoringContractError(f"metric registry records are missing from metric_catalog: {uncatalogued}")
 
 
-def _build_landmark_inventory(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _bind_rules_to_contracts(rules: list[dict[str, Any]], contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Bind each rule to the Poomsae spec's movements and its per-contract landmarks."""
+    movement_ids = [contract["movement_id"] for contract in contracts]
+    # Contract-specific applicability (kick, expected moving foot) stays in the
+    # registry and is checked per movement by ``_rule_applies``.
+    return [{**rule, "applicable_movements": list(movement_ids)} for rule in rules]
+
+
+def _declared_landmarks_by_rule(rules: list[dict[str, Any]], contracts: list[dict[str, Any]]) -> dict[str, list[int]]:
+    """Union over the movements a rule applies to of the landmarks it reads there."""
+    declared: dict[str, list[int]] = {}
+    for rule in rules:
+        indices: set[int] = set()
+        for contract in contracts:
+            if _rule_applies(rule, contract):
+                indices.update(resolve_metric_landmarks(rule["metric_id"], contract))
+        declared[rule["metric_id"]] = sorted(indices)
+    return declared
+
+
+def _build_landmark_inventory(rules: list[dict[str, Any]], contracts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Enumerate all 133 points without pretending each point is an error criterion."""
+    declared = _declared_landmarks_by_rule(rules, contracts)
     by_index: dict[int, list[dict[str, Any]]] = {index: [] for index in range(COCO_WHOLEBODY_KEYPOINTS)}
     for rule in rules:
-        for index in rule["required_landmarks"]:
+        for index in declared[rule["metric_id"]]:
             by_index[index].append(rule)
 
     rows: list[dict[str, Any]] = []
@@ -1491,22 +1393,13 @@ def _face_region(local_index: int) -> str:
     return "inner_lip"
 
 
-def _unit_for(metric_id: str) -> str:
-    if metric_id.endswith("_deg"):
-        return "deg"
-    if metric_id.endswith("_sec") or metric_id.endswith("_offset"):
-        return "sec"
-    if metric_id.endswith("_unmeasurable_reason"):
-        return "reason_code"
-    if metric_id.endswith("_geometry_quality") or metric_id.endswith("_evidence_quality"):
-        return "ratio"
-    if any(token in metric_id for token in ("state", "match", "observed", "exists", "resolved", "coverage", "order", "completion", "observability")):
-        return "state"
-    if "body_ratio" in metric_id or metric_id.endswith("_ratio"):
-        return "body_ratio"
-    if "dispersion" in metric_id or "stability" in metric_id or "correction" in metric_id or "displacement" in metric_id or "drift" in metric_id or "slip" in metric_id:
-        return "body_ratio"
-    return "ratio"
+def _require_metric_unit(metric_id: str, unit: str, label: str) -> None:
+    """Fail loudly when a configured limit is written in another unit than the maths."""
+    declared = METRIC_UNITS.get(metric_id)
+    if unit != declared:
+        raise ScoringContractError(
+            f"{label} unit {unit!r} does not match the measurement unit {declared!r} of {metric_id}"
+        )
 
 
 def _bool_measurement(value: bool) -> dict[str, Any]:
@@ -1535,8 +1428,9 @@ def _line_roll(arrays: dict[str, Any], frame: int, part: str) -> float | None:
 
 
 def _head_roll(arrays: dict[str, Any], frame: int) -> float | None:
-    left = _face_cluster(arrays, frame, range(36, 42))
-    right = _face_cluster(arrays, frame, range(42, 48))
+    """Eye-line roll minus shoulder-line roll; both lines run athlete-left -> right."""
+    left = _face_cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)
+    right = _face_cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL)
     if left is None or right is None:
         return None
     eye_roll = _roll_vector(right - left)
@@ -1566,8 +1460,8 @@ def _face_cluster(arrays: dict[str, Any], frame: int, local_indices: Any) -> np.
 
 def _orientation_vector(arrays: dict[str, Any], frame: int, part: str) -> np.ndarray | None:
     if part == "head":
-        left = _face_cluster(arrays, frame, range(36, 42))
-        right = _face_cluster(arrays, frame, range(42, 48))
+        left = _face_cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)
+        right = _face_cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL)
     else:
         left = _point(arrays, frame, f"left_{part}")
         right = _point(arrays, frame, f"right_{part}")
@@ -1631,25 +1525,6 @@ def _torso_lateral_bend(arrays: dict[str, Any], frame: int) -> float | None:
     return float(np.degrees(np.arctan2(np.dot(torso, lateral), torso[2])))
 
 
-def _height_asymmetry(arrays: dict[str, Any], frame: int, part: str) -> float | None:
-    left, right = _point(arrays, frame, f"left_{part}"), _point(arrays, frame, f"right_{part}")
-    scale = _body_scale(arrays, frame)
-    return None if left is None or right is None or scale is None else abs(float(left[2] - right[2])) / scale
-
-
-def _shoulder_pelvis_roll_difference(arrays: dict[str, Any], frame: int) -> float | None:
-    shoulder, pelvis = _line_roll(arrays, frame, "shoulder"), _line_roll(arrays, frame, "hip")
-    return None if shoulder is None or pelvis is None else abs(shoulder - pelvis)
-
-
-def _body_scale(arrays: dict[str, Any], frame: int) -> float | None:
-    ls, rs, lh, rh = (_point(arrays, frame, name) for name in ("left_shoulder", "right_shoulder", "left_hip", "right_hip"))
-    if any(point is None for point in (ls, rs, lh, rh)):
-        return None
-    value = float(np.linalg.norm((ls + rs) / 2.0 - (lh + rh) / 2.0))
-    return value if value > 1e-8 else None
-
-
 def _limb_scale(arrays: dict[str, Any], frame: int, kind: str, side: str | None) -> float | None:
     if side not in {"left", "right"}:
         return None
@@ -1679,12 +1554,6 @@ def _late_correction(arrays: dict[str, Any], frames: np.ndarray, joint: str, kin
     return None if first is None or last is None or scale is None else float(np.linalg.norm(last - first) / scale)
 
 
-def _paired_dispersion(arrays: dict[str, Any], frames: np.ndarray, joint: str, side_a: str | None, side_b: str | None, kind: str) -> float | None:
-    values = [_joint_dispersion(arrays, frames, f"{side}_{joint}", kind, side) for side in (side_a, side_b)]
-    finite = [value for value in values if value is not None]
-    return max(finite) if len(finite) == 2 else None
-
-
 def _arm_plane_deviation(arrays: dict[str, Any], frames: np.ndarray, side: str | None) -> float | None:
     if side not in {"left", "right"}:
         return None
@@ -1701,46 +1570,6 @@ def _arm_plane_deviation(arrays: dict[str, Any], frames: np.ndarray, side: str |
         nearest = shoulder + np.dot(elbow - shoulder, line) / denom * line
         values.append(float(np.linalg.norm(elbow - nearest) / scale))
     return None if len(values) < 3 else float(np.median(values))
-
-
-def _joint_angle(arrays: dict[str, Any], frame: int, side: str | None) -> float | None:
-    if side not in {"left", "right"}:
-        return None
-    hip, knee, ankle = (_point(arrays, frame, f"{side}_{name}") for name in ("hip", "knee", "ankle"))
-    if hip is None or knee is None or ankle is None:
-        return None
-    a, b = hip - knee, ankle - knee
-    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
-    return None if denom <= 1e-8 else float(np.degrees(np.arccos(np.clip(np.dot(a, b) / denom, -1.0, 1.0))))
-
-
-def _centre_dispersion(arrays: dict[str, Any], frames: np.ndarray, part: str) -> float | None:
-    points: list[np.ndarray] = []
-    scales: list[float] = []
-    for frame in frames:
-        left, right = _point(arrays, int(frame), f"left_{part}"), _point(arrays, int(frame), f"right_{part}")
-        scale = _body_scale(arrays, int(frame))
-        if left is not None and right is not None and scale is not None:
-            points.append((left + right) / 2.0)
-            scales.append(scale)
-    if len(points) < 3:
-        return None
-    values = np.asarray(points)
-    centre = np.median(values, axis=0)
-    return float(np.percentile(np.linalg.norm(values - centre, axis=1) / np.asarray(scales), 95))
-
-
-def _body_height_change(arrays: dict[str, Any], frames: np.ndarray) -> float | None:
-    heights: list[float] = []
-    scales: list[float] = []
-    for frame in frames:
-        shoulders = [_point(arrays, int(frame), name) for name in ("left_shoulder", "right_shoulder")]
-        ankles = [_point(arrays, int(frame), name) for name in ("left_ankle", "right_ankle")]
-        scale = _body_scale(arrays, int(frame))
-        if all(point is not None for point in shoulders + ankles) and scale is not None:
-            heights.append(float(((shoulders[0] + shoulders[1]) / 2.0)[2] - ((ankles[0] + ankles[1]) / 2.0)[2]))
-            scales.append(scale)
-    return None if len(heights) < 3 else float((max(heights) - min(heights)) / np.median(scales))
 
 
 def _unit_vector(value: Any, label: str) -> np.ndarray:

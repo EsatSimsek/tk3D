@@ -90,6 +90,12 @@ def _print_summary(summary: dict[str, Any], summary_path: Path) -> None:
         "WholeBody ölçüm kapsamı: "
         f"{results['wholebody_measurable_metric_count']}/{results['wholebody_thresholded_metric_count']}"
     )
+    print(
+        "Sabitleme incelemesi (tüm hareket adayları): "
+        f"{results.get('automatic_fixation_observed_count', 0)} gözlenen kararlı aralık · "
+        f"{results.get('automatic_fixation_unresolved_count', 0)} çözümlenmemiş aday. "
+        "Elle etiketler dedektörün doğrusu kabul edilmez."
+    )
     print(f"WholeBody teşhis adayı (puan yok): {results['diagnostic_review_candidate_count']}")
     print(
         "Kapsamlı teknik-doğruluk envanteri/adayı (puan yok): "

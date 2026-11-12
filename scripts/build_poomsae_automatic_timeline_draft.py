@@ -99,10 +99,19 @@ def main() -> None:
         raise SystemExit("pose must carry a positive sample_fps")
 
     movements = _expected_movements(spec, args.expect_movements)
-    detection = detect_automatic_segments(keypoints, fps=fps, movements=movements)
+    detection = detect_automatic_segments(keypoints, fps=fps, movements=movements, quality=pose)
     detected = detection["segments"]
     if not detected:
-        raise SystemExit("the detector found no movement episode in this recording")
+        selection = detection["selection"]
+        raise SystemExit(
+            "the detector selected no movement sequence: "
+            f"selection status {selection['status']}, "
+            f"{len(detection['candidate_episodes'])} motion episode(s), "
+            f"cluster sizes {selection.get('cluster_sizes', 'not computed')}, "
+            f"expected {len(movements)} movement(s)"
+        )
+    if any(segment["anchors"].get("fixation") is None for segment in detected):
+        raise SystemExit("Unresolved fixation evidence: review the automatic segmentation report before making a timeline.")
 
     segments = [
         {

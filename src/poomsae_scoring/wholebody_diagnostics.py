@@ -24,6 +24,10 @@ from src.poomsae_scoring.contracts import (
     validate_movement_timeline,
     validate_poomsae_spec,
 )
+from src.poomsae_scoring.technical_accuracy_metrics import (
+    FACE_LEFT_EYE_INDICES,
+    FACE_RIGHT_EYE_INDICES,
+)
 
 
 GROUPS: dict[str, tuple[int, ...]] = {
@@ -383,8 +387,19 @@ def _movement_diagnostics(
         end,
         radius,
         minimum_samples,
+        scale=scale,
+        noise_floor=t["fixation_wrist_jitter_body_scale_max"],
     )
-    metrics.append(_lower_metric(movement, "wrong_side", "expected_side_dominance_ratio", dominance, t["expected_side_dominance_ratio_min"], "ratio"))
+    dominance_metric = _lower_metric(
+        movement,
+        "wrong_side",
+        "expected_side_dominance_ratio",
+        dominance["value"],
+        t["expected_side_dominance_ratio_min"],
+        "ratio",
+    )
+    dominance_metric["noise_floor"] = {key: value for key, value in dominance.items() if key != "value"}
+    metrics.append(dominance_metric)
     hikite = _window_pose_hikite_distance_ratio(
         arrays, fixation, start, end, radius, minimum_samples, other_side, scale
     )
@@ -793,13 +808,18 @@ def _window_pose_head_torso_yaw_mismatch(
 ) -> float | None:
     if scale is None or scale <= 0:
         return None
-    indices = (*range(23 + 36, 23 + 48), COCO_BODY_JOINTS["left_shoulder"], COCO_BODY_JOINTS["right_shoulder"])
+    indices = (
+        *FACE_RIGHT_EYE_INDICES,
+        *FACE_LEFT_EYE_INDICES,
+        COCO_BODY_JOINTS["left_shoulder"],
+        COCO_BODY_JOINTS["right_shoulder"],
+    )
     values = []
     for points in _completed_window_point_sets(
         arrays, center, start, end, radius, minimum_samples, tuple(indices)
     ):
-        left_eye = np.mean(points[:6], axis=0)
-        right_eye = np.mean(points[6:12], axis=0)
+        right_eye = np.mean(points[:6], axis=0)
+        left_eye = np.mean(points[6:12], axis=0)
         eye_line = right_eye - left_eye
         eye_ratio = float(np.linalg.norm(eye_line) / scale)
         if not gates["face_eye_separation_body_scale_min"] <= eye_ratio <= gates[
@@ -1093,10 +1113,8 @@ def _head_torso_yaw_mismatch(
     scale: float | None,
     gates: dict[str, Any],
 ) -> float | None:
-    left_eye_indices = [23 + index for index in range(36, 42)]
-    right_eye_indices = [23 + index for index in range(42, 48)]
-    left_eye = [_p(arrays, frame, index) for index in left_eye_indices]
-    right_eye = [_p(arrays, frame, index) for index in right_eye_indices]
+    left_eye = [_p(arrays, frame, index) for index in FACE_LEFT_EYE_INDICES]
+    right_eye = [_p(arrays, frame, index) for index in FACE_RIGHT_EYE_INDICES]
     ls, rs = (_p(arrays, frame, COCO_BODY_JOINTS[name]) for name in ("left_shoulder", "right_shoulder"))
     if scale is None or scale <= 0 or any(point is None for point in left_eye + right_eye) or ls is None or rs is None:
         return None
@@ -1117,7 +1135,16 @@ def _expected_side_dominance(
     end: int,
     radius: int,
     minimum_samples: int,
-) -> float | None:
+    *,
+    scale: float | None,
+    noise_floor: float,
+) -> dict[str, Any]:
+    """Expected-side / other-side wrist travel from preparation to execution.
+
+    ``noise_floor`` is the profile's own "wrist did not move" limit in body-scale
+    units (``fixation_wrist_jitter_body_scale_max``). When neither wrist travelled
+    more than it, the ratio would only compare jitter, so it is unmeasurable.
+    """
     expected_distance = _distance(
         _p_window(
             arrays,
@@ -1158,9 +1185,24 @@ def _expected_side_dominance(
             minimum_samples,
         ),
     )
-    if expected_distance is None or other_distance is None:
-        return None
-    return float(expected_distance / max(other_distance, 1e-6))
+    outcome: dict[str, Any] = {
+        "value": None,
+        "noise_floor_body_scale": noise_floor,
+        "noise_floor_source": "thresholds.fixation_wrist_jitter_body_scale_max",
+        "noise_floor_applied": False,
+        "expected_travel_body_scale": None,
+        "other_travel_body_scale": None,
+    }
+    if expected_distance is None or other_distance is None or scale is None or scale <= 0:
+        return outcome
+    outcome["expected_travel_body_scale"] = float(expected_distance / scale)
+    outcome["other_travel_body_scale"] = float(other_distance / scale)
+    if max(expected_distance, other_distance) / scale <= noise_floor:
+        outcome["noise_floor_applied"] = True
+        return outcome
+    # Division guard only; the other wrist may legitimately stay still.
+    outcome["value"] = float(expected_distance / max(other_distance, 1e-6))
+    return outcome
 
 
 def _hikite_distance_ratio(arrays: dict[str, Any], frame: int, side: str, scale: float | None) -> float | None:
@@ -1493,8 +1535,8 @@ def _eolgul_fist_to_forehead_ratio(
         <= gates["hand_palm_length_body_scale_max"]
     ):
         return None
-    left_eye = [_p(arrays, frame, 23 + index) for index in range(36, 42)]
-    right_eye = [_p(arrays, frame, 23 + index) for index in range(42, 48)]
+    left_eye = [_p(arrays, frame, index) for index in FACE_LEFT_EYE_INDICES]
+    right_eye = [_p(arrays, frame, index) for index in FACE_RIGHT_EYE_INDICES]
     if any(point is None for point in left_eye + right_eye):
         return None
     eye_line = np.mean(right_eye, axis=0) - np.mean(left_eye, axis=0)

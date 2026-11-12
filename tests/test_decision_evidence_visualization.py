@@ -139,12 +139,15 @@ def test_wholebody_hand_and_head_candidates_become_no_score_video_events() -> No
     assert fist["deduction_points"] is None
     assert fist["visual_geometry"]["kind"] == "hand_shape"
     assert len(fist["visual_geometry"]["joint_indices"]) == 10
-    assert "değerlendirme aralığını" in fist["user_explanation"]["correction"]
+    # The correction stays metric-specific; the phase-approval note is a separate field.
+    assert "yumruğu sıkı kapat" in fist["user_explanation"]["correction"]
+    assert "değerlendirme aralığını" in fist["user_explanation"]["phase_approval_note"]
     assert fist["timeline_review"]["status"] == "unverified"
     assert head["decision_status"] == "diagnostic_review_candidate"
     assert head["visual_geometry"]["kind"] == "head_torso_direction"
     assert len(head["visual_geometry"]["joint_indices"]) == 14
-    assert "Faz onayı yok" in head["user_explanation"]["result"]
+    assert "Faz onayı yok" in head["user_explanation"]["phase_approval_note"]
+    assert head["user_explanation"]["correction"] != fist["user_explanation"]["correction"]
     assert report["summary"]["timeline_unverified_count"] == 2
 
 
@@ -278,7 +281,7 @@ def test_technical_range_and_abs_max_thresholds_keep_typed_limits() -> None:
     assert "5.00 - 20.00" in range_event["user_explanation"]["expected"]
     assert abs_event["measurement"]["rule_operator"] == "abs_max"
     assert abs_event["measurement"]["rule_limits"] == [12.0]
-    assert "mutlak deger" in abs_event["user_explanation"]["expected"]
+    assert "mutlak değer" in abs_event["user_explanation"]["expected"]
     assert "6.00" in abs_event["user_explanation"]["comparison"]
 
 

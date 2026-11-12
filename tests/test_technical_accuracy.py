@@ -18,7 +18,6 @@ from src.data_structures import (
 )
 from src.poomsae_scoring import ScoringContractError, load_movement_timeline, load_poomsae_spec
 from src.poomsae_scoring.technical_accuracy import (
-    ACTIVE_EVALUATORS,
     build_technical_accuracy_diagnostics,
     derive_athlete_local_direction_reference,
     evaluate_temporary_threshold,
@@ -28,8 +27,10 @@ from src.poomsae_scoring.technical_accuracy import (
     validate_technical_accuracy_profile,
 )
 from src.poomsae_scoring.technical_accuracy_metrics import (
+    METRIC_REGISTRY,
     _side_displacement_match,
     measure_observable_accuracy_metrics,
+    resolve_metric_landmarks,
 )
 
 
@@ -42,13 +43,34 @@ TIMELINE_PATH = ROOT / "config" / "scoring" / "timelines" / "poomsae1_zed2i_rgbd
 def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
     profile = load_technical_accuracy_profile(PROFILE_PATH)
     rules = profile["resolved_rules"]
+    catalog = [metric_id for metric_ids in profile["metric_catalog"].values() for metric_id in metric_ids]
+    active = set(profile["active_rules"])
+    direction = set(profile["direction_bound_rules"])
+    not_observable = set(profile["not_observable_rules"])
 
-    assert len(rules) == 174
-    assert {rule["metric_id"] for rule in rules if rule["status"] == "active_diagnostic"} == ACTIVE_EVALUATORS
-    assert sum(rule["status"] == "active_diagnostic" for rule in rules) == 75
-    assert sum(rule["status"] == "measurement_only" for rule in rules) == 74
-    assert sum(rule["status"] == "blocked_missing_reference" for rule in rules) == 17
-    assert sum(rule["status"] == "not_observable_with_current_pipeline" for rule in rules) == 8
+    # Counts come from the profile and the registry, never from literals.
+    assert len(rules) == len(catalog) == len(set(catalog)) == len(METRIC_REGISTRY)
+    assert {rule["metric_id"] for rule in rules} == set(METRIC_REGISTRY)
+    by_status = {
+        "active_diagnostic": active,
+        "blocked_missing_reference": direction,
+        "not_observable_with_current_pipeline": not_observable,
+        "measurement_only": set(profile["measurement_only_reasons"]),
+    }
+    for status, expected in by_status.items():
+        assert {rule["metric_id"] for rule in rules if rule["status"] == status} == expected, status
+    assert sum(len(ids) for ids in by_status.values()) == len(rules)
+
+    def screens(rule: dict) -> bool:
+        return rule["threshold"] is not None or rule["expected_boolean"] is not None or bool(rule["contextual_thresholds"])
+
+    implemented = {metric_id for metric_id, spec in METRIC_REGISTRY.items() if spec.implemented}
+    # The active rules are exactly the rules that have an implemented evaluator and a
+    # screening target, minus the ones explicitly demoted (with a written reason) or
+    # waiting for a direction binding.
+    screenable = {rule["metric_id"] for rule in rules if rule["metric_id"] in implemented and screens(rule)}
+    assert active == screenable - direction - set(profile["measurement_only_reasons"])
+    assert active <= implemented and all(screens(rule) for rule in rules if rule["metric_id"] in active)
     for rule in rules:
         assert rule["metric_id"] != rule["criterion_id"]
         assert rule["score_effect"] is None
@@ -57,18 +79,19 @@ def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
         assert rule["numeric_score_enabled"] is False
         assert rule["evidence_quality_requirements"]
         assert rule["failure_behavior"] == "emit_state_and_reason_without_candidate"
+        spec = METRIC_REGISTRY[rule["metric_id"]]
+        assert rule["unit"] == spec.unit and rule["value_kind"] == spec.kind
+        assert rule["required_landmarks"] == resolve_metric_landmarks(spec)
         if rule["status"] == "not_observable_with_current_pipeline":
             assert rule["measurement_evaluator_status"] == "not_applicable_pipeline_limit"
             assert rule["measurement_evaluator_id"] is None
-        else:
+        elif spec.implemented:
             assert rule["measurement_evaluator_status"] == "implemented"
             assert rule["measurement_evaluator_id"]
-        if rule["status"] == "active_diagnostic":
-            assert (
-                rule["threshold"] is not None
-                or rule["expected_boolean"] is not None
-                or rule["contextual_thresholds"]
-            )
+        else:
+            assert rule["measurement_evaluator_status"] == "not_implemented"
+            assert rule["measurement_evaluator_id"] is None
+            assert rule["status"] == "measurement_only"
 
     measurement_only = {
         rule["metric_id"]: rule for rule in rules if rule["status"] == "measurement_only"
@@ -80,16 +103,17 @@ def test_v3_profile_has_strict_complete_score_neutral_rule_inventory() -> None:
         "median_confidence",
         "median_camera_support",
         "median_reprojection_error_px",
-    } & ACTIVE_EVALUATORS
+    } & active
 
 
 def test_side_displacement_match_is_polarity_correct_and_fail_closed_on_ties() -> None:
-    assert _side_displacement_match("left", "left", 0.4, 0.1) is True
-    assert _side_displacement_match("left", "left", 0.1, 0.4) is False
-    assert _side_displacement_match("left", "left", 0.1, 0.4, support=True) is True
-    assert _side_displacement_match("left", "left", 0.4, 0.1, support=True) is False
-    assert _side_displacement_match("left", "left", 0.2, 0.2) is None
-    assert _side_displacement_match(None, None, 0.2, 0.1) is None
+    # The noise floor is exercised separately; here it is zero so only polarity is tested.
+    assert _side_displacement_match("left", "left", 0.4, 0.1, noise_floor=0.0) is True
+    assert _side_displacement_match("left", "left", 0.1, 0.4, noise_floor=0.0) is False
+    assert _side_displacement_match("left", "left", 0.1, 0.4, support=True, noise_floor=0.0) is True
+    assert _side_displacement_match("left", "left", 0.4, 0.1, support=True, noise_floor=0.0) is False
+    assert _side_displacement_match("left", "left", 0.2, 0.2, noise_floor=0.0) is None
+    assert _side_displacement_match(None, None, 0.2, 0.1, noise_floor=0.0) is None
 
 
 @pytest.mark.parametrize(
@@ -99,7 +123,14 @@ def test_side_displacement_match_is_polarity_correct_and_fail_closed_on_ties() -
         (lambda profile: profile["thresholds"]["torso_lean_p95_deg"].update({"unit": "pixels"}), "invalid threshold unit"),
         (lambda profile: profile["thresholds"]["torso_lean_p95_deg"].update({"value": -1}), "non-negative"),
         (lambda profile: profile["metric_catalog"]["head_orientation"].append("head_target_yaw_error_deg"), "duplicate rule"),
-        (lambda profile: profile["active_rules"].pop(), "implemented evaluator inventory differ"),
+        (lambda profile: profile["active_rules"].pop(), "must have an explicit reason"),
+        (
+            lambda profile: (
+                profile["active_rules"].append("kick_direction_error_deg"),
+                profile["measurement_only_reasons"].pop("kick_direction_error_deg"),
+            ),
+            "no implemented evaluator",
+        ),
     ],
 )
 def test_v3_profile_rejects_invalid_configuration(mutator, match: str) -> None:
@@ -133,9 +164,11 @@ def test_boolean_profile_requires_explicit_typed_expectations(mutation) -> None:
 def test_every_active_threshold_has_pass_boundary_fail_and_fail_closed_behavior() -> None:
     profile = load_technical_accuracy_profile(PROFILE_PATH)
     rules = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}
-    boolean_rules = ACTIVE_EVALUATORS & set(profile["boolean_expectations"])
+    active = set(profile["active_rules"])
+    boolean_rules = active & set(profile["boolean_expectations"])
+    assert boolean_rules == {metric_id for metric_id in active if METRIC_REGISTRY[metric_id].kind == "boolean"}
 
-    for metric_id in ACTIVE_EVALUATORS & set(profile["thresholds"]):
+    for metric_id in active & set(profile["thresholds"]):
         threshold = rules[metric_id]["threshold"]
         operator = threshold["operator"]
         value = threshold["value"]
@@ -201,7 +234,7 @@ def test_all_m01_m18_contracts_resolve_without_inventing_spec_techniques() -> No
     spec = load_poomsae_spec(SPEC_PATH)
     contracts = resolve_movement_accuracy_contracts(spec, profile)
 
-    assert [item["movement_id"] for item in contracts] == [f"M{index:02d}" for index in range(1, 19)]
+    assert [item["movement_id"] for item in contracts] == [movement["movement_id"] for movement in spec["movements"]]
     assert all(item["contract_resolution_status"] == "resolved" for item in contracts)
     assert contracts[13]["technique_types"] == ["ap_chagi", "momtong_jireugi"]
     assert contracts[15]["technique_types"] == ["ap_chagi", "momtong_jireugi"]
@@ -220,14 +253,34 @@ def test_real_scope_shape_report_keeps_m07_m18_blocked_and_every_candidate_score
     assert report["total_score"] is None
     assert report["presentation_score"] is None
     assert report["deductions"] == []
-    assert report["summary"]["movement_contract_count"] == 18
-    assert report["summary"]["observed_movement_count"] == 6
-    assert report["summary"]["configuration_only_movement_count"] == 12
+    contracts = resolve_movement_accuracy_contracts(spec, profile)
+    observed_ids = [segment["movement_id"] for segment in timeline["segments"]]
+    assert report["summary"]["movement_contract_count"] == len(spec["movements"])
+    assert report["summary"]["observed_movement_count"] == len(observed_ids)
+    assert report["summary"]["configuration_only_movement_count"] == len(spec["movements"]) - len(observed_ids)
     assert report["summary"]["landmark_inventory_count"] == COCO_WHOLEBODY_KEYPOINTS
-    assert report["summary"]["landmarks_declared_by_any_rule_count"] == COCO_WHOLEBODY_KEYPOINTS
     inventory = report["landmark_inventory"]
     assert [row["landmark_index"] for row in inventory] == list(range(COCO_WHOLEBODY_KEYPOINTS))
-    assert all(row["declared_rule_count"] > 0 for row in inventory)
+    # A landmark is declared exactly when some rule's evaluator reads it in some movement.
+    read_by = {
+        rule["metric_id"]: {
+            index
+            for contract in contracts
+            if _applies(rule["metric_id"], contract)
+            for index in resolve_metric_landmarks(rule["metric_id"], contract)
+        }
+        for rule in report["rule_inventory"]
+    }
+    declared_any = set().union(*read_by.values())
+    declared_active = set().union(*(read_by[metric_id] for metric_id in profile["active_rules"]))
+    assert {row["landmark_index"] for row in inventory if row["declared_rule_count"] > 0} == declared_any
+    assert report["summary"]["landmarks_declared_by_any_rule_count"] == len(declared_any)
+    assert report["summary"]["landmarks_declared_by_active_rule_count"] == len(declared_active)
+    assert all(
+        row["usage_status"] == "not_declared_by_any_rule" and row["blocking_or_scope_reason"]
+        for row in inventory
+        if row["declared_rule_count"] == 0
+    )
     assert all(
         inventory[index]["active_diagnostic_rule_count"] > 0
         for index in COCO_FOOT_JOINTS.values()
@@ -242,9 +295,13 @@ def test_real_scope_shape_report_keeps_m07_m18_blocked_and_every_candidate_score
     assert any(
         inventory[index]["active_diagnostic_rule_count"] > 0 for index in COCO_FACE_INDICES
     )
-    assert report["summary"]["landmarks_declared_by_active_rule_count"] == 51
-    assert report["summary"]["implemented_measurement_evaluator_rule_count"] == 166
-    assert report["summary"]["evaluator_not_implemented_rule_count"] == 0
+    not_observable = set(profile["not_observable_rules"])
+    assert report["summary"]["implemented_measurement_evaluator_rule_count"] == sum(
+        spec.implemented and metric_id not in not_observable for metric_id, spec in METRIC_REGISTRY.items()
+    )
+    assert report["summary"]["evaluator_not_implemented_rule_count"] == sum(
+        not spec.implemented and metric_id not in not_observable for metric_id, spec in METRIC_REGISTRY.items()
+    )
     observed_by_id = {movement["movement_id"]: movement for movement in report["movements"]}
     m01_rules = {rule["metric_id"]: rule for rule in observed_by_id["M01"]["rules"]}
     m02_rules = {rule["metric_id"]: rule for rule in observed_by_id["M02"]["rules"]}
@@ -260,13 +317,16 @@ def test_real_scope_shape_report_keeps_m07_m18_blocked_and_every_candidate_score
     assert not any(
         row["blocking_reason"] == "evaluator_not_implemented"
         for row in report["coverage_matrix"]
-        if row["applies"] and row["movement_id"] in {f"M{index:02d}" for index in range(1, 7)}
+        if row["applies"] and row["movement_id"] in set(observed_ids)
     )
-    assert all(not movement["present_in_current_timeline"] for movement in report["movements"][6:])
+    assert all(
+        movement["present_in_current_timeline"] == (movement["movement_id"] in observed_ids)
+        for movement in report["movements"]
+    )
     assert all(
         row["blocking_reason"] == "movement_not_present_in_timeline"
         for row in report["coverage_matrix"]
-        if row["movement_id"] in {f"M{index:02d}" for index in range(7, 19)} and row["applies"]
+        if row["movement_id"] not in observed_ids and row["applies"]
     )
     for candidate in report["candidate_events"]:
         assert candidate["decision_status"] == "review_candidate_not_deduction"
@@ -492,6 +552,15 @@ def test_declared_kick_contract_has_geometry_evaluators_without_current_video_cl
     assert contract["kicking_leg"] == "right"
 
 
+def _applies(metric_id: str, contract: dict) -> bool:
+    applicability = METRIC_REGISTRY[metric_id].applies_to
+    if applicability == "kick":
+        return "ap_chagi" in contract["technique_types"]
+    if applicability == "expected_moving_foot":
+        return contract["expected_moving_foot"] is not None
+    return True
+
+
 def _raw_profile() -> dict:
     import yaml
 
@@ -523,11 +592,13 @@ def _synthetic_pose(frame_count: int) -> dict:
     points[:, 17:23, :] = np.array([[-0.14, 0.28, 0.04], [-0.10, 0.28, 0.04], [-0.14, 0.10, 0.04], [0.14, -0.02, 0.04], [0.10, -0.02, 0.04], [0.14, -0.20, 0.04]])
     points[:, 23:91, :] = [0.0, 0.0, 1.75]
     points[:, 23 + 8, :] = [0.0, 0.0, 1.68]
-    points[:, 23 + 17 : 23 + 22, :] = [-0.03, 0.0, 1.82]
-    points[:, 23 + 22 : 23 + 27, :] = [0.03, 0.0, 1.82]
+    # iBUG-68 face points are labelled from the viewer: local 17-21 / 36-41 are the
+    # athlete's RIGHT brow / eye (+x here, like body right_eye), 22-26 / 42-47 the LEFT.
+    points[:, 23 + 17 : 23 + 22, :] = [0.03, 0.0, 1.82]
+    points[:, 23 + 22 : 23 + 27, :] = [-0.03, 0.0, 1.82]
     points[:, 23 + 27 : 23 + 36, :] = [0.0, 0.03, 1.76]
-    points[:, 23 + 36 : 23 + 42, :] = [-0.03, 0.0, 1.78]
-    points[:, 23 + 42 : 23 + 48, :] = [0.03, 0.0, 1.78]
+    points[:, 23 + 36 : 23 + 42, :] = [0.03, 0.0, 1.78]
+    points[:, 23 + 42 : 23 + 48, :] = [-0.03, 0.0, 1.78]
     for offset, sign in ((91, -1.0), (112, 1.0)):
         wrist = np.array([0.45 * sign, 0.0, 1.05])
         points[:, offset, :] = wrist
@@ -809,7 +880,8 @@ def test_every_profile_limit_used_by_the_measurement_layer_is_read_from_the_prof
     assert limits["torso_settled_deg"] == thresholds["torso_fixation_orientation_dispersion_p95_deg"]["value"]
     assert limits["pelvis_settled_deg"] == thresholds["pelvis_fixation_orientation_dispersion_p95_deg"]["value"]
     assert limits["stance_direction_deg"] == thresholds["stance_axis_target_yaw_error_deg"]["value"]
-    assert limits["late_correction_ratio"] == thresholds["arm_late_correction_body_ratio"]["value"]
+    # arm_late_correction_body_ratio is a measurement-only duplicate of this rule.
+    assert limits["late_correction_ratio"] == thresholds["late_post_fixation_correction"]["value"]
     assert limits["hand_still_ratio"] == thresholds["active_hand_fixation_stability"]["value"]
     assert limits["foot_still_ratio"] == thresholds["foot_fixation_slip_body_ratio"]["value"]
     assert limits["group_quality_ratio"] == profile["quality_gates"]["min_group_valid_ratio"]
@@ -819,3 +891,316 @@ def test_every_profile_limit_used_by_the_measurement_layer_is_read_from_the_prof
     raw["thresholds"]["head_fixation_orientation_dispersion_p95_deg"]["value"] = 6.0
     moved = _profile_limits(validate_technical_accuracy_profile(raw))
     assert moved["head_settled_deg"] == 6.0
+
+
+# --- Rule-correctness regressions (hold window, eye sides, shoulder angles,
+# --- duplicate rules, units, displacement noise floor).
+
+def _arrays(pose: dict) -> dict:
+    return {
+        "points": np.asarray(pose["keypoints_3d_world"], dtype=float),
+        "quality_mask": np.asarray(pose["reliability_valid_mask"], dtype=bool),
+    }
+
+
+def _m01_contract(profile: dict) -> dict:
+    return resolve_movement_accuracy_contracts(load_poomsae_spec(SPEC_PATH), profile)[0]
+
+
+def test_post_fixation_metrics_use_the_profile_hold_window_not_the_whole_tail() -> None:
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    hold = profile["quality_gates"]["post_fixation_hold_window_frames"]
+    assert hold == 2 * profile["quality_gates"]["anchor_window_radius_frames"]
+    contract = _m01_contract(profile)
+    active = contract["active_arm"]
+    frame_count, fixation = 80, 20
+    pose = _synthetic_pose(frame_count)
+    points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+    # Still during the hold window, then the athlete leaves the pose for the next
+    # movement: hand, feet, knees and shoulders all travel during the tail.
+    leave = np.arange(fixation + hold + 1, frame_count)
+    travel = np.linspace(0.0, 0.6, len(leave))
+    hand = slice(COCO_LEFT_HAND_OFFSET, COCO_LEFT_HAND_OFFSET + 21) if active == "left" else slice(112, 133)
+    for index in (hand, slice(17, 23), slice(5, 17)):
+        points[leave, index, 1] += travel[:, None]
+    pose["keypoints_3d_world"] = points.tolist()
+    segment = {"start_frame": 0, "end_frame": frame_count - 1,
+               "anchors": {"preparation": 5, "execution": 15, "fixation": fixation}}
+    result = measure_observable_accuracy_metrics(_arrays(pose), contract, segment, profile, None, 30.0)
+
+    for metric_id in (
+        "active_hand_fixation_stability", "foot_fixation_slip_body_ratio",
+        "lower_body_fixation_dispersion", "late_post_fixation_correction",
+        "torso_translation_after_fixation_body_ratio", "torso_post_fixation_drift_deg",
+    ):
+        assert result[metric_id]["value"] == pytest.approx(0.0, abs=1e-9), metric_id
+        window = result[metric_id]["evidence"]["window"]
+        assert window["name"] == "post_fixation_hold"
+        assert (window["start_frame"], window["end_frame"]) == (fixation, fixation + hold)
+        assert window["configured_length_frames"] == hold
+    assert result["fixation_pose_stability"]["value"] is True
+    # Leaving before the next movement is a different question and keeps its own,
+    # explicitly named window up to the segment end.
+    premature = result["premature_next_movement_transition"]
+    assert premature["value"] is True
+    assert premature["evidence"]["window"]["name"] == "post_fixation_tail_to_segment_end"
+    assert premature["evidence"]["window"]["end_frame"] == frame_count - 1
+
+    raw = _raw_profile()
+    del raw["quality_gates"]["post_fixation_hold_window_frames"]
+    with pytest.raises(ScoringContractError, match="quality_gates keys must be exactly"):
+        validate_technical_accuracy_profile(raw)
+    raw = _raw_profile()
+    raw["quality_gates"]["post_fixation_hold_window_frames"] = 0
+    with pytest.raises(ScoringContractError, match="post_fixation_hold_window_frames"):
+        validate_technical_accuracy_profile(raw)
+
+
+def _rotate_points(points: np.ndarray, indices, centre: np.ndarray, axis: np.ndarray, degrees: float) -> None:
+    axis = axis / np.linalg.norm(axis)
+    angle = np.deg2rad(degrees)
+    k = np.array([[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]])
+    rotation = np.eye(3) + np.sin(angle) * k + (1.0 - np.cos(angle)) * (k @ k)
+    points[:, indices, :] = (points[:, indices, :] - centre) @ rotation.T + centre
+
+
+def test_face_eye_clusters_are_named_by_the_athletes_own_side() -> None:
+    from src.poomsae_scoring import technical_accuracy as accuracy
+    from src.poomsae_scoring import technical_accuracy_metrics as metrics
+
+    assert metrics.FACE_RIGHT_EYE_INDICES == tuple(range(23 + 36, 23 + 42))
+    assert metrics.FACE_LEFT_EYE_INDICES == tuple(range(23 + 42, 23 + 48))
+    pose = _synthetic_pose(12)
+    arrays = _arrays(pose)
+    points = arrays["points"]
+    right_cluster = points[0, list(metrics.FACE_RIGHT_EYE_INDICES)].mean(axis=0)
+    left_cluster = points[0, list(metrics.FACE_LEFT_EYE_INDICES)].mean(axis=0)
+    # The fixture is anatomically consistent with body eyes 1 (left) and 2 (right).
+    assert np.linalg.norm(right_cluster - points[0, COCO_BODY_JOINTS["right_eye"]]) < 1e-9
+    assert np.linalg.norm(left_cluster - points[0, COCO_BODY_JOINTS["left_eye"]]) < 1e-9
+    head_line = metrics._orientation_line(arrays, 0, "head")
+    shoulder_line = metrics._orientation_line(arrays, 0, "shoulder")
+    assert float(np.dot(head_line, shoulder_line)) == pytest.approx(1.0)
+    assert float(np.dot(accuracy._orientation_vector(arrays, 0, "head"), shoulder_line)) == pytest.approx(1.0)
+
+    head = [*metrics.FACE_RIGHT_EYE_INDICES, *metrics.FACE_LEFT_EYE_INDICES, *range(23 + 17, 23 + 36), 23 + 8]
+    head_centre = np.array([0.0, 0.0, 1.78])
+    forward = np.array([0.0, 1.0, 0.0])
+    # Head tilted 10 deg towards the athlete's left shoulder: the right eye rises.
+    rolled = points.copy()
+    _rotate_points(rolled, head, head_centre, forward, -10.0)
+    assert accuracy._head_roll({"points": rolled}, 0) == pytest.approx(10.0, abs=1e-6)
+    # Shoulders and head tilted together: no roll of the head relative to the shoulders.
+    together = rolled.copy()
+    _rotate_points(together, [COCO_BODY_JOINTS["left_shoulder"], COCO_BODY_JOINTS["right_shoulder"]],
+                   np.array([0.0, 0.0, 1.45]), forward, -10.0)
+    assert accuracy._line_roll({"points": together}, 0, "shoulder") == pytest.approx(10.0, abs=1e-6)
+    assert accuracy._head_roll({"points": together}, 0) == pytest.approx(0.0, abs=1e-6)
+    # Shoulders tilted, head level: the relative roll is the opposite of the shoulder roll.
+    shoulders_only = points.copy()
+    _rotate_points(shoulders_only, [COCO_BODY_JOINTS["left_shoulder"], COCO_BODY_JOINTS["right_shoulder"]],
+                   np.array([0.0, 0.0, 1.45]), forward, -10.0)
+    assert accuracy._head_roll({"points": shoulders_only}, 0) == pytest.approx(-10.0, abs=1e-6)
+
+    # Head yawed 30 deg towards the athlete's right (+x): the head-forward vector turns
+    # towards the right shoulder, and the unsigned yaw error is 30 deg either way.
+    for yaw, sign in ((-30.0, 1.0), (30.0, -1.0)):
+        turned = points.copy()
+        _rotate_points(turned, head, head_centre, np.array([0.0, 0.0, 1.0]), yaw)
+        head_forward = metrics._head_forward({"points": turned}, 0)
+        assert np.sign(head_forward[0]) == sign
+        assert metrics._horizontal_angle(head_forward, forward) == pytest.approx(30.0, abs=1e-6)
+        assert float(np.dot(metrics._torso_forward({"points": turned}, 0), forward)) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("side", ["left", "right"])
+@pytest.mark.parametrize("trunk", [(0.0, 0.0), (90.0, 25.0), (-140.0, -15.0)])
+def test_shoulder_flexion_and_abduction_follow_the_anatomical_convention(side: str, trunk) -> None:
+    from src.poomsae_scoring.technical_accuracy_metrics import _shoulder_angle
+
+    yaw, lean = trunk
+    body = COCO_BODY_JOINTS
+    outward = -1.0 if side == "left" else 1.0
+    shoulder = np.array([0.20 * outward, 0.0, 1.45])
+    cases = {
+        "hanging": (np.array([0.0, 0.0, -0.30]), 0.0, 0.0),
+        "forward_90": (np.array([0.0, 0.30, 0.0]), 90.0, None),
+        "sideways_90": (np.array([0.30 * outward, 0.0, 0.0]), None, 90.0),
+        "forward_45": (np.array([0.0, 0.30, -0.30]), 45.0, 0.0),
+        "across_body_45": (np.array([-0.30 * outward, 0.0, -0.30]), 0.0, -45.0),
+    }
+    for name, (humerus, flexion, abduction) in cases.items():
+        pose = _synthetic_pose(1)
+        points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+        points[:, body[f"{side}_elbow"]] = shoulder + humerus
+        moved = [index for index in range(133)]
+        # A rotated and leaning trunk must not change an anatomical joint angle.
+        _rotate_points(points, moved, np.array([0.0, 0.0, 0.95]), np.array([1.0, 0.0, 0.0]), lean)
+        _rotate_points(points, moved, np.array([0.0, 0.0, 0.95]), np.array([0.0, 0.0, 1.0]), yaw)
+        arrays = {"points": points}
+        for component, expected in (("flexion", flexion), ("abduction", abduction)):
+            measured = _shoulder_angle(arrays, 0, side, component)
+            if expected is None:
+                assert measured is None, (name, component, measured)
+            else:
+                assert measured == pytest.approx(expected, abs=1e-6), (name, component)
+
+
+DEMOTED_DUPLICATES = {
+    "elbow_flare_body_ratio": "shoulder_elbow_wrist_plane_deviation_ratio",
+    "stance_fixation_dispersion_body_ratio": "foot_fixation_slip_body_ratio",
+    "post_landing_adjustment": "lower_body_fixation_dispersion",
+    "knee_fixation_dispersion": "lower_body_fixation_dispersion",
+    "active_arm_fixation_dispersion_body_ratio": "active_hand_fixation_stability",
+    "reaction_arm_fixation_dispersion_body_ratio": "reaction_hand_fixation_stability",
+    "arm_late_correction_body_ratio": "late_post_fixation_correction",
+    "expected_support_or_pivot_foot_match": "moving_foot_side_match",
+    "head_turn_direction_sign_match": "head_wrong_direction_stable_state",
+}
+
+
+def test_one_physical_quantity_has_one_screening_rule_and_one_implementation() -> None:
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    rules = {rule["metric_id"]: rule for rule in profile["resolved_rules"]}
+    screening = {"active_diagnostic", "blocked_missing_reference"}
+    for duplicate, canonical in DEMOTED_DUPLICATES.items():
+        assert rules[duplicate]["status"] == "measurement_only", duplicate
+        assert rules[duplicate]["threshold"] is None and rules[duplicate]["expected_boolean"] is None
+        assert canonical in profile["measurement_only_reasons"][duplicate], duplicate
+        assert rules[canonical]["status"] in screening, canonical
+    # Every "decided by" reference must point at a rule that can actually screen.
+    marker = "karar şu kontrolde:"
+    for metric_id, reason in profile["measurement_only_reasons"].items():
+        if marker in reason:
+            for named in reason.split(marker, 1)[1].replace("/", " ").split():
+                assert rules[named]["status"] in screening, (metric_id, named)
+
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    pose = _synthetic_pose(timeline["frame_count"])
+    points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+    points += np.random.default_rng(7).normal(0.0, 0.004, points.shape)
+    pose["keypoints_3d_world"] = points.tolist()
+    report = build_technical_accuracy_diagnostics(pose, spec, timeline, profile, _synthetic_wholebody(timeline))
+    contracts = resolve_movement_accuracy_contracts(spec, profile)
+    arrays = _arrays(pose)
+    series: dict[str, list] = {}
+    for movement, contract, segment in zip(report["movements"], contracts, timeline["segments"], strict=False):
+        direct = measure_observable_accuracy_metrics(arrays, contract, segment, profile, None, float(timeline["fps"]))
+        by_metric = {rule["metric_id"]: rule for rule in movement["rules"]}
+        for metric_id, measurement in direct.items():
+            # One implementation: the report carries the measurement module's value.
+            reported = by_metric[metric_id]
+            if reported["state"] in {"active_diagnostic", "measurement_only"} and measurement["value"] is not None:
+                assert reported["value"] == measurement["value"], (movement["movement_id"], metric_id)
+        for metric_id, rule in by_metric.items():
+            # WholeBody-bound aliases are synthetic constants in this fixture; skip them.
+            if rules[metric_id]["status"] == "active_diagnostic" and isinstance(rule["value"], float) and rule.get("source_metric_id") is None:
+                series.setdefault(metric_id, []).append(round(rule["value"], 12))
+    identical = [
+        (first, second)
+        for index, first in enumerate(sorted(series))
+        for second in sorted(series)[index + 1:]
+        # A series that is constant (e.g. an in-range error of 0 everywhere) proves nothing.
+        if len(series[first]) == len(series[second]) >= 3 and len(set(series[first])) > 1
+        and series[first] == series[second]
+    ]
+    assert not identical
+
+
+def test_every_metric_declares_one_unit_and_thresholds_must_agree_with_it() -> None:
+    from src.poomsae_scoring.technical_accuracy_metrics import METRIC_UNITS
+
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    for rule in profile["resolved_rules"]:
+        assert rule["unit"] == METRIC_UNITS[rule["metric_id"]], rule["metric_id"]
+        for threshold in rule["contextual_thresholds"].values():
+            assert threshold["unit"] == rule["unit"], rule["metric_id"]
+    for metric_id in (
+        "elbow_flare_body_ratio", "shoulder_elbow_wrist_plane_deviation_ratio",
+        "active_arm_fixation_dispersion_body_ratio", "reaction_arm_fixation_dispersion_body_ratio",
+        "arm_late_correction_body_ratio",
+    ):
+        assert METRIC_UNITS[metric_id] == "arm_length"
+    # Everything divided by the shoulder-centre to hip-centre distance is torso_length.
+    for metric_id in (
+        "shoulder_height_asymmetry_body_ratio", "torso_translation_after_fixation_body_ratio",
+        "body_height_change_during_fixation_ratio", "active_arm_target_height_body_ratio",
+        "active_hand_target_distance_body_ratio", "reaction_hand_target_distance_body_ratio",
+        "foot_crossing_margin_body_ratio",
+    ):
+        assert METRIC_UNITS[metric_id] == "torso_length"
+    assert "body_ratio" not in set(METRIC_UNITS.values())
+
+    spec = load_poomsae_spec(SPEC_PATH)
+    timeline = load_movement_timeline(TIMELINE_PATH, spec)
+    report = build_technical_accuracy_diagnostics(
+        _synthetic_pose(timeline["frame_count"]), spec, timeline, profile, _synthetic_wholebody(timeline)
+    )
+    for movement in report["movements"]:
+        for rule in movement["rules"]:
+            assert rule["unit"] == METRIC_UNITS[rule["metric_id"]], (movement["movement_id"], rule["metric_id"])
+
+    raw = _raw_profile()
+    raw["thresholds"]["shoulder_elbow_wrist_plane_deviation_ratio"]["unit"] = "torso_length"
+    with pytest.raises(ScoringContractError, match="does not match the measurement unit"):
+        validate_technical_accuracy_profile(raw)
+    raw = _raw_profile()
+    raw["technique_screening_thresholds"]["active_arm_extension_ratio"]["arae_makki"]["unit"] = "leg_length"
+    with pytest.raises(ScoringContractError, match="does not match the measurement unit"):
+        validate_technical_accuracy_profile(raw)
+    raw = _raw_profile()
+    raw["metric_catalog"]["kick"].append("undeclared_new_metric_deg")
+    with pytest.raises(ScoringContractError, match="no metric registry record"):
+        validate_technical_accuracy_profile(raw)
+
+
+def test_displacement_comparison_is_unmeasurable_below_the_profile_noise_floor() -> None:
+    from src.poomsae_scoring.technical_accuracy_metrics import _profile_limits
+
+    profile = load_technical_accuracy_profile(PROFILE_PATH)
+    floor = _profile_limits(profile)["foot_still_ratio"]
+    assert _side_displacement_match("left", "left", floor * 0.9, floor * 0.2, noise_floor=floor) is None
+    assert _side_displacement_match("left", "left", floor * 0.2, floor * 0.9, noise_floor=floor) is None
+    assert _side_displacement_match("left", "left", floor * 3.0, floor * 0.5, noise_floor=floor) is True
+    assert _side_displacement_match("left", "left", floor * 0.5, floor * 3.0, noise_floor=floor) is False
+
+    contract = _m01_contract(profile)
+    pose = _synthetic_pose(40)
+    points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+    # Both ankles shift by less than the "foot did not move" limit between preparation and fixation.
+    leg = 0.86
+    points[20:, COCO_BODY_JOINTS["left_ankle"], 1] += 0.5 * floor * leg
+    points[20:, COCO_BODY_JOINTS["right_ankle"], 1] += 0.9 * floor * leg
+    pose["keypoints_3d_world"] = points.tolist()
+    segment = {"start_frame": 0, "end_frame": 39, "anchors": {"preparation": 5, "execution": 25, "fixation": 30}}
+    result = measure_observable_accuracy_metrics(_arrays(pose), contract, segment, profile, None, 30.0)
+    moving = result["moving_foot_side_match"]
+    assert moving["value"] is None
+    assert moving["not_measurable_reason"] == "displacement_below_noise_floor"
+    applied = moving["evidence"]["noise_floor"]
+    assert applied["value"] == floor
+    assert applied["unit"] == "leg_length"
+    assert applied["source"] == "thresholds.foot_fixation_slip_body_ratio.value"
+    assert applied["applied"] is True
+    arm = result["active_arm_side_match"]
+    assert arm["value"] is None
+    assert arm["evidence"]["noise_floor"]["source"] == "thresholds.active_hand_fixation_stability.value"
+
+
+def test_wholebody_side_dominance_is_unmeasurable_when_neither_wrist_moved() -> None:
+    from src.poomsae_scoring.wholebody_diagnostics import _expected_side_dominance
+
+    pose = _synthetic_pose(40)
+    arrays = _arrays(pose)
+    points = arrays["points"]
+    points[20:, COCO_BODY_JOINTS["left_wrist"], 1] += 0.002
+    points[20:, COCO_BODY_JOINTS["right_wrist"], 1] += 0.0005
+    still = _expected_side_dominance(arrays, 5, 30, "left", "right", 0, 39, 5, 3, scale=0.5, noise_floor=0.05)
+    assert still["value"] is None
+    assert still["noise_floor_applied"] is True
+    assert still["noise_floor_source"] == "thresholds.fixation_wrist_jitter_body_scale_max"
+    points[20:, COCO_BODY_JOINTS["left_wrist"], 1] += 0.3
+    moved = _expected_side_dominance(arrays, 5, 30, "left", "right", 0, 39, 5, 3, scale=0.5, noise_floor=0.05)
+    assert moved["value"] > 1.0
+    assert moved["noise_floor_applied"] is False
