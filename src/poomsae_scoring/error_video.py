@@ -23,6 +23,7 @@ _COLORS = {
     "green": (80, 220, 90),
     "blue": (245, 170, 50),
 }
+_TITLE_STRIP_HEIGHT = 38
 _STATUS_PRIORITY = {
     "confirmed_source_bound_minor": 0,
     "boundary_uncertain": 1,
@@ -291,8 +292,6 @@ def _draw_camera_pane(
     observations: dict[tuple[str, int, int], tuple[float, float, float]],
     scale: tuple[float, float],
 ) -> None:
-    cv2.rectangle(pane, (0, 0), (pane.shape[1], 38), (61, 55, 33), -1)
-    cv2.putText(pane, camera_id, (16, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.67, (235, 245, 250), 2, cv2.LINE_AA)
     for event_number, event in enumerate(active_events[:3], start=1):
         # Red locates an out-of-range *measurement* here. The card and pause
         # banner still state that an unreviewed phase has no score effect.
@@ -310,6 +309,10 @@ def _draw_camera_pane(
             color,
             event_number,
         )
+    # The camera title strip is drawn last so a head near the top of the frame
+    # cannot cover it; labels are kept below the strip by ``_label``.
+    cv2.rectangle(pane, (0, 0), (pane.shape[1], _TITLE_STRIP_HEIGHT), (61, 55, 33), -1)
+    cv2.putText(pane, camera_id, (16, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.67, (235, 245, 250), 2, cv2.LINE_AA)
 
 
 def _draw_geometry(
@@ -449,9 +452,13 @@ def _label(
 ) -> None:
     if point is None:
         return
-    origin = (max(4, point[0] + offset[0]), max(18, point[1] + offset[1]))
-    cv2.putText(image, _ascii(text), origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, (4, 8, 12), 3, cv2.LINE_AA)
-    cv2.putText(image, _ascii(text), origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+    label = _ascii(text)
+    (text_width, text_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 3)
+    x = min(max(4, point[0] + offset[0]), max(4, image.shape[1] - text_width - 4))
+    y = min(max(_TITLE_STRIP_HEIGHT + text_height + 6, point[1] + offset[1]), image.shape[0] - 4)
+    origin = (x, y)
+    cv2.putText(image, label, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, (4, 8, 12), 3, cv2.LINE_AA)
+    cv2.putText(image, label, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
 
 
 def _line(

@@ -737,15 +737,15 @@ _EXPLICIT_DIAGNOSTIC_TEXT = {
 _EXPLICIT_SOURCE_BOUND_TEXT = {
     "back_foot_yaw_to_stance_direction_deg": (
         "ARKA AYAK ACISI",
-        "Arka ayagi durus yonune yaklastir; ayak acisini izin verilen sinira indir.",
+        "Arka ayağı duruş yönüne yaklaştır; ayak açısını izin verilen sınıra indir.",
     ),
     "arae_fist_to_thigh_fist_ratio": (
         "ARAE-MAKKI YUMRUK-UYLUK MESAFESI",
-        "Blok bitisinde yumrugu uyluga, hedeflenen yumruk-genisligi araligina getir.",
+        "Blok bitişinde yumruğu uyluğa, hedeflenen yumruk-genişliği aralığına getir.",
     ),
     "executing_elbow_deg": (
         "UYGULAYAN DIRSEK ACISI",
-        "Omuz-dirsek-bilek hizasini hedef aci araligina getir.",
+        "Omuz-dirsek-bilek hizasını hedef açı aralığına getir.",
     ),
 }
 
@@ -894,7 +894,7 @@ def _user_explanation(decision: dict[str, Any], unit: str | None) -> dict[str, s
     interval_text = (
         "Belirsizlik araligi hesaplanamadi."
         if not isinstance(interval, list) or len(interval) != 2
-        else f"%95 olasi aralik: {float(interval[0]):.2f} - {float(interval[1]):.2f} {unit_label(unit)}"
+        else f"%95 olası aralık: {float(interval[0]):.2f} - {float(interval[1]):.2f} {unit_label(unit)}"
     )
     comparison = _comparison_text(measurement, interval, operator, limits, unit)
     result = _result_text(decision, expected)
@@ -927,18 +927,18 @@ def _metric_explanation(metric_id: str) -> tuple[str, str]:
 def _expected_text(operator: Any, limits: list[Any], unit: str | None) -> str:
     label = unit_label(unit)
     if operator == "bool_true":
-        return "Olmasi gereken: teknik koşul sağlanmalı (beklenen: Evet)."
+        return "Olması gereken: teknik koşul sağlanmalı (beklenen: Evet)."
     if operator == "bool_false":
-        return "Olmasi gereken: hata koşulu bulunmamalı (beklenen: Hayır)."
+        return "Olması gereken: hata koşulu bulunmamalı (beklenen: Hayır)."
     if operator == "max" and limits:
-        return f"Olmasi gereken: en fazla {float(limits[0]):.2f} {label}."
+        return f"Olması gereken: en fazla {float(limits[0]):.2f} {label}."
     if operator == "abs_max" and limits:
-        return f"Olmasi gereken: mutlak deger en fazla {float(limits[0]):.2f} {label}."
+        return f"Olması gereken: mutlak değer en fazla {float(limits[0]):.2f} {label}."
     if operator == "min" and limits:
-        return f"Olmasi gereken: en az {float(limits[0]):.2f} {label}."
+        return f"Olması gereken: en az {float(limits[0]):.2f} {label}."
     if operator == "range" and len(limits) == 2:
-        return f"Olmasi gereken: {float(limits[0]):.2f} - {float(limits[1]):.2f} {label}."
-    return "Olmasi gereken kaynakta sayisal olarak tanimli degil."
+        return f"Olması gereken: {float(limits[0]):.2f} - {float(limits[1]):.2f} {label}."
+    return "Olması gereken kaynakta sayısal olarak tanımlı değil."
 
 
 def format_expected_text(
@@ -969,7 +969,7 @@ def format_expected_text(
     return (
         _expected_text(operator, limits, unit)
         .replace("Olmasi", "Olması")
-        .replace("mutlak deger", "mutlak değer")
+        .replace("mutlak değer", "mutlak değer")
         .replace("sayisal olarak tanimli degil", "sayısal olarak tanımlı değil")
     )
 
@@ -1005,7 +1005,7 @@ def _comparison_text(
     if isinstance(operator, str) and operator not in _KNOWN_THRESHOLD_OPERATORS and operator:
         return "Fark hesaplanmadı; operatör sunum katmanında tanımlı değil."
     if value is None or not limits:
-        return "Fark hesaplanamadi; gerekli eklem kaniti yetersiz."
+        return "Fark hesaplanamadı; gerekli eklem kanıtı yetersiz."
     if not _is_number(value):
         return "Fark hesaplanamadı; ölçüm sayısal değil."
     label = unit_label(unit)
@@ -1016,28 +1016,28 @@ def _comparison_text(
             minimum_excess = None
             if isinstance(interval, list) and len(interval) == 2:
                 minimum_excess = max(0.0, float(interval[0]) - float(limits[0]))
-            suffix = "" if minimum_excess is None else f"; %95'e gore en az {minimum_excess:.2f} fazla"
-            return f"Fark: ust sinirdan {difference:.2f} {label} fazla{suffix}."
-        return f"Fark: ust sinirin {abs(difference):.2f} {label} altinda."
+            suffix = "" if minimum_excess is None else f"; %95'e göre en az {minimum_excess:.2f} fazla"
+            return f"Fark: üst sınırdan {difference:.2f} {label} fazla{suffix}."
+        return f"Fark: üst sınırın {abs(difference):.2f} {label} altında."
     if operator == "abs_max":
         magnitude = abs(numeric)
         difference = magnitude - float(limits[0])
         if difference > 0:
-            return f"Fark: mutlak deger ust sinirdan {difference:.2f} {label} fazla."
-        return f"Fark: mutlak deger ust sinirin {abs(difference):.2f} {label} altinda."
+            return f"Fark: mutlak değer üst sınırdan {difference:.2f} {label} fazla."
+        return f"Fark: mutlak değer üst sınırın {abs(difference):.2f} {label} altında."
     if operator == "min":
         difference = float(limits[0]) - numeric
         if difference > 0:
-            return f"Fark: alt sinirdan {difference:.2f} {label} eksik."
-        return f"Fark: alt sinirin {abs(difference):.2f} {label} ustunde."
+            return f"Fark: alt sınırdan {difference:.2f} {label} eksik."
+        return f"Fark: alt sınırın {abs(difference):.2f} {label} üstünde."
     if operator == "range" and len(limits) == 2:
         low, high = float(limits[0]), float(limits[1])
         if numeric < low:
-            return f"Fark: alt sinirdan {low - numeric:.2f} {label} eksik."
+            return f"Fark: alt sınırdan {low - numeric:.2f} {label} eksik."
         if numeric > high:
-            return f"Fark: ust sinirdan {numeric - high:.2f} {label} fazla."
-        return "Fark: olcum hedef araligin icinde."
-    return "Fark kaynak operatoru nedeniyle hesaplanamadi."
+            return f"Fark: üst sınırdan {numeric - high:.2f} {label} fazla."
+        return "Fark: ölçüm hedef aralığın içinde."
+    return "Fark kaynak operatörü nedeniyle hesaplanamadı."
 
 
 def _result_text(decision: dict[str, Any], expected: str) -> str:
@@ -1046,16 +1046,16 @@ def _result_text(decision: dict[str, Any], expected: str) -> str:
     if status == "timeline_unverified":
         return _PHASE_APPROVAL_RESULT
     if status == "confirmed_source_bound_minor":
-        return f"Sonuc: belirsizlik araligi da sinir disinda; kucuk hata adayi (-{float(points):g})."
+        return f"Sonuç: belirsizlik aralığı da sınır dışında; küçük hata adayı (-{float(points):g})."
     if status == "boundary_uncertain":
-        return "Sonuc: %95 aralik karar sinirina temas ediyor; kesinti uygulanmadi."
+        return "Sonuç: %95 aralık karar sınırına temas ediyor; kesinti uygulanmadı."
     if status == "not_measurable":
-        return "Sonuc: guvenilir 3B olcum yok; kesinti uygulanmadi."
+        return "Sonuç: güvenilir 3B ölçüm yok; kesinti uygulanmadı."
     if status == "within_source_range":
-        return f"Sonuc: {expected.removeprefix('Olmasi gereken: ')} Kesinti yok."
+        return f"Sonuç: {expected.removeprefix('Olması gereken: ')} Kesinti yok."
     if status not in _STATUS_PRESENTATION:
         return f"Sonuç: “{status}” karar durumu sunum katmanında tanımlı değil; karar raporuna bakın."
-    return "Sonuc: bu karar puana uygulanmadi."
+    return "Sonuç: bu karar puana uygulanmadı."
 
 
 _UNIT_LABELS = {
@@ -1760,7 +1760,7 @@ def _description_sentence(
     window_text = _window_phrase(window)
     where = f", {window_text} ölçülür" if window_text else ""
     who = f" ({side_text})" if side_text else ""
-    expectation = expected.replace("Olması gereken: ", "").replace("Olmasi gereken: ", "").rstrip(".")
+    expectation = expected.replace("Olması gereken: ", "").replace("Olması gereken: ", "").rstrip(".")
     return f"{family_text} kuralı — {title}{who}{where}; beklenen: {expectation}."
 
 

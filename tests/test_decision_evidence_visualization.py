@@ -71,12 +71,12 @@ def test_decision_events_preserve_3d_measurement_and_camera_visual_trace_contrac
     assert len(event["visual_geometry"]["joint_indices"]) == 5
     assert event["user_explanation"] == {
         "title": "ARKA AYAK ACISI",
-        "expected": "Olmasi gereken: en fazla 30.00 derece.",
+        "expected": "Olması gereken: en fazla 30.00 derece.",
         "measured": "39.35 derece",
-        "interval": "%95 olasi aralik: 34.35 - 44.35 derece",
-        "comparison": "Fark: ust sinirdan 9.35 derece fazla; %95'e gore en az 4.35 fazla.",
-        "result": "Sonuc: belirsizlik araligi da sinir disinda; kucuk hata adayi (-0.1).",
-        "correction": "Arka ayagi durus yonune yaklastir; ayak acisini izin verilen sinira indir.",
+        "interval": "%95 olası aralık: 34.35 - 44.35 derece",
+        "comparison": "Fark: üst sınırdan 9.35 derece fazla; %95'e göre en az 4.35 fazla.",
+        "result": "Sonuç: belirsizlik aralığı da sınır dışında; küçük hata adayı (-0.1).",
+        "correction": "Arka ayağı duruş yönüne yaklaştır; ayak açısını izin verilen sınıra indir.",
         "source_note": "historical, sayfa 5.",
     }
 

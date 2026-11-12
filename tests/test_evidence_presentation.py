@@ -462,3 +462,15 @@ def test_review_page_does_not_interpolate_event_ids_into_css_selectors() -> None
     source = inspect.getsource(review_report)
     assert '[data-review-event="${' not in source
     assert "item.dataset.reviewEvent === eventId" in source
+
+
+def test_overlay_labels_stay_below_the_camera_title_strip_and_inside_the_frame() -> None:
+    import numpy as np
+
+    from src.poomsae_scoring import error_video
+
+    image = np.zeros((200, 300, 3), dtype=np.uint8)
+    error_video._label(image, (290, 5), "BAS EGIM (PITCH) GOVDEYE GORE", (255, 255, 255))
+    rows, cols = np.nonzero(image.max(axis=2))
+    assert rows.min() > error_video._TITLE_STRIP_HEIGHT
+    assert cols.max() < image.shape[1]
