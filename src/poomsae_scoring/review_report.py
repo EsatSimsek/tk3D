@@ -63,7 +63,6 @@ def build_review_html(
     evidence_report: dict[str, Any],
     readiness_report: dict[str, Any],
     video_sources: dict[str, str],
-    engineering_trial_report: dict[str, Any] | None = None,
     wholebody_diagnostics_report: dict[str, Any] | None = None,
     accuracy_decisions_report: dict[str, Any] | None = None,
     decision_evidence_report: dict[str, Any] | None = None,
@@ -87,8 +86,6 @@ def build_review_html(
     readiness_timeline = readiness_report.get("movement_timeline", {})
     if readiness_timeline.get("timeline_id") != timeline["timeline_id"]:
         raise ScoringContractError("readiness report must reference the same MovementTimeline")
-    if engineering_trial_report is not None and engineering_trial_report.get("movement_timeline_id") != timeline["timeline_id"]:
-        raise ScoringContractError("engineering trial must reference the same MovementTimeline")
     if wholebody_diagnostics_report is not None and wholebody_diagnostics_report.get("movement_timeline_id") != timeline["timeline_id"]:
         raise ScoringContractError("WholeBody diagnostics must reference the same MovementTimeline")
     if accuracy_decisions_report is not None and accuracy_decisions_report.get("timeline_id") != timeline["timeline_id"]:
@@ -162,7 +159,7 @@ def build_review_html(
             "technical_accuracy": technical_accuracy_diagnostics_report,
             "wholebody": wholebody_diagnostics_report, "categorical": categorical_diagnostics_report,
             "presentation": presentation_diagnostics_report, "conformance": technical_conformance_report,
-            "segmentation": automatic_segmentation_report, "engineering_trial": engineering_trial_report,
+            "segmentation": automatic_segmentation_report,
             "video_sources": video_sources, "input_file_hashes": review_input_hashes,
         }, analysis_run_id),
         "timeline_id": timeline["timeline_id"],
@@ -178,7 +175,6 @@ def build_review_html(
     }
     safe_data = json.dumps(page_data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     source_end_reason = timeline["coverage"]["source_end_reason"] or "Tam performans kaydı"
-    trial_stat, trial_section = _engineering_trial_html(engineering_trial_report)
     wholebody_stat, wholebody_section = _wholebody_diagnostics_html(wholebody_diagnostics_report)
     decision_stat, decision_section = _decision_evidence_html(
         accuracy_decisions_report,
@@ -254,14 +250,13 @@ def build_review_html(
     <div class="movement-grid">{movement_cards}</div></section>
   <div id="findings"><div class="eyebrow">03 / Karar incelemesi</div>{decision_section}</div>
   <div id="details"><h2>Teknik ayrıntılar</h2>
-    <details class="report-detail"><summary>Ölçüm kapsamı ve teşhis özeti<small>Raporlanan tüm göstergeler</small></summary><div class="stats">{wholebody_stat}{categorical_stat}{technical_stat}{accuracy_diagnostic_stat}{presentation_stat}{automatic_stat}{trial_stat}</div></details>
+    <details class="report-detail"><summary>Ölçüm kapsamı ve teşhis özeti<small>Raporlanan tüm göstergeler</small></summary><div class="stats">{wholebody_stat}{categorical_stat}{technical_stat}{accuracy_diagnostic_stat}{presentation_stat}{automatic_stat}</div></details>
     {_detail_section("Hareket ve faz sınırları", automatic_section)}
     {_detail_section("WholeBody ölçümleri", wholebody_section)}
     {_detail_section("Hareket ve duruş kimliği", categorical_section)}
     {_detail_section("Hareket bazlı teknik uygunluk", technical_section)}
     {_detail_section("Teknik kural envanteri", accuracy_diagnostic_section)}
     {_detail_section("Presentation göstergeleri", presentation_section)}
-    {_detail_section("Mühendislik denemesi", trial_section)}
   </div>
   <div class="two-col">
     <section class="section"><h2>Kayıtta bulunmayan hareketler</h2><p style="margin-bottom:12px">Bunlar etiketleme hatası değildir; kaynak video M06 sonrasında devam etmiyor.</p><div class="missing-list">{missing_cards}</div></section>
@@ -540,39 +535,6 @@ def _movement_card(
         <span>Reprojection <b>{_number(reprojection, " px")}</b></span><span>Kamera <b>{_number(cameras, "")}</b></span></div>
       <div class="anchors">{anchors}</div>
     </article>'''
-
-
-def _engineering_trial_html(report: dict[str, Any] | None) -> tuple[str, str]:
-    if report is None:
-        return '<div class="stat"><span>Mühendislik denemesi</span><b>Yok</b></div>', ""
-    score = report.get("partial_engineering_trial_score")
-    reference = report.get("reference_accuracy_score")
-    deductions = report.get("trial_deductions", [])
-    deduction_items = "".join(
-        f'''<li><code>{_escape(item.get("movement_id"))} · {_escape(item.get("family"))}</code>
-          <span>{_escape(item.get("metric_id"))}: {_number(item.get("measured_value"), "")} · deneme -{_number(item.get("deduction_points"), "")}</span></li>'''
-        for item in deductions
-    ) or "<li><span>Kalite kapılarını geçen mühendislik hata adayı seçilmedi.</span></li>"
-    summary = report.get("summary", {})
-    coverage = float(report.get("measurement_coverage_ratio", 0.0))
-    disclaimer = report.get("engineering_profile", {}).get("disclaimer", "")
-    if score is None:
-        stat = '<div class="stat"><span>BODY-17 denemesi</span><b>Devre dışı</b></div>'
-        section = '''<section class="section"><h2>BODY-17 sayısal denemesi iptal edildi</h2>
-          <div class="notice"><div>⛔</div><div><strong>Bu motor artık puan üretmiyor.</strong>
-          <p>WholeBody teknik hatalarını kaçırdığı ve hata bulamamayı doğruluk gibi gösterdiği için geçersizleştirildi.</p></div></div></section>'''
-        return stat, section
-    stat = (
-        '<div class="stat"><span>M01-M06 mühendislik denemesi</span>'
-        f'<b>{_number(score, "")} / {_number(reference, "")} · %{coverage * 100:.0f} kapsam</b></div>'
-    )
-    section = f'''<section class="section"><h2>M01-M06 provisional mühendislik denemesi</h2>
-      <div class="notice"><div>⚙</div><div><strong>Bu değer WT Accuracy puanı değildir.</strong>
-      <p>{_escape(disclaimer)} Tam Taegeuk 1 performansıyla karşılaştırılamaz.</p></div></div>
-      <p style="margin-bottom:12px">{int(summary.get("measurable_count", 0))}/{int(summary.get("measurement_count", 0))} ölçülebilir · {int(summary.get("candidate_count", 0))} aday ·
-      {int(summary.get("not_measurable_count", 0))} ölçülemez · aile/faz tekrarları birleştirilmiştir.</p>
-      <ul>{deduction_items}</ul></section>'''
-    return stat, section
 
 
 def _wholebody_diagnostics_html(report: dict[str, Any] | None) -> tuple[str, str]:

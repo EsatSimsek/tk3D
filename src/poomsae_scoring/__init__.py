@@ -9,11 +9,9 @@ from src.poomsae_scoring.automatic_segmentation import (
 )
 from src.poomsae_scoring.contracts import (
     ScoringContractError,
-    load_engineering_profile,
     load_movement_timeline,
     load_poomsae_spec,
     load_rule_pack,
-    validate_engineering_profile,
     validate_movement_timeline,
     validate_poomsae_spec,
     validate_rule_pack,
@@ -21,7 +19,6 @@ from src.poomsae_scoring.contracts import (
 from src.poomsae_scoring.evidence import build_movement_evidence
 from src.poomsae_scoring.decision_evidence import build_decision_evidence_events
 from src.poomsae_scoring.categorical_diagnostics import build_categorical_diagnostics
-from src.poomsae_scoring.engineering_trial import build_partial_engineering_trial
 from src.poomsae_scoring.presentation import build_presentation_diagnostics
 from src.poomsae_scoring.technical_conformance import build_technical_conformance
 from src.poomsae_scoring.technical_accuracy import (
@@ -65,7 +62,6 @@ from src.poomsae_scoring.wholebody_diagnostics import (
     load_wholebody_diagnostic_profile,
     validate_wholebody_diagnostic_profile,
 )
-from src.poomsae_scoring.overlay import overlay_state_for_frame, render_movement_overlay
 
 __all__ = [
     "ScoringContractError",
@@ -85,7 +81,6 @@ __all__ = [
     "derive_athlete_local_direction_reference",
     "build_decision_evidence_events",
     "build_categorical_diagnostics",
-    "build_partial_engineering_trial",
     "build_review_html",
     "build_run_history",
     "build_run_history_html",
@@ -96,7 +91,6 @@ __all__ = [
     "derive_categorical_observations",
     "evaluate_accuracy",
     "load_movement_timeline",
-    "load_engineering_profile",
     "load_poomsae_spec",
     "load_rule_pack",
     "load_source_bound_accuracy_profile",
@@ -104,12 +98,9 @@ __all__ = [
     "load_wholebody_diagnostic_profile",
     "load_technical_accuracy_profile",
     "load_rule_accuracy_validation_profile",
-    "overlay_state_for_frame",
-    "render_movement_overlay",
     "run_poomsae_analysis",
     "inspect_source_intake",
     "validate_movement_timeline",
-    "validate_engineering_profile",
     "validate_poomsae_spec",
     "validate_rule_pack",
     "validate_source_bound_accuracy_result",

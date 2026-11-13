@@ -18,7 +18,6 @@ def main() -> None:
     parser.add_argument("--timeline", required=True)
     parser.add_argument("--evidence", required=True)
     parser.add_argument("--readiness", required=True)
-    parser.add_argument("--engineering-trial")
     parser.add_argument("--wholebody-diagnostics")
     parser.add_argument("--technical-accuracy-diagnostics")
     parser.add_argument("--accuracy-decisions")
@@ -54,8 +53,6 @@ def main() -> None:
         "video_a": _resolve(args.video_a),
         "video_b": _resolve(args.video_b),
     }
-    if args.engineering_trial:
-        inputs["engineering_trial_report"] = _resolve(args.engineering_trial)
     if args.wholebody_diagnostics:
         inputs["wholebody_diagnostics_report"] = _resolve(args.wholebody_diagnostics)
     if args.technical_accuracy_diagnostics:
@@ -92,9 +89,6 @@ def main() -> None:
     timeline = load_movement_timeline(inputs["movement_timeline"], spec)
     evidence = _read_json(inputs["evidence_report"])
     readiness = _read_json(inputs["readiness_report"])
-    engineering_trial = (
-        _read_json(inputs["engineering_trial_report"]) if "engineering_trial_report" in inputs else None
-    )
     wholebody_diagnostics = (
         _read_json(inputs["wholebody_diagnostics_report"])
         if "wholebody_diagnostics_report" in inputs
@@ -150,7 +144,6 @@ def main() -> None:
         evidence,
         readiness,
         videos,
-        engineering_trial,
         wholebody_diagnostics,
         accuracy_decisions,
         decision_evidence_events,
@@ -177,9 +170,6 @@ def main() -> None:
         "inputs": input_records,
         "scoring_status": evidence.get("scoring_status"),
         "accuracy_score": evidence.get("accuracy_score"),
-        "partial_engineering_trial_score": (
-            None if engineering_trial is None else engineering_trial.get("partial_engineering_trial_score")
-        ),
         "wholebody_review_candidate_count": (
             None
             if wholebody_diagnostics is None

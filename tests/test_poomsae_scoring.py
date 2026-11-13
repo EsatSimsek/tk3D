@@ -15,7 +15,6 @@ from src.poomsae_scoring import (
     assess_accuracy_readiness,
     build_movement_evidence,
     build_categorical_diagnostics,
-    build_partial_engineering_trial,
     build_review_html,
     build_presentation_diagnostics,
     build_source_bound_accuracy_decisions,
@@ -25,14 +24,11 @@ from src.poomsae_scoring import (
     evaluate_accuracy,
     inspect_source_intake,
     load_movement_timeline,
-    load_engineering_profile,
     load_poomsae_spec,
     load_rule_pack,
     load_source_bound_accuracy_profile,
     load_wholebody_diagnostic_profile,
-    overlay_state_for_frame,
     validate_movement_timeline,
-    validate_engineering_profile,
     validate_poomsae_spec,
     validate_rule_pack,
     validate_source_intake,
@@ -46,7 +42,6 @@ ROOT = Path(__file__).resolve().parents[1]
 RULE_PACK_PATH = ROOT / "config" / "scoring" / "rules" / "wt_recognized_2024-09-30.yaml"
 DRAFT_SPEC_PATH = ROOT / "config" / "scoring" / "poomsae" / "taegeuk_1_jang_v0_draft.yaml"
 DRAFT_TIMELINE_PATH = ROOT / "config" / "scoring" / "timelines" / "poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml"
-ENGINEERING_PROFILE_PATH = ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_m01_m06_v1.yaml"
 WHOLEBODY_PROFILE_PATH = ROOT / "config" / "scoring" / "engineering" / "taegeuk_1_wholebody_diagnostics_v2.yaml"
 SOURCE_BOUND_ACCURACY_PATH = ROOT / "config" / "scoring" / "accuracy" / "taegeuk_1_source_bound_v1.yaml"
 
@@ -269,16 +264,6 @@ def test_project_timeline_draft_binds_exact_rgbd_pose_artifact() -> None:
     )
 
 
-def test_project_engineering_profile_is_explicitly_non_official_and_minor_only() -> None:
-    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
-
-    assert profile["status"] == "provisional_engineering"
-    assert profile["scope"]["movement_ids"] == [f"M{index:02d}" for index in range(1, 7)]
-    assert profile["provenance"]["threshold_origin"] == "engineering_hypothesis_not_official_rule"
-    assert profile["policy"]["automatic_major_detection"] is False
-    assert {criterion["deduction_kind"] for criterion in profile["criteria"]} == {"minor"}
-
-
 BOUND_POSE_PATH = (
     ROOT
     / "outputs"
@@ -371,22 +356,6 @@ def test_project_accuracy_readiness_verifies_the_real_bound_pose_when_present() 
     assert report["pose_binding"]["actual_sha256"] == report["pose_binding"]["expected_sha256"]
 
 
-def test_project_overlay_labels_partial_recording_without_inventing_missing_movements() -> None:
-    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
-    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
-
-    assert overlay_state_for_frame(spec, timeline, 139) is None
-    first = overlay_state_for_frame(spec, timeline, 205)
-    assert first is not None
-    assert first["movement_id"] == "M01"
-    assert first["phase_id"] == "execution"
-    sixth = overlay_state_for_frame(spec, timeline, 728)
-    assert sixth is not None
-    assert sixth["movement_id"] == "M06"
-    assert sixth["phase_id"] == "fixation"
-    assert sixth["expected_movement_count"] == 18
-
-
 def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> None:
     spec = load_poomsae_spec(DRAFT_SPEC_PATH)
     timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
@@ -408,21 +377,6 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
         "movement_timeline": {"timeline_id": timeline["timeline_id"]},
         "pose_binding": {"status": "verified"},
         "blockers": [{"code": "partial_source_recording", "message": "Partial recording."}],
-    }
-    engineering_trial = {
-        "movement_timeline_id": timeline["timeline_id"],
-        "status": "deprecated_body17_screening_no_score",
-        "partial_engineering_trial_score": None,
-        "reference_accuracy_score": 4.0,
-        "trial_deductions": [],
-        "summary": {
-            "measurement_count": 30,
-            "measurable_count": 25,
-            "candidate_count": 2,
-            "not_measurable_count": 5,
-        },
-        "measurement_coverage_ratio": 25 / 30,
-        "engineering_profile": {"disclaimer": "Engineering hypothesis only."},
     }
     wholebody = {
         "movement_timeline_id": timeline["timeline_id"],
@@ -601,7 +555,6 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
             "ZED 37137479": "../videos/b.mp4",
             "Gelecek kamera": "../videos/c.mp4",
         },
-        engineering_trial_report=engineering_trial,
         wholebody_diagnostics_report=wholebody,
         categorical_diagnostics_report=categorical,
         presentation_diagnostics_report=presentation,
@@ -620,7 +573,7 @@ def test_review_html_exposes_partial_coverage_without_inventing_a_score() -> Non
     assert 'preload="auto"' in rendered
     assert "Hedef kareler yükleniyor" in rendered
     assert "Video hazırlanıyor" in rendered
-    assert "BODY-17 sayısal denemesi iptal edildi" in rendered
+    assert "Mühendislik denemesi" not in rendered
     assert "WholeBody-133 hata inceleme adayları" in rendered
     assert "fixation_wrist_jitter_ratio" in rendered
     assert "Skor yok" in rendered
@@ -682,68 +635,6 @@ def test_movement_evidence_reports_measurements_without_scoring() -> None:
     assert len(rows) == 2
     assert all(row["evidence_status"] == "observed" for row in rows)
     assert all("stance_span_ratio" in row and "body_scale_m" in row for row in rows)
-
-
-def test_partial_engineering_trial_gates_quality_and_deduplicates_families() -> None:
-    pack = load_rule_pack(RULE_PACK_PATH)
-    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
-    timeline = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
-    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
-    rows = []
-    for movement_id in timeline["coverage"]["observed_movement_ids"]:
-        rows.append(
-            {
-                "movement_id": movement_id,
-                "phase_id": "fixation",
-                "frame_index": 100,
-                "evidence_status": "observed",
-                "valid_body17_ratio": 0.99,
-                "median_reprojection_error_px": 2.0,
-                "median_used_cameras": 2.0,
-                "torso_lean_deg": 5.0,
-                "stance_span_ratio": 0.4 if movement_id in {"M01", "M02", "M03", "M04"} else 0.6,
-                "left_knee_deg": 170.0 if movement_id != "M05" else 150.0,
-                "right_knee_deg": 170.0,
-                "left_elbow_deg": 170.0,
-                "right_elbow_deg": 170.0,
-                "left_wrist_height_torso_ratio": 0.3,
-                "right_wrist_height_torso_ratio": 0.3,
-            }
-        )
-    rows[0]["stance_span_ratio"] = 0.1
-    rows[0]["left_knee_deg"] = 140.0
-    rows[2]["evidence_status"] = "partially_observed"
-    rows[2]["valid_body17_ratio"] = 0.88
-    evidence = {
-        "timeline": {"timeline_id": timeline["timeline_id"]},
-        "scoring_status": "not_scored_partial_recording",
-    }
-
-    report = build_partial_engineering_trial(pack, spec, timeline, profile, evidence, rows)
-
-    assert report["status"] == "deprecated_body17_screening_no_score"
-    assert report["accuracy_score"] is None
-    assert report["applied_deductions"] == []
-    assert report["partial_engineering_trial_score"] is None
-    assert report["total_engineering_trial_deduction"] is None
-    assert report["summary"] == {
-        "measurement_count": 30,
-        "measurable_count": 25,
-        "pass_count": 23,
-        "candidate_count": 2,
-        "not_measurable_count": 5,
-        "selected_trial_deduction_count": 0,
-        "diagnostic_candidate_family_count": 1,
-        "deduplicated_candidate_count": 1,
-    }
-    assert report["automatic_major_detection"]["enabled"] is False
-    assert report["measurement_coverage_ratio"] == pytest.approx(25 / 30)
-    assert report["trial_score_confidence"] == "not_scored"
-    assert report["trial_deductions"] == []
-    assert any(item["trial_application_status"] == "review_candidate_no_score" for item in report["measurements"])
-    m03 = [item for item in report["measurements"] if item["movement_id"] == "M03"]
-    assert {item["measurement_status"] for item in m03} == {"not_measurable"}
-    assert all(item["trial_deduction_points"] == 0.0 for item in m03)
 
 
 def test_wholebody_diagnostics_use_133_points_and_fail_closed() -> None:
@@ -1809,14 +1700,6 @@ def test_wholebody_profile_rejects_inverted_ranges() -> None:
 
     with pytest.raises(ScoringContractError, match="cannot exceed"):
         validate_wholebody_diagnostic_profile(profile)
-
-
-def test_engineering_profile_rejects_automatic_major_detection() -> None:
-    profile = load_engineering_profile(ENGINEERING_PROFILE_PATH)
-    profile["policy"]["automatic_major_detection"] = True
-
-    with pytest.raises(ScoringContractError, match="major detection"):
-        validate_engineering_profile(profile)
 
 
 def test_accuracy_readiness_verifies_complete_bound_artifact(tmp_path: Path) -> None:
