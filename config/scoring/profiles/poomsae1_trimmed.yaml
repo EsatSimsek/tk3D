@@ -2,18 +2,18 @@ schema_version: 1
 profile_id: poomsae1_trimmed
 session: config/sessions/poomsae1_zed2i_trimmed.yaml
 output_root: outputs
-reference_pose: data/poomsae_1_zed2i_20260731_trimmed/reference/json/vitpose_session_3d.json
+reference_pose: data/poomsae_1_zed2i_20260731_trimmed/reference/refined_20261113/vitpose_session_3d.json
 model_config: config/model_config.yaml
 rule_pack: config/scoring/rules/wt_recognized_2024-09-30.yaml
 poomsae_spec: config/scoring/poomsae/taegeuk_1_jang_v0_draft.yaml
-movement_timeline: config/scoring/timelines/poomsae1_zed2i_rgbd_rerun_20260802_draft.yaml
+movement_timeline: config/scoring/timelines/poomsae1_zed2i_refined_calibration_20261113_draft.yaml
 diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v2.yaml
 accuracy_diagnostic_profile: config/scoring/engineering/taegeuk_1_wholebody_diagnostics_v3.yaml
 accuracy_profile: config/scoring/accuracy/taegeuk_1_source_bound_v1.yaml
 bindings:
   session_sha256: 96bce6b99e46c1870248d1e15ac4c1861a2b56da0a3c89b707737b21aedb54d3
-  reference_pose_sha256: a3098284bed5cf83bea7e0d7488fe52d82f97b7d06977219b4c8f5eeccaf5947
-  movement_timeline_sha256: 94aba7181c2df19d12145195482403b8b56a4890e6103d52367001b56167fa93
+  reference_pose_sha256: 638651cc6ade277ab7f830e9a8a174017482aa31c20ccf196f5f07f65f182fd4
+  movement_timeline_sha256: 359d00f7afd4c10264b4a722773e33a39ab3aadb5425a9fa0458e75bb0b57df0
 processing:
   stride: 1
   smoothing_window: 11

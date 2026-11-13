@@ -273,14 +273,13 @@ def _m(metric_id: str, unit: str, landmarks: tuple[str, ...], window: str, group
 
 
 # Landmark declarations: exactly the points each evaluator reads, by contract role.
-# Torso-forward helpers (``_torso_forward``) take the forward direction from the
-# shoulder line and only resolve its sign with the face (eye clusters + nose). The
-# face is therefore declared where the sign changes the value (signed lean, depth,
-# front/back order, yaw to a target) and not where the value is sign-invariant
-# (stance length/width use |projection|; lateral offsets use the shoulder line).
+# Torso-forward helpers (``_torso_forward``) take the forward direction, sign
+# included, from the anatomical left/right shoulder line only; the face is not read.
 _T = ("torso",)
 _EYES, _NOSE, _BROWS, _CHIN = "face_eyes", "face_nose", "face_brows", "face_chin"
-_FORWARD_SIGN = ("shoulder:both", _EYES, _NOSE)
+_FORWARD_SIGN = ("shoulder:both",)
+# Head facing reads the body nose and both ears (see ``_head_forward``).
+_HEAD_FACING = ("nose_body", "ear:both")
 _STANCE_GEOMETRY = ("foot:lead", "foot:rear", "shoulder:both")
 _FOOT_DISPLACEMENT = ("ankle:lead", "ankle:rear", "leg:lead")
 _ARM_DISPLACEMENT = ("arm:active", "wrist:reaction")
@@ -296,15 +295,15 @@ _RL = "rule_layer"
 
 _RECORDS: tuple[MetricSpec, ...] = (
     # head_orientation
-    _m("head_target_yaw_error_deg", "deg", (_EYES, _NOSE), _FIX, "head"),
-    _m("head_torso_relative_yaw_deg", "deg", (_EYES, "shoulder:both", "leg:both"), _FIX, _RL, "wholebody_alias", alias_of="head_torso_yaw_mismatch_deg"),
+    _m("head_target_yaw_error_deg", "deg", _HEAD_FACING, _FIX, "head"),
+    _m("head_torso_relative_yaw_deg", "deg", (*_HEAD_FACING, "shoulder:both", "leg:both"), _FIX, _RL, "wholebody_alias", alias_of="head_torso_yaw_mismatch_deg"),
     _m("head_roll_relative_shoulders_deg", "deg", (_EYES, "shoulder:both"), _FIX, _RL, "rule_layer"),
     _m("head_pitch_relative_torso_deg", "deg", (_BROWS, _CHIN, "torso"), _FIX, _RL, "rule_layer"),
     _m("head_fixation_orientation_dispersion_p95_deg", "deg", (_EYES,), _HOLD, _RL, "rule_layer"),
     _m("head_post_fixation_drift_deg", "deg", (_EYES,), _HOLD, _RL, "rule_layer"),
     _m("head_turn_completion_state", "bool", (_EYES,), _HOLD, "head"),
-    _m("head_turn_direction_sign_match", "bool", (_EYES, _NOSE), _FIX, "head"),
-    _m("head_wrong_direction_stable_state", "bool", (_EYES, _NOSE), _FIX, "head"),
+    _m("head_turn_direction_sign_match", "bool", _HEAD_FACING, _FIX, "head"),
+    _m("head_wrong_direction_stable_state", "bool", _HEAD_FACING, _FIX, "head"),
     _m("head_late_turn_state", "bool", (_EYES,), _HOLD, "head"),
     _m("head_orientation_unmeasurable_reason", "reason_code", (_BROWS, _EYES, _CHIN), _FIX, "quality_metric"),
     _m("head_face_geometry_quality", "ratio", (_BROWS, _EYES, _CHIN), _FIX, "quality_metric"),
@@ -314,7 +313,7 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("stance_axis_target_yaw_error_deg", "deg", ("foot:lead", "foot:rear"), _FIX, "stance"),
     _m("torso_pelvis_relative_yaw_deg", "deg", _T, _FIX, _RL, "wholebody_alias", alias_of="shoulder_hip_twist_deg"),
     _m("torso_lean_p95_deg", "deg", _T, _FIX, _RL, "wholebody_alias", alias_of="torso_lean_p95_deg"),
-    _m("torso_forward_backward_lean_deg", "deg", ("torso", _EYES, _NOSE), _FIX, "torso"),
+    _m("torso_forward_backward_lean_deg", "deg", ("torso",), _FIX, "torso"),
     _m("torso_lateral_bend_deg", "deg", _T, _FIX, _RL, "rule_layer"),
     _m("shoulder_roll_deg", "deg", ("shoulder:both",), _FIX, _RL, "rule_layer"),
     _m("pelvis_roll_deg", "deg", ("hip:both",), _FIX, _RL, "rule_layer"),
@@ -389,7 +388,7 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("active_arm_target_direction_error_deg", "deg", ("shoulder:active", "palm:active"), _FIX, "upper"),
     _m("active_arm_target_height_body_ratio", "torso_length", _HAND_LOCAL, _FIX, "upper"),
     _m("active_arm_target_lateral_offset_body_ratio", "shoulder_width", _HAND_LOCAL, _FIX, "upper"),
-    _m("active_arm_target_depth_body_ratio", "arm_length", (*_HAND_LOCAL, _EYES, _NOSE), _FIX, "upper"),
+    _m("active_arm_target_depth_body_ratio", "arm_length", _HAND_LOCAL, _FIX, "upper"),
     _m("active_hand_target_distance_body_ratio", "torso_length", _HAND_LOCAL, _FIX, "active_hand"),
     _m("reaction_hand_target_distance_body_ratio", "torso_length", ("palm:reaction", "torso"), _FIX, "reaction_hand"),
     _m("reaction_elbow_position_error_body_ratio", "arm_length", ("arm:reaction", "hip:reaction"), _FIX, "upper"),
@@ -1685,18 +1684,33 @@ def _stance_change(arrays: dict[str, Any], frames: np.ndarray, lead: str | None,
 
 
 def _head_forward(arrays: dict[str, Any], frame: int) -> np.ndarray | None:
-    eyes = [_cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL), _cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)]
-    nose = _cluster(arrays, frame, range(27, 36))
-    return None if nose is None or any(value is None for value in eyes) else _unit(nose - (eyes[0] + eyes[1]) / 2.0)
+    """Horizontal head facing: body nose relative to the midpoint of the two ears.
+
+    The face eye clusters are not used: when the athlete is side-on to the cameras
+    they collapse in 3D (about 2-3 cm apart instead of ~6 cm), and a nose-minus-eyes
+    vector then points anywhere. The nose-to-ear-midpoint baseline is ~10 cm and
+    stayed within 10 deg of the torso facing on every observed movement.
+    """
+    nose = _pt(arrays, frame, "nose")
+    left_ear, right_ear = _pt(arrays, frame, "left_ear"), _pt(arrays, frame, "right_ear")
+    if nose is None or left_ear is None or right_ear is None:
+        return None
+    facing = nose - (left_ear + right_ear) / 2.0
+    return _unit(np.asarray([facing[0], facing[1], 0.0]))
 
 
 def _torso_forward(arrays: dict[str, Any], frame: int) -> np.ndarray | None:
+    """Horizontal facing from the anatomical shoulder line: up x (right - left).
+
+    The sign comes from the left/right labels alone. Resolving it with the face
+    (nose minus eye midpoint) flipped the torso by 180 deg whenever the head was
+    turned or seen in profile, because that vector is short and often nearly
+    perpendicular to the shoulder normal.
+    """
     lateral = _orientation_line(arrays, frame, "shoulder")
     if lateral is None:
         return None
-    candidate = _unit(np.cross(np.asarray([0.0, 0.0, 1.0]), lateral))
-    head = _head_forward(arrays, frame)
-    return -candidate if candidate is not None and head is not None and np.dot(candidate, head) < 0 else candidate
+    return _unit(np.cross(np.asarray([0.0, 0.0, 1.0]), lateral))
 
 
 def _pelvis_forward(arrays: dict[str, Any], frame: int) -> np.ndarray | None:

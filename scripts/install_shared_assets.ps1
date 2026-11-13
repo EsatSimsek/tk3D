@@ -49,8 +49,20 @@ $assets = @(
         Destination = Join-Path $repositoryPath "data\poomsae_1_zed2i_20260731_trimmed\reference\csv\vitpose_keypoints_2d_flat.csv"
     },
     @{
+        Package = "repo\data\poomsae_1_zed2i_20260731_trimmed\reference\refined_20261113\vitpose_session_3d.json"
+        Destination = Join-Path $repositoryPath "data\poomsae_1_zed2i_20260731_trimmed\reference\refined_20261113\vitpose_session_3d.json"
+    },
+    @{
+        Package = "repo\data\poomsae_1_zed2i_20260731_trimmed\reference\refined_20261113\run_manifest.json"
+        Destination = Join-Path $repositoryPath "data\poomsae_1_zed2i_20260731_trimmed\reference\refined_20261113\run_manifest.json"
+    },
+    @{
         Package = "repo\outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras.json"
         Destination = Join-Path $repositoryPath "outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras.json"
+    },
+    @{
+        Package = "repo\outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras_keypoint_refined_20261113.json"
+        Destination = Join-Path $repositoryPath "outputs\poomsae_1_zed2i_20260731_trimmed\calibration\cameras_keypoint_refined_20261113.json"
     },
     @{
         Package = "repo\weights\vitpose_huge_wholebody_256x192.pth"

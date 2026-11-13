@@ -153,7 +153,8 @@ def test_roll_and_yaw_signs_follow_the_athletes_sides(profile: dict, contracts: 
     # Head yawed 30 deg towards the athlete's right (+x): forward vector points right,
     # and the direction-bound yaw error is 30 deg.
     turned = points.copy()
-    _rotate_points(turned, head, np.array([0.0, 0.0, 1.78]), np.array([0.0, 0.0, 1.0]), -30.0)
+    head_and_ears = [*head, BODY["nose"], BODY["left_ear"], BODY["right_ear"]]
+    _rotate_points(turned, head_and_ears, np.array([0.0, 0.0, 1.78]), np.array([0.0, 0.0, 1.0]), -30.0)
     head_forward = metrics._head_forward({"points": turned}, 0)
     assert head_forward[0] > 0
     contract = next(item for item in contracts if item["semantic_action_direction"] == "forward") if any(
@@ -405,8 +406,9 @@ def test_audited_declarations_cover_what_the_evaluators_read(contracts: list[dic
     lead = m01["lead_leg"]
     assert {BODY[f"{lead}_knee"], BODY[f"{lead}_ankle"]} <= set(resolve_metric_landmarks("step_length_error_body_ratio", m01))
     assert {BODY["left_ankle"], BODY["right_ankle"]} <= set(resolve_metric_landmarks("body_height_change_during_fixation_ratio", m01))
-    assert set(metrics._UNSIDED_GROUPS["face_nose"]) <= set(resolve_metric_landmarks("head_target_yaw_error_deg", m01))
-    assert set(metrics._UNSIDED_GROUPS["face_eyes"]) <= set(resolve_metric_landmarks("torso_forward_backward_lean_deg", m01))
+    assert set(resolve_metric_landmarks("head_target_yaw_error_deg", m01)) == {BODY["nose"], BODY["left_ear"], BODY["right_ear"]}
+    # Torso facing comes from the shoulder labels alone; the face is not read (AD-049).
+    assert not set(metrics._UNSIDED_GROUPS["face_eyes"]) & set(resolve_metric_landmarks("torso_forward_backward_lean_deg", m01))
     active = m01["active_arm"]
     offset = COCO_LEFT_HAND_OFFSET if active == "left" else COCO_RIGHT_HAND_OFFSET
     other_offset = COCO_RIGHT_HAND_OFFSET if active == "left" else COCO_LEFT_HAND_OFFSET

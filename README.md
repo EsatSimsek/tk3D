@@ -279,7 +279,12 @@ Write-Host "Çıktı: $((Resolve-Path "outputs\poomsae_1_zed2i_20260731_trimmed\
 
 Bu komut paketle gelen referans pose'u kullanır; ViTPose inference'ı yeniden
 çalıştırmaz. İki kaynak video yine HTML ve işaretli inceleme videosu için
-gereklidir.
+gereklidir. 14 Kasım 2026'dan itibaren varsayılan referans, kayda göre rafine
+edilmiş kalibrasyonla üretilen pose'dur
+(`data/poomsae_1_zed2i_20260731_trimmed/reference/refined_20261113/`); elle
+işaretlenmiş hareket sınırları aynıdır, yalnız pose bağı değişti. Eski pose
+`reference/json/` altında korunur. Bu dosyalar paylaşım paketiyle gelir; eski
+bir paket kuruluysa kurucuyu güncel paketle yeniden çalıştırın.
 
 ```powershell
 Set-Location "$env:USERPROFILE\Desktop\tk3D"

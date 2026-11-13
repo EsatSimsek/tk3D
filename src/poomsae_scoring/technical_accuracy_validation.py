@@ -208,6 +208,9 @@ def build_synthetic_wholebody_pose(frame_count: int) -> dict[str, Any]:
         "nose": [0.0, 0.0, 1.75],
         "left_eye": [-0.03, 0.0, 1.78],
         "right_eye": [0.03, 0.0, 1.78],
+        # Ears behind the nose: the head faces +y like the torso (head facing reads nose and ears).
+        "left_ear": [-0.075, -0.06, 1.76],
+        "right_ear": [0.075, -0.06, 1.76],
         "left_shoulder": [-0.20, 0.0, 1.45],
         "right_shoulder": [0.20, 0.0, 1.45],
         "left_elbow": [-0.35, 0.0, 1.20],
@@ -727,12 +730,19 @@ def _direction_semantic_scenarios(base_pose, spec, timeline, profile, wholebody)
     for angle in HEAD_DIRECTION_TEST_YAWS:
         pose = deepcopy(base_pose)
         points = np.asarray(pose["keypoints_3d_world"], dtype=float)
+        ear_midpoint = (points[:, COCO_BODY_JOINTS["left_ear"], :] + points[:, COCO_BODY_JOINTS["right_ear"], :]) / 2.0
         if angle is None:
+            # Collapsed head: nose and both ears on one point, so no facing can be measured.
             points[:, 23:91, :] = [0.0, 0.0, 1.75]
+            for name in ("nose", "left_ear", "right_ear"):
+                points[:, COCO_BODY_JOINTS[name], :] = [0.0, 0.0, 1.75]
         else:
             radians = np.deg2rad(angle)
             points[:, 50:59, 0] = 0.03 * np.sin(radians)
             points[:, 50:59, 1] = 0.03 * np.cos(radians)
+            nose = COCO_BODY_JOINTS["nose"]
+            points[:, nose, 0] = ear_midpoint[:, 0] + 0.06 * np.sin(radians)
+            points[:, nose, 1] = ear_midpoint[:, 1] + 0.06 * np.cos(radians)
         pose["keypoints_3d_world"] = points.tolist()
         report = build_technical_accuracy_diagnostics(
             pose, spec, timeline, profile, wholebody, direction_reference=reference,

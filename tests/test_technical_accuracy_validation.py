@@ -112,7 +112,9 @@ def test_all_133_landmarks_have_explicit_rule_coverage(validation_report: dict) 
         if row["landmark_index"] in undeclared
     )
     jaw_and_lips = {23 + index for index in (*range(0, 8), *range(9, 17), *range(48, 68))}
-    assert undeclared == jaw_and_lips
+    # Face nose points are no longer read: head facing uses the body nose and ears (AD-050).
+    face_nose = {23 + index for index in range(27, 36)}
+    assert undeclared == jaw_and_lips | face_nose
 
 
 def test_every_active_rule_gets_all_boundary_and_nonfinite_cases(validation_report: dict, profile: dict) -> None:

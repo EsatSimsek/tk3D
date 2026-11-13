@@ -264,6 +264,26 @@ def test_project_timeline_draft_binds_exact_rgbd_pose_artifact() -> None:
     )
 
 
+def test_default_profile_binds_the_refined_pose_with_the_same_manual_anchors() -> None:
+    import hashlib
+
+    import yaml
+
+    profile = yaml.safe_load((ROOT / "config/scoring/profiles/poomsae1_trimmed.yaml").read_text(encoding="utf-8"))
+    spec = load_poomsae_spec(DRAFT_SPEC_PATH)
+    timeline_path = ROOT / profile["movement_timeline"]
+    timeline = load_movement_timeline(timeline_path, spec)
+    original = load_movement_timeline(DRAFT_TIMELINE_PATH, spec)
+
+    assert hashlib.sha256(timeline_path.read_bytes()).hexdigest() == profile["bindings"]["movement_timeline_sha256"]
+    assert timeline["source_binding"]["pose_file_sha256"] == profile["bindings"]["reference_pose_sha256"]
+    assert timeline["source_binding"]["pose_file"] == profile["reference_pose"]
+    assert timeline["source_binding"]["run_id"] == "restore-refined-calibration-20261113-01"
+    # Only the pose binding moved; every manual anchor and segment boundary is unchanged.
+    assert timeline["segments"] == original["segments"]
+    assert timeline["timeline_id"] != original["timeline_id"]
+
+
 BOUND_POSE_PATH = (
     ROOT
     / "outputs"

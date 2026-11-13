@@ -808,28 +808,38 @@ def _window_pose_head_torso_yaw_mismatch(
 ) -> float | None:
     if scale is None or scale <= 0:
         return None
-    indices = (
-        *FACE_RIGHT_EYE_INDICES,
-        *FACE_LEFT_EYE_INDICES,
-        COCO_BODY_JOINTS["left_shoulder"],
-        COCO_BODY_JOINTS["right_shoulder"],
-    )
     values = []
     for points in _completed_window_point_sets(
-        arrays, center, start, end, radius, minimum_samples, tuple(indices)
+        arrays, center, start, end, radius, minimum_samples, _HEAD_TORSO_YAW_INDICES
     ):
-        right_eye = np.mean(points[:6], axis=0)
-        left_eye = np.mean(points[6:12], axis=0)
-        eye_line = right_eye - left_eye
-        eye_ratio = float(np.linalg.norm(eye_line) / scale)
-        if not gates["face_eye_separation_body_scale_min"] <= eye_ratio <= gates[
-            "face_eye_separation_body_scale_max"
-        ]:
-            continue
-        angle = _vector_angle(eye_line, points[13] - points[12], undirected=True)
+        angle = _head_torso_yaw_from_points(*points)
         if angle is not None:
             values.append(angle)
     return float(np.median(values)) if len(values) >= minimum_samples else None
+
+
+# Head facing = body nose relative to the ear midpoint; torso facing = up x (right - left
+# shoulder). Face eye clusters collapse in 3D when the athlete is side-on to the cameras,
+# so they are not used for yaw (AD-050).
+_HEAD_TORSO_YAW_INDICES = (
+    COCO_BODY_JOINTS["nose"],
+    COCO_BODY_JOINTS["left_ear"],
+    COCO_BODY_JOINTS["right_ear"],
+    COCO_BODY_JOINTS["left_shoulder"],
+    COCO_BODY_JOINTS["right_shoulder"],
+)
+
+
+def _head_torso_yaw_from_points(
+    nose: np.ndarray,
+    left_ear: np.ndarray,
+    right_ear: np.ndarray,
+    left_shoulder: np.ndarray,
+    right_shoulder: np.ndarray,
+) -> float | None:
+    head = nose - (left_ear + right_ear) / 2.0
+    torso = np.cross(np.asarray([0.0, 0.0, 1.0]), right_shoulder - left_shoulder)
+    return _vector_angle(head, torso, undirected=False)
 
 
 def _window_pose_hikite_distance_ratio(
@@ -1113,16 +1123,10 @@ def _head_torso_yaw_mismatch(
     scale: float | None,
     gates: dict[str, Any],
 ) -> float | None:
-    left_eye = [_p(arrays, frame, index) for index in FACE_LEFT_EYE_INDICES]
-    right_eye = [_p(arrays, frame, index) for index in FACE_RIGHT_EYE_INDICES]
-    ls, rs = (_p(arrays, frame, COCO_BODY_JOINTS[name]) for name in ("left_shoulder", "right_shoulder"))
-    if scale is None or scale <= 0 or any(point is None for point in left_eye + right_eye) or ls is None or rs is None:
+    points = [_p(arrays, frame, index) for index in _HEAD_TORSO_YAW_INDICES]
+    if scale is None or scale <= 0 or any(point is None for point in points):
         return None
-    eye_line = np.mean(right_eye, axis=0) - np.mean(left_eye, axis=0)
-    eye_ratio = float(np.linalg.norm(eye_line) / scale)
-    if not gates["face_eye_separation_body_scale_min"] <= eye_ratio <= gates["face_eye_separation_body_scale_max"]:
-        return None
-    return _vector_angle(eye_line, rs - ls, undirected=True)
+    return _head_torso_yaw_from_points(*points)
 
 
 def _expected_side_dominance(
@@ -1813,7 +1817,7 @@ def _annotate_metrics(
         elif metric_id == "support_foot_pivot_deg":
             required_groups = ["feet"]
         elif metric_id == "head_torso_yaw_mismatch_deg":
-            required_groups = ["body17", "face"]
+            required_groups = ["body17"]
         elif metric_id == "eolgul_fist_to_forehead_fist_ratio":
             required_groups = ["body17", f"{executing_side}_hand", "face"]
         elif metric_id in {
@@ -1901,7 +1905,7 @@ def _metric_required_joint_indices(
             COCO_FOOT_JOINTS[f"{back_side}_small_toe"],
         )
     if metric_id == "head_torso_yaw_mismatch_deg":
-        return (*range(23 + 36, 23 + 48), body["left_shoulder"], body["right_shoulder"])
+        return (body["nose"], body["left_ear"], body["right_ear"], body["left_shoulder"], body["right_shoulder"])
     if metric_id == "expected_side_dominance_ratio":
         return (body[f"{executing_side}_wrist"], body[f"{other_side}_wrist"])
     if metric_id == "reaction_hand_hip_distance_ratio":

@@ -574,6 +574,9 @@ def _synthetic_pose(frame_count: int) -> dict:
         "nose": [0.0, 0.0, 1.75],
         "left_eye": [-0.03, 0.0, 1.78],
         "right_eye": [0.03, 0.0, 1.78],
+        # Ears sit behind the nose, so nose - ear midpoint faces the athlete's forward (+y).
+        "left_ear": [-0.075, -0.06, 1.76],
+        "right_ear": [0.075, -0.06, 1.76],
         "left_shoulder": [-0.20, 0.0, 1.45],
         "right_shoulder": [0.20, 0.0, 1.45],
         "left_elbow": [-0.35, 0.0, 1.20],
@@ -984,6 +987,7 @@ def test_face_eye_clusters_are_named_by_the_athletes_own_side() -> None:
     assert float(np.dot(accuracy._orientation_vector(arrays, 0, "head"), shoulder_line)) == pytest.approx(1.0)
 
     head = [*metrics.FACE_RIGHT_EYE_INDICES, *metrics.FACE_LEFT_EYE_INDICES, *range(23 + 17, 23 + 36), 23 + 8]
+    head_and_ears = [*head, *(COCO_BODY_JOINTS[name] for name in ("nose", "left_ear", "right_ear"))]
     head_centre = np.array([0.0, 0.0, 1.78])
     forward = np.array([0.0, 1.0, 0.0])
     # Head tilted 10 deg towards the athlete's left shoulder: the right eye rises.
@@ -1006,10 +1010,17 @@ def test_face_eye_clusters_are_named_by_the_athletes_own_side() -> None:
     # towards the right shoulder, and the unsigned yaw error is 30 deg either way.
     for yaw, sign in ((-30.0, 1.0), (30.0, -1.0)):
         turned = points.copy()
-        _rotate_points(turned, head, head_centre, np.array([0.0, 0.0, 1.0]), yaw)
+        _rotate_points(turned, head_and_ears, head_centre, np.array([0.0, 0.0, 1.0]), yaw)
         head_forward = metrics._head_forward({"points": turned}, 0)
         assert np.sign(head_forward[0]) == sign
         assert metrics._horizontal_angle(head_forward, forward) == pytest.approx(30.0, abs=1e-6)
+        assert float(np.dot(metrics._torso_forward({"points": turned}, 0), forward)) == pytest.approx(1.0)
+
+    # Regression (refined Poomsae run, M03): a head turned to the side or even facing
+    # backwards must not flip the torso; its facing comes from the shoulder labels only.
+    for yaw in (95.0, -95.0, 180.0):
+        turned = points.copy()
+        _rotate_points(turned, head_and_ears, head_centre, np.array([0.0, 0.0, 1.0]), yaw)
         assert float(np.dot(metrics._torso_forward({"points": turned}, 0), forward)) == pytest.approx(1.0)
 
 
