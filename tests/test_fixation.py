@@ -345,3 +345,94 @@ def test_fixation_review_binding_tracks_source_and_candidates():
     report["review_binding"] = binding
     with pytest.raises(ScoringContractError):
         build_fixation_review_binding(report)
+
+
+def _strike_then_drift(fps=60, drift_mps=0.4):
+    """Body steps 0.5-1.0 s; the left hand strikes fast until 1.0 s and then keeps drifting."""
+    points = _translation(_pose(fps), fps)
+    times = np.arange(len(points)) / fps
+    points[:, 9, 1] += np.clip(times - .6, 0, .4) * 1.0 + np.maximum(times - 1.0, 0) * drift_mps
+    return points
+
+
+def test_technique_completion_is_found_when_the_athlete_flows_on_without_a_hold():
+    # Refined Poomsae run, M01/M03/M05: the blocking hand keeps moving after the block,
+    # so no common hold exists, but the technique still ends where the hand decelerates.
+    result = _detect(_strike_then_drift())
+    event = result["fixation_candidates"][0]
+    completion = event["technique_completion"]
+    assert event["status"] != "hold_observed"
+    assert completion["status"] == "observed"
+    assert completion["last_hand"] in {"left_hand", "right_hand"}
+    assert completion["hands"]["left_hand"]["status"] == "observed"
+    assert 58 <= completion["frame"] <= 66
+    assert completion["requires_human_review"] is True and completion["score_effect"] is False
+    segment = result["segments"][0]
+    assert segment["anchors"]["fixation"] == completion["frame"]
+    assert segment["anchor_methods"]["fixation"] == "both_hands_decelerated_below_peak_fraction"
+    assert segment["hold"]["status"] == event["status"]
+    assert segment["hold"]["onset_frame"] is None
+
+
+def test_technique_completion_precedes_an_observed_hold_and_the_hold_is_kept_separately():
+    result = _detect(_translation(_pose(), 60))
+    event = result["fixation_candidates"][0]
+    segment = result["segments"][0]
+    assert event["status"] == "hold_observed"
+    assert segment["anchors"]["fixation"] == event["technique_completion"]["frame"]
+    assert segment["anchors"]["fixation"] <= event["fixation_frame"]
+    assert segment["hold"]["onset_frame"] == event["fixation_frame"]
+    assert segment["hold"]["onset_after_completion_frames"] >= 0
+
+
+def test_continuous_motion_has_no_technique_completion_at_recording_end():
+    points = _pose()
+    points[:, :, 0] += np.arange(len(points))[:, None] * .01
+    completion = _detect(points)["fixation_candidates"][-1]["technique_completion"]
+    assert completion["frame"] is None
+    assert completion["status"] == "recording_truncated"
+
+
+def test_technique_completion_abstains_on_blocked_quality():
+    points = _strike_then_drift()
+    quality = _quality(points)
+    del quality["used_cameras"]
+    completion = _detect(points, quality=quality)["fixation_candidates"][0]["technique_completion"]
+    assert completion["frame"] is None
+    assert completion["status"] == "insufficient_evidence"
+
+
+def test_completion_fraction_must_be_below_one():
+    with pytest.raises(ScoringContractError, match="completion_peak_fraction"):
+        FixationParameters(completion_peak_fraction=1.0)
+
+
+def test_reference_comparison_reports_fixation_agreement_on_its_own():
+    from src.poomsae_scoring.automatic_segmentation import compare_segments_to_reference
+
+    proposed = [{"movement_id": "M01", "start_frame": 10, "end_frame": 90,
+                 "anchors": {"execution": 40, "fixation": 52}}]
+    reference = [{"movement_id": "M01", "start_frame": 12, "end_frame": 88,
+                  "anchors": {"execution": 30, "fixation": 50}}]
+    summary = compare_segments_to_reference(proposed, reference, fps=60)["summary"]
+    assert summary["fixation_compared_count"] == 1
+    assert summary["fixation_anchor_mae_frames"] == 2
+    assert summary["fixation_anchor_max_error_frames"] == 2
+    assert summary["phase_anchor_mae_frames"] == 6
+
+
+def test_technique_completion_waits_for_the_later_hand_not_the_faster_one():
+    # Refined Poomsae run, M03: the reaction (left) hand peaks first and faster, the
+    # blocking (right) hand ends later; the technique ends with the blocking hand.
+    fps = 60
+    points = _translation(_pose(fps), fps)
+    times = np.arange(len(points)) / fps
+    points[:, 9, 1] += np.clip(times - .55, 0, .15) * 4.0
+    points[:, 10, 1] += np.clip(times - .6, 0, .5) * 1.2
+    completion = _detect(points, fps)["fixation_candidates"][0]["technique_completion"]
+    hands = completion["hands"]
+    assert hands["left_hand"]["peak_speed"] > hands["right_hand"]["peak_speed"]
+    assert hands["left_hand"]["frame"] < hands["right_hand"]["frame"]
+    assert completion["last_hand"] == "right_hand"
+    assert completion["frame"] == hands["right_hand"]["frame"]
+    assert 64 <= completion["frame"] <= 72

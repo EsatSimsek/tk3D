@@ -207,8 +207,16 @@ def detect_automatic_segments(
         )
         peak = float(episode["peak_motion_energy_mps"])
         evidence = evidence_by_id[episode["candidate_episode_id"]]
-        anchors["fixation"] = evidence["fixation_frame"]
-        anchor_methods["fixation"] = evidence["reason"]
+        completion = evidence["technique_completion"]
+        # The fixation anchor is where the technique ends (the pose rules read). A
+        # multi-component hold is reported separately; without a completion estimate
+        # the observed hold onset is the only fallback, otherwise no anchor.
+        if completion["frame"] is not None:
+            anchors["fixation"] = completion["frame"]
+            anchor_methods["fixation"] = completion["method"]
+        else:
+            anchors["fixation"] = evidence["fixation_frame"]
+            anchor_methods["fixation"] = evidence["reason"]
         strength = min(max(peak / high_threshold - 1.0, 0.0), 1.0) if high_threshold > 0 else 0.0
         selection_bonus = 1.0 if selection["status"] == "exact_cluster_match" else 0.5
         confidence = round(min(0.95, 0.55 + 0.15 * strength + 0.15 * valid_signal_ratio + 0.10 * selection_bonus), 4)
@@ -225,6 +233,18 @@ def detect_automatic_segments(
                 "confidence": confidence,
                 "confidence_kind": "uncalibrated_motion_heuristic_not_probability",
                 "fixation_status": evidence["status"],
+                "technique_completion": completion,
+                "hold": {
+                    "status": evidence["status"],
+                    "onset_frame": evidence["fixation_frame"],
+                    "end_frame": evidence["hold_end_frame"],
+                    "duration_sec": evidence["hold_duration_sec"],
+                    "onset_after_completion_frames": (
+                        None if evidence["fixation_frame"] is None or completion["frame"] is None
+                        else int(evidence["fixation_frame"]) - int(completion["frame"])
+                    ),
+                    "reason": evidence["reason"],
+                },
                 "label_status": "automatic_diagnostic",
                 "motion_episode": {
                     "candidate_episode_id": episode["candidate_episode_id"],
@@ -278,6 +298,7 @@ def compare_segments_to_reference(
     start_errors: list[int] = []
     end_errors: list[int] = []
     anchor_errors: list[int] = []
+    fixation_errors: list[int] = []
     for reference in reference_segments:
         movement_id = reference["movement_id"]
         proposed = proposed_by_id.get(movement_id)
@@ -296,6 +317,8 @@ def compare_segments_to_reference(
                 continue
             delta = int(proposed_frame) - int(reference_frame)
             anchor_errors.append(abs(delta))
+            if phase_id == "fixation":
+                fixation_errors.append(abs(delta))
             phase_rows[phase_id] = {
                 "status": "compared",
                 "proposed_frame": int(proposed_frame),
@@ -334,6 +357,11 @@ def compare_segments_to_reference(
             "phase_anchor_mae_sec": (
                 None if not anchor_errors else round(float(np.mean(anchor_errors)) / fps, 6)
             ),
+            # The fixation anchor is the frame the technical rules read; its agreement
+            # with the reference is reported on its own, not mixed with other phases.
+            "fixation_compared_count": len(fixation_errors),
+            "fixation_anchor_mae_frames": _mean_or_none(fixation_errors),
+            "fixation_anchor_max_error_frames": max(fixation_errors) if fixation_errors else None,
         },
         "movements": rows,
     }

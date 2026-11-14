@@ -27,6 +27,10 @@ class FixationParameters:
     exit_threshold_multiplier: float = 1.5
     maximum_reprojection_px: float = 15.0
     minimum_cameras: int = 2
+    # Technique completion: the fastest hand's speed first falls to this fraction of its
+    # episode peak. Engineering default; 0.25-0.50 gave the same frames within 4 on the
+    # one labelled recording, so the value is not tuned to those labels.
+    completion_peak_fraction: float = 0.35
 
     def __post_init__(self) -> None:
         for name, value in asdict(self).items():
@@ -38,6 +42,8 @@ class FixationParameters:
             raise ScoringContractError("fixation minimum speed exceeds maximum speed")
         if self.peak_speed_fraction >= 1 or self.exit_threshold_multiplier <= 1:
             raise ScoringContractError("fixation fraction must be < 1 and exit multiplier > 1")
+        if self.completion_peak_fraction >= 1:
+            raise ScoringContractError("fixation completion_peak_fraction must be < 1")
 
 
 def prepare_fixation_signals(
@@ -167,6 +173,7 @@ def evaluate_fixation_candidates(
             "status": "not_observed", "reason": None, "components": {},
             "later_motion_frame": None, "requires_human_review": True,
             "confidence_probability": None, "score_effect": False,
+            "technique_completion": technique_completion(signals, start, active_end, end, params),
         }
         if signals["blocking_reason"]:
             row.update(status="insufficient_evidence", reason=signals["blocking_reason"])
@@ -223,6 +230,57 @@ def evaluate_fixation_candidates(
                        reason="no_common_sustained_hold")
         result.append(row)
     return result
+
+
+def technique_completion(
+    signals: dict[str, Any], start: int, active_end: int, end: int, params: FixationParameters,
+) -> dict[str, Any]:
+    """When the technique ends: both hands have decelerated to a fraction of their peak.
+
+    This is the moment the rules read the final pose. It is separate from a hold: an
+    athlete who flows into the next movement still completes the block or punch, but
+    shows no common multi-component hold. Each hand's own episode peak sets its
+    threshold, and the technique ends when the later of the two hands has slowed
+    down, so the striking/blocking hand and the reaction hand both count. No movement
+    label, side or timeline is used. The fastest hand alone is not enough: the
+    chambering or reaction arm is often faster than the blocking arm.
+    """
+    row: dict[str, Any] = {
+        "frame": None, "last_hand": None, "hands": {}, "unit": "leg_lengths/s",
+        "peak_fraction": params.completion_peak_fraction,
+        "method": "both_hands_decelerated_below_peak_fraction",
+        "status": "not_observed", "reason": None,
+        "requires_human_review": True, "score_effect": False,
+    }
+    if signals["blocking_reason"]:
+        row.update(status="insufficient_evidence", reason=signals["blocking_reason"])
+        return row
+    truncated = end == len(signals["times"]) - 1
+    for hand, observations in signals["hand_observations"].items():
+        speed = observations["absolute"]
+        moving = speed[start:active_end + 1]
+        if not np.any(np.isfinite(moving)):
+            row["hands"][hand] = {"frame": None, "status": "insufficient_evidence"}
+            continue
+        peak = start + int(np.nanargmax(moving))
+        threshold = float(speed[peak]) * params.completion_peak_fraction
+        frame = next((index for index in range(peak, end + 1) if np.isfinite(speed[index]) and speed[index] <= threshold), None)
+        row["hands"][hand] = {
+            "frame": None if frame is None else int(frame), "peak_frame": peak,
+            "peak_speed": float(speed[peak]), "threshold_speed": threshold,
+            "status": "observed" if frame is not None else "recording_truncated" if truncated else "not_observed",
+        }
+    statuses = [hand["status"] for hand in row["hands"].values()]
+    if "insufficient_evidence" in statuses:
+        row.update(status="insufficient_evidence", reason="hand_speed_not_supported")
+    elif all(status == "observed" for status in statuses):
+        last_hand = max(row["hands"], key=lambda hand: row["hands"][hand]["frame"])
+        row.update(frame=row["hands"][last_hand]["frame"], last_hand=last_hand,
+                   status="observed", reason="both_hands_decelerated")
+    else:
+        row.update(status="recording_truncated" if truncated else "not_observed",
+                   reason="a_hand_did_not_decelerate_below_threshold")
+    return row
 
 
 def build_fixation_timing_diagnostics(signals: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
