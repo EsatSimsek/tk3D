@@ -516,6 +516,17 @@ def _profile_limits(profile: dict[str, Any]) -> dict[str, float]:
     }
 
 
+# Signed relative to the athlete's anatomical right (e.g. right shoulder higher is
+# positive), not to the technique's active side: mirroring the athlete flips their
+# sign. Every other signed metric is side-relative and mirror-invariant.
+ATHLETE_RIGHT_SIGNED_METRICS = frozenset({
+    "shoulder_roll_deg",
+    "pelvis_roll_deg",
+    "torso_lateral_bend_deg",
+    "head_roll_relative_shoulders_deg",
+})
+
+
 # Where each "did not move" floor comes from, so the evidence can name it.
 NOISE_FLOOR_SOURCES = {
     "foot_still_ratio": ("thresholds.foot_fixation_slip_body_ratio.value", "leg_length"),
@@ -759,7 +770,11 @@ def measure_observable_accuracy_metrics(
     put("active_arm_extension_ratio", _arm_extension(arrays, fix_frames, active), window=FIXATION_ANCHOR)
     local_hand = _hand_local_coordinates(arrays, fix_frames, active)
     put("active_arm_target_height_body_ratio", local_hand.get("height"), window=FIXATION_ANCHOR)
-    put("active_arm_target_lateral_offset_body_ratio", local_hand.get("lateral"), window=FIXATION_ANCHOR)
+    # Positive towards the active arm's own side (outwards), for either arm.
+    lateral_offset = local_hand.get("lateral")
+    if lateral_offset is not None and active == "left":
+        lateral_offset = -lateral_offset
+    put("active_arm_target_lateral_offset_body_ratio", lateral_offset, window=FIXATION_ANCHOR)
     put("active_arm_target_depth_body_ratio", local_hand.get("depth"), window=FIXATION_ANCHOR)
     put("active_hand_target_distance_body_ratio", local_hand.get("distance"), window=FIXATION_ANCHOR)
     put("reaction_hand_target_distance_body_ratio", _reaction_hip_distance(arrays, fix_frames, reaction), window=FIXATION_ANCHOR)
@@ -1191,7 +1206,24 @@ def _orientation_dispersion(arrays: dict[str, Any], frames: np.ndarray, part: st
 def _orientation_drift(arrays: dict[str, Any], frames: np.ndarray, part: str) -> float | None:
     if len(frames) < 2:
         return None
-    return _angle(_orientation_line(arrays, int(frames[0]), part), _orientation_line(arrays, int(frames[-1]), part))
+    lines = [_orientation_line(arrays, int(frame), part) for frame in frames]
+    return _angle(_endpoint_median(lines, last=False), _endpoint_median(lines, last=True))
+
+
+ENDPOINT_FRAMES = 3
+
+
+def _endpoint_median(values: list[np.ndarray | None], *, last: bool) -> np.ndarray | None:
+    """Median of the first (or last) ENDPOINT_FRAMES supported values of a window.
+
+    Comparing a single first and last frame let one outlier frame decide a drift or
+    correction; the median of the end frames does not.
+    """
+    supported = [value for value in values if value is not None]
+    if not supported:
+        return None
+    chosen = supported[-ENDPOINT_FRAMES:] if last else supported[:ENDPOINT_FRAMES]
+    return np.median(np.asarray(chosen, dtype=float), axis=0)
 
 
 def _angle(first: np.ndarray | None, second: np.ndarray | None) -> float | None:
@@ -1259,7 +1291,8 @@ def _body_height_change(arrays: dict[str, Any], frames: np.ndarray) -> float | N
         scale = _body_scale(arrays, int(frame))
         if sc is not None and la is not None and ra is not None and scale is not None:
             values.append(float((sc[2] - ((la + ra) / 2.0)[2]) / scale))
-    return None if len(values) < 3 else float(max(values) - min(values))
+    # p95 - p5 rather than max - min: one outlier frame must not set the change.
+    return None if len(values) < 3 else float(np.percentile(values, 95) - np.percentile(values, 5))
 
 
 def _stance_geometry(
@@ -1639,6 +1672,10 @@ def _wrist_components(arrays: dict[str, Any], frames: np.ndarray, side: str | No
         float(np.median(column[np.isfinite(column)])) if np.any(np.isfinite(column)) else None
         for column in columns
     ]
+    # hand x (index - pinky) points to the back of the right hand but to the palm of
+    # the left hand; mirror the left so positive is flexion (towards the palm) on both.
+    if side == "left" and values[1] is not None:
+        values[1] = -values[1]
     return dict(zip(("total", "flexion", "radial", "orientation"), values, strict=True))
 
 
@@ -1699,7 +1736,7 @@ def _settle_frame(arrays: dict[str, Any], frames: np.ndarray, part: str, limit: 
     if len(frames) < 4:
         return None
     vectors = [_orientation_line(arrays, int(frame), part) for frame in frames]
-    final = vectors[-1]
+    final = _endpoint_median(vectors[-ENDPOINT_FRAMES:], last=True) if vectors[-1] is not None else None
     if final is None:
         return None
     for index, vector in enumerate(vectors[:-2]):
@@ -1711,7 +1748,8 @@ def _settle_frame(arrays: dict[str, Any], frames: np.ndarray, part: str, limit: 
 def _late_component_correction(arrays: dict[str, Any], frames: np.ndarray, side: str | None, scale: float | None) -> float | None:
     if len(frames) < 2 or scale is None:
         return None
-    first, last = _hand_centre(arrays, int(frames[0]), side), _hand_centre(arrays, int(frames[-1]), side)
+    centres = [_hand_centre(arrays, int(frame), side) for frame in frames]
+    first, last = _endpoint_median(centres, last=False), _endpoint_median(centres, last=True)
     return None if first is None or last is None else float(np.linalg.norm(last - first) / scale)
 
 

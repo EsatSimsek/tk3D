@@ -237,13 +237,11 @@ def test_side_match_booleans_follow_which_side_actually_moved(profile: dict, con
 # --- Mirror symmetry ----------------------------------------------------------
 
 # Measurement-module values whose sign is defined on the body's left->right axis.
-SIGNED_UNDER_MIRROR = {
-    "active_arm_target_lateral_offset_body_ratio",  # + towards the athlete's right
-    # Sign follows the palm-normal handedness (cross product), not anatomy: the same
-    # anatomical flexion of the left and right wrist has opposite signs. Reported as a
-    # finding; the active screen is abs_max so the evaluation is unaffected.
-    "wrist_flexion_extension_proxy_deg",
-}
+# Measurement-module metrics whose sign flips under a mirror with swapped contract
+# sides. Empty since the lateral offset became active-side relative and the left
+# wrist flexion is mirrored; anatomically signed rule-layer metrics are listed in
+# metrics.ATHLETE_RIGHT_SIGNED_METRICS.
+SIGNED_UNDER_MIRROR: set[str] = set()
 
 
 def test_mirroring_left_right_flips_signed_metrics_and_keeps_unsigned_ones(profile: dict, contracts: list[dict]) -> None:
@@ -617,3 +615,102 @@ def test_stability_window_starts_at_the_observed_hold_onset(profile: dict, contr
     assert window["starts_at"] == "observed_hold_onset"
     assert window["start_frame"] == onset
     assert result["active_hand_fixation_stability"]["value"] is not None
+
+
+_SIDE_SWAP = {"left": "right", "right": "left"}
+_DIRECTION_SWAP = {"initial_left": "initial_right", "initial_right": "initial_left"}
+
+
+def _mirror_contract(contract: dict) -> dict:
+    mirrored = deepcopy(contract)
+    for key in ("active_arm", "kicking_leg", "chamber_or_reaction_arm", "lead_leg", "rear_or_support_leg",
+                "expected_moving_foot", "expected_pivot_or_support_foot"):
+        if mirrored.get(key) in _SIDE_SWAP:
+            mirrored[key] = _SIDE_SWAP[mirrored[key]]
+    for key in ("semantic_action_direction", "previous_semantic_action_direction"):
+        if mirrored.get(key) in _DIRECTION_SWAP:
+            mirrored[key] = _DIRECTION_SWAP[mirrored[key]]
+    return mirrored
+
+
+def test_side_relative_metrics_are_invariant_under_a_left_right_mirror(profile: dict, contracts: list[dict]) -> None:
+    """Mirror the athlete and swap every contract side: only anatomically signed metrics flip.
+
+    On the refined Poomsae run this found two defects: the active hand's lateral offset
+    was signed to the athlete's right instead of the active side, and wrist flexion had
+    opposite signs for the left and right hand.
+    """
+    from src.poomsae_scoring.technical_accuracy import _movement_measurements
+
+    rng = np.random.default_rng(7)
+    points = _points()
+    # Asymmetric, non-trivial geometry so that values are not all zero.
+    points[:, :, :] += rng.normal(0.0, 0.01, size=(1, points.shape[1], 3))
+    points[:, BODY["right_shoulder"], 2] += 0.03
+    points[:, BODY["left_hip"], 2] += 0.02
+    points[:, 91:112, 0] += 0.05
+    points[:, 112:133, 1] += 0.04
+    pose = _pose_from(points)
+    mirrored_pose = _mirror_pose(pose)
+
+    def arrays_for(payload: dict) -> dict:
+        arrays = _arrays(payload)
+        arrays["fixation_signals"] = prepare_fixation_signals(np.asarray(payload["keypoints_3d_world"], float), 30.0, quality=payload)
+        return arrays
+
+    base_arrays, mirror_arrays = arrays_for(pose), arrays_for(mirrored_pose)
+    compared, defects = 0, []
+    for contract in contracts:
+        base = _movement_measurements(base_arrays, contract, SEGMENT, None, profile, _direction(), 30.0)
+        mirror = _movement_measurements(mirror_arrays, _mirror_contract(contract), SEGMENT, None, profile, _direction(), 30.0)
+        for metric_id, measurement in base.items():
+            a, b = measurement.get("value"), mirror.get(metric_id, {}).get("value")
+            if a is None or b is None or isinstance(a, str):
+                continue
+            compared += 1
+            if isinstance(a, bool) or isinstance(b, bool):
+                same = a == b
+            elif metric_id in metrics.ATHLETE_RIGHT_SIGNED_METRICS:
+                same = bool(np.isclose(float(a), -float(b), atol=1e-6))
+            else:
+                same = bool(np.isclose(float(a), float(b), atol=1e-6))
+            if not same:
+                defects.append((contract["movement_id"], metric_id, a, b))
+    assert compared > 500
+    assert not defects, defects[:10]
+
+
+def test_one_outlier_end_frame_does_not_set_a_late_correction() -> None:
+    points = _points(12)
+    hand = slice(COCO_LEFT_HAND_OFFSET, COCO_LEFT_HAND_OFFSET + 21)
+    # The hand is still; only the very last frame jumps 20 cm (a triangulation outlier).
+    points[-1, hand, 1] += 0.20
+    correction = metrics._late_component_correction({"points": points}, np.arange(12), "left", 1.0)
+    assert correction == pytest.approx(0.0, abs=1e-9)
+    # A real, sustained move at the end is still seen.
+    points[-3:, hand, 1] = points[0, hand, 1] + 0.20
+    assert metrics._late_component_correction({"points": points}, np.arange(12), "left", 1.0) == pytest.approx(0.20, abs=1e-9)
+
+
+def test_a_decision_that_flips_when_the_anchor_moves_is_boundary_uncertain(profile: dict, contracts: list[dict]) -> None:
+    rule = next(item for item in profile["resolved_rules"] if item["metric_id"] == "active_hand_fixation_stability")
+    contract = contracts[0]
+
+    def measured(value: float) -> dict:
+        return {"active_hand_fixation_stability": {
+            "value": value, "unit": "arm_length", "quality_status": "measured", "evidence": {},
+            "source_metric_id": None, "not_measurable_reason": None,
+        }}
+
+    flipping = accuracy._evaluate_rule(rule, contract, SEGMENT, measured(0.09), _direction(), profile)
+    assert flipping["evaluation"] == "out_of_range"
+    accuracy._apply_anchor_sensitivity(flipping, rule, contract, SEGMENT, {-4: measured(0.03), 4: measured(0.09)}, _direction(), profile)
+    assert flipping["evaluation"] == "boundary_uncertain"
+    assert flipping["decision_status"] == "no_candidate"
+    assert flipping["anchor_sensitivity"]["decision_flips"] is True
+    assert flipping["anchor_sensitivity"]["shifted"]["-4"]["evaluation"] == "within_screening_range"
+
+    stable = accuracy._evaluate_rule(rule, contract, SEGMENT, measured(0.09), _direction(), profile)
+    accuracy._apply_anchor_sensitivity(stable, rule, contract, SEGMENT, {-4: measured(0.10), 4: measured(0.08)}, _direction(), profile)
+    assert stable["evaluation"] == "out_of_range"
+    assert stable["anchor_sensitivity"]["decision_flips"] is False

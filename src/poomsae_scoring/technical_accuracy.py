@@ -42,6 +42,7 @@ from src.poomsae_scoring.technical_accuracy_metrics import (
     measurement_evaluator_status,
     post_fixation_hold_frames,
     withhold_hold_metrics,
+    _endpoint_median,
     resolve_metric_landmarks,
 )
 
@@ -106,6 +107,7 @@ QUALITY_KEYS = {
     "min_group_valid_ratio",
     "min_face_eye_separation_shoulder_ratio",
     "max_normalized_frame_jump",
+    "anchor_sensitivity_frames",
 }
 THRESHOLD_KEYS = {"operator", "value", "uncertainty_band", "unit"}
 OPERATORS = {"max", "abs_max", "min", "range"}
@@ -183,6 +185,9 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
     gates["min_group_valid_ratio"] = _probability(gates["min_group_valid_ratio"], "min_group_valid_ratio")
     gates["min_face_eye_separation_shoulder_ratio"] = _positive(
         gates["min_face_eye_separation_shoulder_ratio"], "min_face_eye_separation_shoulder_ratio"
+    )
+    gates["anchor_sensitivity_frames"] = _nonnegative_integer(
+        gates["anchor_sensitivity_frames"], "anchor_sensitivity_frames"
     )
 
     threshold_policy = data["threshold_policy"]
@@ -594,10 +599,17 @@ def build_technical_accuracy_diagnostics(
             if segment
             else {}
         )
+        shifted = (
+            _shifted_anchor_measurements(arrays, contract, segment, old, profile, direction, float(timeline["fps"]))
+            if segment
+            else {}
+        )
         results: list[dict[str, Any]] = []
         for rule in rules:
             applies = _rule_applies(rule, contract)
             result = _evaluate_rule(rule, contract, segment, measurements, direction, profile) if applies else _not_applicable(rule, contract)
+            if applies and shifted:
+                _apply_anchor_sensitivity(result, rule, contract, segment, shifted, direction, profile)
             review = timeline_review_status(timeline, movement_id=movement_id)
             result["timeline_review"] = review
             if review["status"] != "verified":
@@ -1064,6 +1076,67 @@ def _evaluate_rule(
     }
 
 
+def _shifted_anchor_measurements(
+    arrays: dict[str, Any],
+    contract: dict[str, Any],
+    segment: dict[str, Any],
+    wholebody: dict[str, Any] | None,
+    profile: dict[str, Any],
+    direction: dict[str, Any] | None,
+    fps: float,
+) -> dict[int, dict[str, dict[str, Any]]]:
+    """Measurements with the fixation anchor moved by -N and +N frames.
+
+    The anchor is a label (or an automatic estimate a few frames off it); a decision
+    that flips within that uncertainty depends on where the anchor was placed, not
+    on the athlete.
+    """
+    shift = int(profile["quality_gates"]["anchor_sensitivity_frames"])
+    fixation = segment["anchors"].get("fixation")
+    if shift == 0 or fixation is None:
+        return {}
+    result: dict[int, dict[str, dict[str, Any]]] = {}
+    for offset in (-shift, shift):
+        moved = int(fixation) + offset
+        if not int(segment["start_frame"]) < moved <= int(segment["end_frame"]):
+            continue
+        shifted_segment = deepcopy(segment)
+        shifted_segment["anchors"] = {**segment["anchors"], "fixation": moved}
+        result[offset] = _movement_measurements(arrays, contract, shifted_segment, wholebody, profile, direction, fps)
+    return result
+
+
+def _apply_anchor_sensitivity(
+    result: dict[str, Any],
+    rule: dict[str, Any],
+    contract: dict[str, Any],
+    segment: dict[str, Any],
+    shifted: dict[int, dict[str, dict[str, Any]]],
+    direction: dict[str, Any] | None,
+    profile: dict[str, Any],
+) -> None:
+    """Mark a screened decision that flips when the anchor moves as boundary-uncertain."""
+    if not result.get("evaluated") or result.get("evaluation") not in {"out_of_range", "within_screening_range"}:
+        return
+    rows = {}
+    for offset, measurements in sorted(shifted.items()):
+        moved = _evaluate_rule(rule, contract, segment, measurements, direction, profile)
+        rows[str(offset)] = {"value": moved.get("value"), "evaluation": moved.get("evaluation")}
+    decided = [row["evaluation"] for row in rows.values() if row["evaluation"] in {"out_of_range", "within_screening_range", "boundary_uncertain"}]
+    flips = any(evaluation != result["evaluation"] for evaluation in decided)
+    result["anchor_sensitivity"] = {
+        "shift_frames": int(profile["quality_gates"]["anchor_sensitivity_frames"]),
+        "shifted": rows,
+        "decision_flips": flips,
+    }
+    if flips:
+        result["evaluation"] = "boundary_uncertain"
+        result["decision_status"] = "no_candidate"
+        result["score_effect"] = None
+        result["deduction_points"] = None
+        result["boundary_reason"] = "decision_changes_when_fixation_anchor_moves"
+
+
 def _not_applicable(rule: dict[str, Any], contract: dict[str, Any]) -> dict[str, Any]:
     return {**_result_base(rule, contract), "applies": False, "measured": False, "evaluated": False, "state": rule["status"], "evaluation": "not_applicable", "value": None, "quality_status": "not_applicable", "skip_or_block_reason": None}
 
@@ -1520,8 +1593,8 @@ def _orientation_dispersion(arrays: dict[str, Any], frames: np.ndarray, part: st
 def _orientation_drift(arrays: dict[str, Any], frames: np.ndarray, part: str) -> float | None:
     if len(frames) < 2:
         return None
-    first = _orientation_vector(arrays, int(frames[0]), part)
-    last = _orientation_vector(arrays, int(frames[-1]), part)
+    vectors = [_orientation_vector(arrays, int(frame), part) for frame in frames]
+    first, last = _endpoint_median(vectors, last=False), _endpoint_median(vectors, last=True)
     return None if first is None or last is None else _angle_between(first, last)
 
 
@@ -1576,7 +1649,8 @@ def _joint_dispersion(arrays: dict[str, Any], frames: np.ndarray, joint: str, ki
 def _late_correction(arrays: dict[str, Any], frames: np.ndarray, joint: str, kind: str, side: str | None) -> float | None:
     if len(frames) < 2:
         return None
-    first, last = _point(arrays, int(frames[0]), joint), _point(arrays, int(frames[-1]), joint)
+    points = [_point(arrays, int(frame), joint) for frame in frames]
+    first, last = _endpoint_median(points, last=False), _endpoint_median(points, last=True)
     scale = _limb_scale(arrays, int(frames[0]), kind, side)
     return None if first is None or last is None or scale is None else float(np.linalg.norm(last - first) / scale)
 

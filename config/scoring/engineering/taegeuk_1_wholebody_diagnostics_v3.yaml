@@ -30,6 +30,10 @@ quality_gates:
   # 3.5.0: head roll reads the eye line only where the eyes are at least this
   # fraction of the shoulder width apart (~0.16 frontal, ~0.07 collapsed side-on).
   min_face_eye_separation_shoulder_ratio: 0.12
+  # 3.5.0: a screened decision that flips when the fixation anchor moves by this
+  # many frames (60 fps: 67 ms) is boundary-uncertain, not a candidate. The
+  # automatic technique-end anchor was within 3.3 frames (max 7) of the labels.
+  anchor_sensitivity_frames: 4
   max_normalized_frame_jump: 0.50
 threshold_policy:
   origin: self_authored_temporary_accuracy_rule
