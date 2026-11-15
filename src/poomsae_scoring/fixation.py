@@ -283,6 +283,30 @@ def technique_completion(
     return row
 
 
+def observe_hold(signals: dict[str, Any], start_frame: int, completion_frame: int, end_frame: int) -> dict[str, Any]:
+    """Run the same multi-component hold detector on one labelled segment.
+
+    Motion is taken from ``start_frame`` up to the technique completion (the fixation
+    anchor); the hold is searched from the anchor to ``end_frame`` only, so a hold of
+    the next movement can never be borrowed. Used by the technical rules, which read
+    the reviewed timeline rather than the automatic episodes.
+    """
+    count = len(signals["times"])
+    empty = {"status": "not_observed", "onset_frame": None, "end_frame": None,
+             "duration_sec": None, "reason": None}
+    if not 0 <= int(start_frame) < int(completion_frame) <= int(end_frame) < count:
+        return {**empty, "reason": "invalid_hold_search_window"}
+    episodes = [{"candidate_episode_id": 0, "start_frame": int(start_frame), "peak_frame": int(start_frame),
+                 "end_frame": int(completion_frame) - 1}]
+    if int(end_frame) + 1 < count:
+        # A boundary episode ends the search at the segment end.
+        boundary = int(end_frame) + 1
+        episodes.append({"candidate_episode_id": 1, "start_frame": boundary, "peak_frame": boundary, "end_frame": boundary})
+    row = evaluate_fixation_candidates(signals, episodes)[0]
+    return {"status": row["status"], "onset_frame": row["fixation_frame"], "end_frame": row["hold_end_frame"],
+            "duration_sec": row["hold_duration_sec"], "reason": row["reason"]}
+
+
 def build_fixation_timing_diagnostics(signals: dict[str, Any], events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Check the first proposed hold without speed smoothing; never substitute a later correction.
 

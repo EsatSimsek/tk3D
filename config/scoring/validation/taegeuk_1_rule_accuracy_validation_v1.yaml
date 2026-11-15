@@ -23,11 +23,10 @@ geometry_scenarios:
   - scenario_id: missing_face_evidence
     fixture_mutation: invalidate_face
     expectation: target_metrics_unmeasurable_without_candidate
+    # Head stability reads the body ears since AD-053, not the face.
     target_metrics:
       - head_roll_relative_shoulders_deg
       - head_pitch_relative_torso_deg
-      - head_fixation_orientation_dispersion_p95_deg
-      - head_post_fixation_drift_deg
   - scenario_id: missing_hand_evidence
     fixture_mutation: invalidate_hands
     expectation: target_metrics_unmeasurable_without_candidate
@@ -62,7 +61,6 @@ geometry_scenarios:
     target_metrics:
       - head_roll_relative_shoulders_deg
       - head_pitch_relative_torso_deg
-      - head_fixation_orientation_dispersion_p95_deg
   - scenario_id: post_fixation_drift
     fixture_mutation: inject_post_fixation_drift
     expectation: target_metrics_increase_from_baseline

@@ -71,8 +71,6 @@ SCENARIO_CONTRACTS = {
         (
             "head_roll_relative_shoulders_deg",
             "head_pitch_relative_torso_deg",
-            "head_fixation_orientation_dispersion_p95_deg",
-            "head_post_fixation_drift_deg",
         ),
     ),
     "missing_hand_evidence": (
@@ -111,7 +109,6 @@ SCENARIO_CONTRACTS = {
         (
             "head_roll_relative_shoulders_deg",
             "head_pitch_relative_torso_deg",
-            "head_fixation_orientation_dispersion_p95_deg",
         ),
     ),
     "post_fixation_drift": (
@@ -256,6 +253,9 @@ def build_synthetic_wholebody_pose(frame_count: int) -> dict[str, Any]:
     phase = 0.002 * np.sin(np.linspace(0.0, 12.0 * np.pi, frame_count))
     points[:, 23 + 36 : 23 + 42, 2] += phase[:, None]
     points[:, 23 + 42 : 23 + 48, 2] -= phase[:, None]
+    # The same small head roll on the body ears, which head stability reads.
+    points[:, COCO_BODY_JOINTS["right_ear"], 2] += phase
+    points[:, COCO_BODY_JOINTS["left_ear"], 2] -= phase
     points[:, 91:133, 1] += phase[:, None]
     points[:, 17:23, 1] += phase[:, None]
     shape = (frame_count, COCO_WHOLEBODY_KEYPOINTS)
@@ -824,6 +824,8 @@ def _mutate_pose(
         alpha = np.linspace(0.0, 0.25, len(frames))
         points[frames, 23 + 36 : 23 + 42, 2] += alpha[:, None]
         points[frames, 23 + 42 : 23 + 48, 2] -= alpha[:, None]
+        points[frames, COCO_BODY_JOINTS["right_ear"], 2] += alpha
+        points[frames, COCO_BODY_JOINTS["left_ear"], 2] -= alpha
         contract = resolve_movement_accuracy_contracts(spec, profile)[0]
         hand_start = 91 if contract["active_arm"] == "left" else 112
         points[frames, hand_start : hand_start + 21, 1] += alpha[:, None]

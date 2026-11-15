@@ -15,6 +15,7 @@ from src.data_structures import (
     COCO_RIGHT_HAND_OFFSET,
 )
 from src.poomsae_scoring.contracts import ScoringContractError
+from src.poomsae_scoring.fixation import observe_hold
 
 
 # The 68-point face block (WholeBody 23..90) follows the iBUG-300W layout, which is
@@ -280,6 +281,9 @@ _EYES, _NOSE, _BROWS, _CHIN = "face_eyes", "face_nose", "face_brows", "face_chin
 _FORWARD_SIGN = ("shoulder:both",)
 # Head facing reads the body nose and both ears (see ``_head_forward``).
 _HEAD_FACING = ("nose_body", "ear:both")
+_HOLD_CHANNELS = ("shoulder:both", "wrist:both", "leg:both")
+# Stance geometry: the feet in the movement target frame; the shoulders give the
+# shoulder-width scale of the width ratios. Foot order reads the feet only.
 _STANCE_GEOMETRY = ("foot:lead", "foot:rear", "shoulder:both")
 _FOOT_DISPLACEMENT = ("ankle:lead", "ankle:rear", "leg:lead")
 _ARM_DISPLACEMENT = ("arm:active", "wrist:reaction")
@@ -299,12 +303,12 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("head_torso_relative_yaw_deg", "deg", (*_HEAD_FACING, "shoulder:both", "leg:both"), _FIX, _RL, "wholebody_alias", alias_of="head_torso_yaw_mismatch_deg"),
     _m("head_roll_relative_shoulders_deg", "deg", (_EYES, "shoulder:both"), _FIX, _RL, "rule_layer"),
     _m("head_pitch_relative_torso_deg", "deg", (_BROWS, _CHIN, "torso"), _FIX, _RL, "rule_layer"),
-    _m("head_fixation_orientation_dispersion_p95_deg", "deg", (_EYES,), _HOLD, _RL, "rule_layer"),
-    _m("head_post_fixation_drift_deg", "deg", (_EYES,), _HOLD, _RL, "rule_layer"),
-    _m("head_turn_completion_state", "bool", (_EYES,), _HOLD, "head"),
+    _m("head_fixation_orientation_dispersion_p95_deg", "deg", ("ear:both",), _HOLD, _RL, "rule_layer"),
+    _m("head_post_fixation_drift_deg", "deg", ("ear:both",), _HOLD, _RL, "rule_layer"),
+    _m("head_turn_completion_state", "bool", ("ear:both",), _HOLD, "head"),
     _m("head_turn_direction_sign_match", "bool", _HEAD_FACING, _FIX, "head"),
     _m("head_wrong_direction_stable_state", "bool", _HEAD_FACING, _FIX, "head"),
-    _m("head_late_turn_state", "bool", (_EYES,), _HOLD, "head"),
+    _m("head_late_turn_state", "bool", ("ear:both",), _HOLD, "head"),
     _m("head_orientation_unmeasurable_reason", "reason_code", (_BROWS, _EYES, _CHIN), _FIX, "quality_metric"),
     _m("head_face_geometry_quality", "ratio", (_BROWS, _EYES, _CHIN), _FIX, "quality_metric"),
     # torso_pelvis
@@ -342,7 +346,7 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("foot_crossing_margin_body_ratio", "torso_length", ("foot:lead", "foot:rear", "torso"), _FIX, "stance"),
     _m("heel_alignment_error_body_ratio", "torso_length", ("foot:lead", "foot:rear", "torso"), _FIX, "ungated"),
     _m("toe_alignment_error_body_ratio", "torso_length", ("foot:lead", "foot:rear", "torso"), _FIX, "ungated"),
-    _m("front_back_foot_order_match", "bool", ("foot:lead", "foot:rear", *_FORWARD_SIGN), _FIX, "stance"),
+    _m("front_back_foot_order_match", "bool", ("foot:lead", "foot:rear"), _FIX, "stance"),
     _m("foot_landing_position_error_body_ratio", "leg_length", (*_STANCE_GEOMETRY, "leg:lead"), _FIX, "stance"),
     _m("pivot_foot_displacement_body_ratio", "leg_length", ("ankle:rear", "leg:lead"), _PF, "stance"),
     _m("support_foot_displacement_body_ratio", "leg_length", ("ankle:rear", "leg:lead"), _PF, "stance"),
@@ -418,15 +422,18 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("chamber_precedes_execution", "bool", _NONE, _CONTRACT, "contract"),
     _m("active_technique_reaches_target_by_fixation", "bool", _ACTIVE_PALM, _HOLD, "phase"),
     _m("stance_reaches_target_by_fixation", "bool", (*_STANCE_GEOMETRY, "leg:lead"), _FIX, "stance"),
-    _m("head_reaches_target_by_fixation", "bool", (_EYES,), _HOLD, "head"),
+    _m("head_reaches_target_by_fixation", "bool", ("ear:both",), _HOLD, "head"),
     _m("torso_reaches_target_by_fixation", "bool", ("shoulder:both",), _HOLD, "torso"),
     _m("reaction_hand_reaches_target_by_fixation", "bool", ("palm:reaction", "torso"), _FIX, "reaction_hand"),
     _m("active_hand_stance_settle_offset", "sec", ("wrist:active", "ankle:lead"), PREPARATION_TO_FIXATION, _RL, "wholebody_alias", alias_of="hand_foot_settle_difference_sec"),
-    _m("head_torso_settle_offset", "sec", (_EYES, "shoulder:both"), _SF, "head"),
+    _m("head_torso_settle_offset", "sec", ("ear:both", "shoulder:both"), _SF, "head"),
     _m("late_post_fixation_correction", "arm_length", _ACTIVE_PALM, _HOLD, "phase"),
     _m("premature_next_movement_transition", "bool", _ACTIVE_PALM, _TAIL, "phase"),
     _m("fixation_pose_stability", "bool", (*_ACTIVE_PALM, *_LOWER_SPAN), _HOLD, "phase"),
-    _m("final_pose_geometry_conformance", "bool", (*_STANCE_GEOMETRY, "leg:lead", "arm:active"), _FIX, "phase"),
+    _m("final_pose_geometry_conformance", "bool", (*_STANCE_GEOMETRY, "leg:both"), _FIX, "phase"),
+    # Hold detector channels: both shoulders, both wrists, both legs (pelvis, feet, leg-length scale).
+    _m("fixation_hold_observed", "bool", _HOLD_CHANNELS, _TAIL, "phase"),
+    _m("fixation_hold_onset_delay_sec", "sec", _HOLD_CHANNELS, _TAIL, "phase"),
     _m("phase_evidence_quality", "ratio", _NONE, _CONTRACT, "quality_metric"),
     # transition
     _m("expected_direction_change_match", "bool", ("foot:lead", "foot:rear"), _FIX, "phase"),
@@ -438,7 +445,7 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("step_width_error_body_ratio", "shoulder_width", _STANCE_GEOMETRY, _FIX, "stance"),
     _m("landing_position_error_body_ratio", "leg_length", (*_STANCE_GEOMETRY, "leg:lead"), _FIX, "stance"),
     _m("landing_stance_type_match", "bool", (*_STANCE_GEOMETRY, "leg:lead"), _FIX, "stance"),
-    _m("head_turn_settled_by_fixation", "bool", (_EYES,), _HOLD, "head"),
+    _m("head_turn_settled_by_fixation", "bool", ("ear:both",), _HOLD, "head"),
     _m("torso_turn_settled_by_fixation", "bool", ("shoulder:both",), _HOLD, "torso"),
     _m("pelvis_or_stance_turn_settled_by_fixation", "bool", ("hip:both",), _HOLD, "stance"),
     _m("pivot_foot_excess_displacement", "leg_length", ("ankle:rear", "leg:lead"), _PF, "stance"),
@@ -446,7 +453,7 @@ _RECORDS: tuple[MetricSpec, ...] = (
     _m("post_landing_adjustment", "leg_length", _LOWER_SPAN, _HOLD, "stance"),
     _m("transition_geometry_quality", "ratio", ("leg:both",), _SF, "quality_metric"),
     # fixation
-    _m("head_fixation_dispersion", "deg", (_EYES,), _HOLD, "head"),
+    _m("head_fixation_dispersion", "deg", ("ear:both",), _HOLD, "head"),
     _m("torso_fixation_dispersion", "deg", ("shoulder:both",), _HOLD, "torso"),
     _m("pelvis_fixation_dispersion", "deg", ("hip:both",), _HOLD, "torso"),
     _m("active_hand_fixation_dispersion", "arm_length", _ACTIVE_PALM, _HOLD, "active_hand"),
@@ -504,6 +511,7 @@ def _profile_limits(profile: dict[str, Any]) -> dict[str, float]:
         "late_correction_ratio": float(thresholds["late_post_fixation_correction"]["value"]),
         "hand_still_ratio": float(thresholds["active_hand_fixation_stability"]["value"]),
         "foot_still_ratio": float(thresholds["foot_fixation_slip_body_ratio"]["value"]),
+        "reaction_hip_ratio": float(thresholds["reaction_hand_target_distance_body_ratio"]["value"]),
         "group_quality_ratio": float(profile["quality_gates"]["min_group_valid_ratio"]),
     }
 
@@ -515,17 +523,22 @@ NOISE_FLOOR_SOURCES = {
 }
 
 
-def post_fixation_hold_frames(segment: dict[str, Any], profile: dict[str, Any]) -> np.ndarray:
-    """Frames fixation .. min(segment end, fixation + N), N from the profile.
+def post_fixation_hold_frames(
+    segment: dict[str, Any], profile: dict[str, Any], *, hold_onset: int | None = None,
+) -> np.ndarray:
+    """Frames onset .. min(segment end, onset + N), N from the profile.
 
-    The segment runs until one frame before the next movement's preparation, so the
-    tail after fixation can contain the athlete already leaving the pose. Every
-    post-fixation stability, drift and correction metric uses this bounded window.
+    The onset is the observed hold onset when one is known, otherwise the fixation
+    anchor. The fixation anchor is where the technique ends; the hands may still be
+    decelerating there, so stability measured from it would describe the slowing
+    path, not the hold. The segment runs until one frame before the next movement's
+    preparation, so the window is bounded by the segment end.
     """
     end = int(segment["end_frame"])
     fixation = int(segment["anchors"].get("fixation", end))
+    onset = fixation if hold_onset is None else int(hold_onset)
     length = int(profile["quality_gates"]["post_fixation_hold_window_frames"])
-    return np.arange(fixation, min(end, fixation + length) + 1, dtype=int)
+    return np.arange(onset, min(end, onset + length) + 1, dtype=int)
 
 
 def describe_frame_window(name: str, frames: np.ndarray, **extra: Any) -> dict[str, Any]:
@@ -563,7 +576,10 @@ def measure_observable_accuracy_metrics(
     prep_frames = _window(preparation, start, end, radius)
     exec_frames = _window(execution, start, end, radius)
     # Every post-fixation stability / drift / correction metric uses the bounded hold.
-    hold_frames = post_fixation_hold_frames(segment, profile)
+    signals = arrays.get("fixation_signals")
+    hold = None if signals is None else observe_hold(signals, start, fixation, end)
+    hold_observed = hold is not None and hold["status"] == "hold_observed"
+    hold_frames = post_fixation_hold_frames(segment, profile, hold_onset=hold["onset_frame"] if hold_observed else None)
     # Only "left the pose before the next movement started" needs the whole tail.
     tail_frames = np.arange(fixation, end + 1, dtype=int)
     transition_frames = np.arange(start, fixation + 1, dtype=int)
@@ -576,6 +592,7 @@ def measure_observable_accuracy_metrics(
             hold_frames,
             configured_length_frames=hold_length,
             source="quality_gates.post_fixation_hold_window_frames",
+            starts_at="observed_hold_onset" if hold_observed else "fixation_anchor",
         ),
         POST_FIXATION_TAIL: describe_frame_window(POST_FIXATION_TAIL, tail_frames),
         "segment_start_to_fixation": describe_frame_window("segment_start_to_fixation", transition_frames),
@@ -635,7 +652,8 @@ def measure_observable_accuracy_metrics(
     shoulder_width = _median_scalar(arrays, fix_frames, _shoulder_width)
     lead_leg_scale = _median_scalar(arrays, fix_frames, lambda a, f: _limb_scale(a, f, "leg", lead))
     active_arm_scale = _median_scalar(arrays, fix_frames, lambda a, f: _limb_scale(a, f, "arm", active))
-    stance = _stance_geometry(arrays, fix_frames, lead, rear)
+    stance_target = None if direction is None else np.asarray(direction[contract["semantic_action_direction"] + "_vector"], dtype=float)
+    stance = _stance_geometry(arrays, fix_frames, lead, rear, stance_target)
     head_quality = _group_quality(arrays, fix_frames, _head_indices())
     torso_quality = _group_quality(arrays, fix_frames, _torso_indices())
     lower_quality = _group_quality(arrays, fix_frames, _lower_indices())
@@ -771,12 +789,15 @@ def measure_observable_accuracy_metrics(
     put("stance_reaches_target_by_fixation", stance_match, window=FIXATION_ANCHOR)
     put("head_reaches_target_by_fixation", _component_settled(arrays, hold_frames, "head", limits["head_settled_deg"]), window=POST_FIXATION_HOLD)
     put("torso_reaches_target_by_fixation", _component_settled(arrays, hold_frames, "shoulder", limits["torso_settled_deg"]), window=POST_FIXATION_HOLD)
-    put("reaction_hand_reaches_target_by_fixation", _reaction_hip_distance(arrays, fix_frames, reaction) is not None, window=FIXATION_ANCHOR)
+    reaction_hip = _reaction_hip_distance(arrays, fix_frames, reaction)
+    put("reaction_hand_reaches_target_by_fixation", None if reaction_hip is None else reaction_hip <= limits["reaction_hip_ratio"], window=FIXATION_ANCHOR)
     put("head_torso_settle_offset", _settle_offset(arrays, transition_frames, "head", "shoulder", fps, limits["head_settled_deg"], limits["torso_settled_deg"]), window="segment_start_to_fixation")
     put("late_post_fixation_correction", _late_component_correction(arrays, hold_frames, active, active_arm_scale), window=POST_FIXATION_HOLD)
     put("premature_next_movement_transition", _premature_transition(arrays, tail_frames, active, active_arm_scale, limits["late_correction_ratio"]), window=POST_FIXATION_TAIL)
     put("fixation_pose_stability", None if active_hand_dispersion is None or lower_dispersion is None else active_hand_dispersion <= limits["hand_still_ratio"] and lower_dispersion <= limits["foot_still_ratio"], window=POST_FIXATION_HOLD)
-    put("final_pose_geometry_conformance", _finite_value(stance_match) and _finite_value(elbow), window=FIXATION_ANCHOR)
+    # Final pose conforms when the stance and, where the contract states one, the knee
+    # range both match. (It used to report only that the values existed.)
+    put("final_pose_geometry_conformance", _all_known(stance_match, knee_match) if knee_expectation is not None else stance_match, window=FIXATION_ANCHOR)
 
     put("step_length_error_body_ratio", _stance_range_component_error(contract["stance_length_expectation"], _safe_ratio(stance.get("length"), lead_leg_scale)), window=FIXATION_ANCHOR)
     put("step_width_error_body_ratio", _stance_range_component_error(contract["stance_width_expectation"], _safe_ratio(stance.get("width"), shoulder_width)), window=FIXATION_ANCHOR)
@@ -801,8 +822,8 @@ def measure_observable_accuracy_metrics(
     put("body_height_fixation_drift", result["body_height_change_during_fixation_ratio"]["value"], window=POST_FIXATION_HOLD)
     put("torso_translation_after_fixation", result["torso_translation_after_fixation_body_ratio"]["value"], window=POST_FIXATION_HOLD)
     put("pelvis_translation_after_fixation", result["pelvis_translation_after_fixation_body_ratio"]["value"], window=POST_FIXATION_HOLD)
-    put("stance_width_after_fixation_change", _stance_change(arrays, hold_frames, lead, rear, "width", shoulder_width), window=POST_FIXATION_HOLD)
-    put("stance_length_after_fixation_change", _stance_change(arrays, hold_frames, lead, rear, "length", lead_leg_scale), window=POST_FIXATION_HOLD)
+    put("stance_width_after_fixation_change", _stance_change(arrays, hold_frames, lead, rear, "width", shoulder_width, stance_target), window=POST_FIXATION_HOLD)
+    put("stance_length_after_fixation_change", _stance_change(arrays, hold_frames, lead, rear, "length", lead_leg_scale, stance_target), window=POST_FIXATION_HOLD)
     put("late_balance_recovery_proxy", result["pelvis_translation_after_fixation_body_ratio"]["value"], window=POST_FIXATION_HOLD)
     put("final_geometry_consistent_with_declared_movement", bool(stance_match) if stance_match is not None else None, window=FIXATION_ANCHOR)
     put("movement_completion_state", fixation <= end and "fixation" in anchors)
@@ -812,8 +833,43 @@ def measure_observable_accuracy_metrics(
 
     _direction_metrics(result, put, arrays, contract, fix_frames, direction, active, limits)
     _kick_metrics(result, put, arrays, contract, anchors, start, end, kick_side, rear, lead_leg_scale)
+    put("fixation_hold_observed", _hold_observed_value(hold), window=POST_FIXATION_TAIL, reason=None if hold is None else hold["reason"], evidence={"hold": hold})
+    put("fixation_hold_onset_delay_sec", (hold["onset_frame"] - fixation) / fps if hold_observed else None,
+        window=POST_FIXATION_TAIL, reason="hold_not_observed", evidence={"hold": hold})
+    if hold is not None and not hold_observed:
+        withhold_hold_metrics(result, hold)
     apply_landmark_quality_gate(result, arrays, segment, profile, contract)
     return result
+
+
+HOLD_NOT_OBSERVED_REASON = "hold_not_observed"
+
+
+def _hold_observed_value(hold: dict[str, Any] | None) -> bool | None:
+    if hold is None or hold["status"] in {"insufficient_evidence", "recording_truncated"}:
+        return None
+    return hold["status"] == "hold_observed"
+
+
+def withhold_hold_metrics(result: dict[str, dict[str, Any]], hold: dict[str, Any]) -> None:
+    """Without an observed hold there is no hold to be stable; keep the value as evidence.
+
+    The athlete may flow into the next movement (no hold) or the recording may end;
+    either way, dispersion "after fixation" would measure the continuing motion and
+    re-report it under every stability name. ``fixation_hold_observed`` carries the
+    finding once.
+    """
+    for metric_id, measurement in result.items():
+        window = (measurement.get("evidence") or {}).get("window")
+        names = {item.get("name") for item in window} if isinstance(window, list) else {(window or {}).get("name")}
+        if POST_FIXATION_HOLD not in names or measurement.get("value") is None:
+            continue
+        if METRIC_REGISTRY[metric_id].quality_group == "quality_metric":
+            continue
+        measurement["evidence"]["hold_gate"] = {"hold": hold, "withheld_value": measurement["value"]}
+        measurement["value"] = None
+        measurement["quality_status"] = "unmeasurable"
+        measurement["not_measurable_reason"] = HOLD_NOT_OBSERVED_REASON
 
 
 def measure_athlete_forward_vector(
@@ -1110,11 +1166,10 @@ def _minimum_finite(*values: float | None) -> float | None:
 
 
 def _orientation_line(arrays: dict[str, Any], frame: int, part: str) -> np.ndarray | None:
-    if part == "head":
-        left = _cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)
-        right = _cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL)
-    else:
-        left, right = _pt(arrays, frame, f"left_{part}"), _pt(arrays, frame, f"right_{part}")
+    # "head" is the body ear line: the face eye clusters collapse in 3D when the athlete
+    # is side-on and showed 14-25 deg of false dispersion during real holds (ears: 4-5).
+    part = "ear" if part == "head" else part
+    left, right = _pt(arrays, frame, f"left_{part}"), _pt(arrays, frame, f"right_{part}")
     return None if left is None or right is None else _unit(right - left)
 
 
@@ -1207,24 +1262,30 @@ def _body_height_change(arrays: dict[str, Any], frames: np.ndarray) -> float | N
     return None if len(values) < 3 else float(max(values) - min(values))
 
 
-def _stance_geometry(arrays: dict[str, Any], frames: np.ndarray, lead: str | None, rear: str | None) -> dict[str, Any]:
-    if lead not in {"left", "right"} or rear not in {"left", "right"}:
+def _stance_geometry(
+    arrays: dict[str, Any], frames: np.ndarray, lead: str | None, rear: str | None, target: np.ndarray | None,
+) -> dict[str, Any]:
+    """Stance length/width in the movement's target frame, not the torso's.
+
+    Length runs along the horizontal target direction and width across it. A torso
+    turned against the stance (common in walking-stance blocks) would otherwise leak
+    length into width. Without a direction reference there is no frame: no values.
+    """
+    if lead not in {"left", "right"} or rear not in {"left", "right"} or target is None:
         return {}
+    forward = _unit(np.asarray([target[0], target[1], 0.0], dtype=float))
+    if forward is None:
+        return {}
+    # Athlete's right when facing ``forward`` (x right, y forward, z up).
+    lateral = np.cross(forward, np.asarray([0.0, 0.0, 1.0]))
     rows: list[dict[str, float]] = []
     for frame in frames:
         front, back = _foot_centre(arrays, int(frame), lead), _foot_centre(arrays, int(frame), rear)
-        lateral = _orientation_line(arrays, int(frame), "shoulder")
-        if front is None or back is None or lateral is None:
+        if front is None or back is None:
             continue
-        lateral = _unit(np.asarray([lateral[0], lateral[1], 0.0]))
-        if lateral is None:
-            continue
-        forward = _torso_forward(arrays, int(frame))
         delta = front - back
         lead_heel, rear_heel = _foot_part(arrays, int(frame), lead, "heel"), _foot_part(arrays, int(frame), rear, "heel")
         lead_toe, rear_toe = _toe_centre(arrays, int(frame), lead), _toe_centre(arrays, int(frame), rear)
-        if forward is None:
-            continue
         rows.append({
             "length": abs(float(np.dot(delta, forward))),
             "width": abs(float(np.dot(delta, lateral))),
@@ -1675,11 +1736,11 @@ def _knee_dispersion(arrays: dict[str, Any], frames: np.ndarray, scale: float | 
     return None if left is None or right is None else max(left, right)
 
 
-def _stance_change(arrays: dict[str, Any], frames: np.ndarray, lead: str | None, rear: str | None, component: str, scale: float | None) -> float | None:
+def _stance_change(arrays: dict[str, Any], frames: np.ndarray, lead: str | None, rear: str | None, component: str, scale: float | None, target: np.ndarray | None) -> float | None:
     if len(frames) < 2 or scale is None:
         return None
-    first = _stance_geometry(arrays, frames[: min(3, len(frames))], lead, rear).get(component)
-    last = _stance_geometry(arrays, frames[-min(3, len(frames)) :], lead, rear).get(component)
+    first = _stance_geometry(arrays, frames[: min(3, len(frames))], lead, rear, target).get(component)
+    last = _stance_geometry(arrays, frames[-min(3, len(frames)) :], lead, rear, target).get(component)
     return None if first is None or last is None else abs(float(last - first)) / scale
 
 

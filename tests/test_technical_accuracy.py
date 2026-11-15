@@ -1215,3 +1215,20 @@ def test_wholebody_side_dominance_is_unmeasurable_when_neither_wrist_moved() -> 
     moved = _expected_side_dominance(arrays, 5, 30, "left", "right", 0, 39, 5, 3, scale=0.5, noise_floor=0.05)
     assert moved["value"] > 1.0
     assert moved["noise_floor_applied"] is False
+
+
+def test_head_roll_is_not_read_when_the_eyes_have_collapsed_side_on() -> None:
+    from src.poomsae_scoring import technical_accuracy as accuracy
+    from src.poomsae_scoring import technical_accuracy_metrics as metrics
+
+    # Refined Poomsae run, M01-M04: side-on to the cameras the eye clusters are 2-3 cm
+    # apart and their roll read 28.7 deg on a level head; frontal (M05) they are ~6 cm.
+    points = np.asarray(_synthetic_pose(1)["keypoints_3d_world"], dtype=float)
+    frontal = accuracy._head_roll({"points": points}, 0, 0.12)
+    assert frontal == pytest.approx(0.0, abs=1e-9)
+    collapsed = points.copy()
+    collapsed[:, list(metrics.FACE_RIGHT_EYE_INDICES), 0] = 0.01
+    collapsed[:, list(metrics.FACE_LEFT_EYE_INDICES), 0] = -0.01
+    assert accuracy._head_roll({"points": collapsed}, 0, 0.12) is None
+    # Without the gate the collapsed line would still be read.
+    assert accuracy._head_roll({"points": collapsed}, 0, 0.0) is not None

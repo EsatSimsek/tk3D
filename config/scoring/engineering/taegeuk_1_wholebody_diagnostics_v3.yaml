@@ -1,6 +1,6 @@
 schema_version: 3
 profile_id: taegeuk1-wholebody-accuracy-diagnostics-v3
-version: 3.4.0
+version: 3.5.0
 status: diagnostic_only_unvalidated
 poomsae_id: taegeuk_1_jang
 required_keypoint_count: 133
@@ -27,6 +27,9 @@ quality_gates:
   # 3.4.0: every landmark a metric reads must itself reach this ratio over the
   # frames the metric read (no averaging across landmarks, no whole-segment gate).
   min_group_valid_ratio: 0.75
+  # 3.5.0: head roll reads the eye line only where the eyes are at least this
+  # fraction of the shoulder width apart (~0.16 frontal, ~0.07 collapsed side-on).
+  min_face_eye_separation_shoulder_ratio: 0.12
   max_normalized_frame_jump: 0.50
 threshold_policy:
   origin: self_authored_temporary_accuracy_rule
@@ -170,8 +173,10 @@ measurement_only_reasons:
   stance_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: stance_length_leg_ratio / stance_width_shoulder_ratio'
   head_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: head_fixation_orientation_dispersion_p95_deg'
   torso_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: torso_fixation_orientation_dispersion_p95_deg'
-  reaction_hand_reaches_target_by_fixation: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
-  final_pose_geometry_conformance: 'Mevcut uygulama yalnız ölçümün varlığını bildirir; hedef uygunluğunu kanıtlamaz.'
+  reaction_hand_reaches_target_by_fixation: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: reaction_hand_target_distance_body_ratio'
+  final_pose_geometry_conformance: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrollerde: stance_length_leg_ratio / stance_width_shoulder_ratio / expected_knee_flexion_range_match'
+  fixation_hold_observed: 'Tekniğin bitişinden sonra çok bileşenli tutma gözlendi mi; tutma için kural tanımlanmadığından yalnız ölçüm gösterilir.'
+  fixation_hold_onset_delay_sec: 'Teknik bitişi ile tutma başlangıcı arasındaki süre; sayısal hedef tanımlanmadığından yalnız ölçüm gösterilir.'
   phase_evidence_quality: 'Kanıt kalitesi veya ölçülememe açıklamasıdır; sporcuya teknik hata yazmaz.'
   moving_foot_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: moving_foot_side_match'
   support_or_pivot_foot_match: 'Aynı kanıtın tekrar aday üretmemesi için karar şu kontrolde: moving_foot_side_match'
@@ -414,6 +419,8 @@ metric_catalog:
     - premature_next_movement_transition
     - fixation_pose_stability
     - final_pose_geometry_conformance
+    - fixation_hold_observed
+    - fixation_hold_onset_delay_sec
     - phase_evidence_quality
   transition:
     - expected_direction_change_match

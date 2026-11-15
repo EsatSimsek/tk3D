@@ -36,6 +36,7 @@ from src.poomsae_scoring.technical_accuracy_metrics import (
     resolve_metric_landmarks,
 )
 from src.poomsae_scoring.technical_accuracy_validation import _mirror_pose
+from src.poomsae_scoring.fixation import prepare_fixation_signals
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -175,10 +176,22 @@ def test_stance_length_and_width_are_separated_in_a_rotated_body(yaw_deg: float)
         for name, offset in (("heel", -0.10), ("big_toe", 0.10), ("small_toe", 0.10)):
             points[:, metrics.COCO_FOOT_JOINTS[f"{side}_{name}"]] = centre + [0.0, offset, 0.0]
     _rotate_points(points, list(range(133)), np.zeros(3), np.array([0.0, 0.0, 1.0]), yaw_deg)
-    stance = metrics._stance_geometry({"points": points}, np.arange(5), "left", "right")
+    radians = np.deg2rad(yaw_deg)
+    # The movement target rotates with the scene (+y rotated by the same yaw).
+    target = np.array([-np.sin(radians), np.cos(radians), 0.0])
+    stance = metrics._stance_geometry({"points": points}, np.arange(5), "left", "right", target)
     assert stance["length"] == pytest.approx(length, abs=1e-9)
     assert stance["width"] == pytest.approx(width, abs=1e-9)
     assert stance["front_back_order_match"] is True
+    # A torso turned 30 deg against the stance (walking-stance block) must not leak
+    # stance length into width: the frame is the movement target, not the torso.
+    twisted = points.copy()
+    _rotate_points(twisted, list(range(0, 17)) + list(range(23, 133)), np.zeros(3), np.array([0.0, 0.0, 1.0]), 30.0)
+    turned = metrics._stance_geometry({"points": twisted}, np.arange(5), "left", "right", target)
+    assert turned["length"] == pytest.approx(length, abs=1e-9)
+    assert turned["width"] == pytest.approx(width, abs=1e-9)
+    # No direction reference, no frame: no stance values.
+    assert metrics._stance_geometry({"points": points}, np.arange(5), "left", "right", None) == {}
 
 
 def test_dispersion_of_a_known_oscillation(profile: dict) -> None:
@@ -303,7 +316,10 @@ def test_evaluator_status_is_true_only_for_ids_an_evaluator_produces(profile: di
     points = _points()
     # One wrist and one ankle travel well above the noise floor so side matches resolve.
     points[12:, [BODY["left_wrist"], BODY["left_ankle"]], 1] += 0.3
-    arrays = _arrays(_pose_from(points))
+    pose = _pose_from(points)
+    arrays = _arrays(pose)
+    # As in the pipeline: the hold detector's signals come with the pose arrays.
+    arrays["fixation_signals"] = prepare_fixation_signals(points, 30.0, quality=pose)
     kick_segment = {"start_frame": 0, "end_frame": 39, "sequence_index": 14, "anchors": {
         "preparation": 3, "kick_execution": 7, "kick_apex": 10, "rechamber": 14, "landing": 18,
         "punch_execution": 21, "fixation": 24}}
@@ -538,3 +554,66 @@ def test_gate_is_idempotent_and_records_the_minimum(profile: dict, contracts: li
     assert result["rear_knee_flexion_deg"] == before
     assert before["evidence"]["required_landmark_valid_ratio"] == pytest.approx(8 / 11)
     assert before["evidence"]["minimum_required_landmark_valid_ratio"] == pytest.approx(0.75)
+
+
+def test_final_pose_conformance_is_false_when_the_stance_does_not_match(profile: dict, contracts: list[dict]) -> None:
+    # Refined Poomsae run, M05: the stance did not match but the final pose was reported
+    # as conforming, because the metric only checked that values existed.
+    points = _points()
+    points[:, BODY["left_ankle"], 0] -= 0.6
+    points[:, 17:20, 0] -= 0.6
+    arrays = _arrays(_pose_from(points))
+    checked = 0
+    for contract in contracts:
+        if contract["stance_width_expectation"] is None:
+            continue
+        result = measure_observable_accuracy_metrics(arrays, contract, SEGMENT, profile, _direction(), 30.0)
+        stance = result["expected_stance_type_match"]["value"]
+        conformance = result["final_pose_geometry_conformance"]["value"]
+        if stance is False:
+            checked += 1
+            assert conformance is False
+    assert checked > 0
+
+
+def _with_signals(points: np.ndarray) -> dict:
+    pose = _pose_from(points)
+    arrays = _arrays(pose)
+    arrays["fixation_signals"] = prepare_fixation_signals(points, 30.0, quality=pose)
+    return arrays
+
+
+def test_without_an_observed_hold_stability_metrics_are_withheld_not_flagged(profile: dict, contracts: list[dict]) -> None:
+    # Refined Poomsae run, M01/M03/M05: the blocking hand keeps moving after the technique
+    # ends, so there is no hold; "unstable fixation" would re-report that motion.
+    points = _points()
+    times = np.arange(points.shape[0]) / 30.0
+    moving = np.clip(times - 0.1, 0, None) * 0.6
+    points[:, BODY["left_wrist"], 1] += moving
+    points[:, 91:112, 1] += moving[:, None]
+    result = measure_observable_accuracy_metrics(_with_signals(points), contracts[0], SEGMENT, profile, _direction(), 30.0)
+    assert result["fixation_hold_observed"]["value"] is False
+    assert result["fixation_hold_onset_delay_sec"]["value"] is None
+    stability = result["active_hand_fixation_stability"]
+    assert stability["value"] is None
+    assert stability["not_measurable_reason"] == metrics.HOLD_NOT_OBSERVED_REASON
+    assert stability["evidence"]["hold_gate"]["withheld_value"] is not None
+    # Measurements read at the fixation anchor are unaffected.
+    assert result["elbow_flexion_deg"]["value"] is not None
+
+
+def test_stability_window_starts_at_the_observed_hold_onset(profile: dict, contracts: list[dict]) -> None:
+    # Refined Poomsae run, M02/M04: the hold starts 12-19 frames after the technique ends.
+    points = _points()
+    times = np.arange(points.shape[0]) / 30.0
+    moving = np.clip(times - 0.1, 0, 0.9) * 0.6  # moves until frame 30, then holds
+    points[:, BODY["left_wrist"], 1] += moving
+    points[:, 91:112, 1] += moving[:, None]
+    result = measure_observable_accuracy_metrics(_with_signals(points), contracts[0], SEGMENT, profile, _direction(), 30.0)
+    assert result["fixation_hold_observed"]["value"] is True
+    onset = SEGMENT["anchors"]["fixation"] + round(result["fixation_hold_onset_delay_sec"]["value"] * 30.0)
+    assert onset >= 30
+    window = result["active_hand_fixation_stability"]["evidence"]["window"]
+    assert window["starts_at"] == "observed_hold_onset"
+    assert window["start_frame"] == onset
+    assert result["active_hand_fixation_stability"]["value"] is not None

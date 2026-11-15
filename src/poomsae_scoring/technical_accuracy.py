@@ -25,6 +25,7 @@ from src.poomsae_scoring.contracts import (
     validate_poomsae_spec,
 )
 from src.poomsae_scoring.wholebody_diagnostics import _pose_arrays
+from src.poomsae_scoring.fixation import prepare_fixation_signals
 from src.poomsae_scoring.timeline_review import timeline_review_status
 from src.poomsae_scoring.technical_accuracy_metrics import (
     FACE_LEFT_EYE_LOCAL,
@@ -40,6 +41,7 @@ from src.poomsae_scoring.technical_accuracy_metrics import (
     measure_observable_accuracy_metrics,
     measurement_evaluator_status,
     post_fixation_hold_frames,
+    withhold_hold_metrics,
     resolve_metric_landmarks,
 )
 
@@ -102,6 +104,7 @@ QUALITY_KEYS = {
     "anchor_window_radius_frames",
     "post_fixation_hold_window_frames",
     "min_group_valid_ratio",
+    "min_face_eye_separation_shoulder_ratio",
     "max_normalized_frame_jump",
 }
 THRESHOLD_KEYS = {"operator", "value", "uncertainty_band", "unit"}
@@ -178,6 +181,9 @@ def validate_technical_accuracy_profile(payload: dict[str, Any]) -> dict[str, An
         gates["post_fixation_hold_window_frames"], "post_fixation_hold_window_frames"
     )
     gates["min_group_valid_ratio"] = _probability(gates["min_group_valid_ratio"], "min_group_valid_ratio")
+    gates["min_face_eye_separation_shoulder_ratio"] = _positive(
+        gates["min_face_eye_separation_shoulder_ratio"], "min_face_eye_separation_shoulder_ratio"
+    )
 
     threshold_policy = data["threshold_policy"]
     _exact_keys(threshold_policy, THRESHOLD_POLICY_KEYS, "threshold_policy")
@@ -552,6 +558,11 @@ def build_technical_accuracy_diagnostics(
             "min_segment_group_valid_ratio": gates["min_group_valid_ratio"],
         },
     )
+    # The same hold detector as the automatic segmentation, run on the reviewed
+    # segments: post-fixation stability is measured from the observed hold onset.
+    arrays["fixation_signals"] = prepare_fixation_signals(
+        np.asarray(pose_payload["keypoints_3d_world"], dtype=float), float(timeline["fps"]), quality=pose_payload,
+    )
     source_binding = timeline["source_binding"]
     direction = validate_athlete_local_direction_reference(
         direction_reference,
@@ -892,14 +903,19 @@ def _movement_measurements(
     fixation = segment["anchors"].get("fixation", end)
     radius = profile["quality_gates"]["anchor_window_radius_frames"]
     frames = np.arange(max(start, fixation - radius), min(end, fixation + radius) + 1)
-    hold = post_fixation_hold_frames(segment, profile)
+    # Same hold as the measurement module: the window starts at the observed hold onset.
+    hold_info = ((result.get("fixation_hold_observed") or {}).get("evidence") or {}).get("hold")
+    hold_observed = hold_info is not None and hold_info["status"] == "hold_observed"
+    hold = post_fixation_hold_frames(segment, profile, hold_onset=hold_info["onset_frame"] if hold_observed else None)
     fixation_window = describe_frame_window("fixation_anchor", frames, radius_frames=radius)
     hold_window = describe_frame_window(
         POST_FIXATION_HOLD,
         hold,
         configured_length_frames=profile["quality_gates"]["post_fixation_hold_window_frames"],
         source="quality_gates.post_fixation_hold_window_frames",
+        starts_at="observed_hold_onset" if hold_observed else "fixation_anchor",
     )
+    eye_gate = float(profile["quality_gates"]["min_face_eye_separation_shoulder_ratio"])
     active = contract["active_arm"]
     reaction = contract["chamber_or_reaction_arm"]
     plane_deviation = _arm_plane_deviation(arrays, frames, active)
@@ -907,7 +923,7 @@ def _movement_measurements(
     # measurement-only duplicates (elbow flare, wrist-joint dispersion/correction) are
     # still reported for audit but carry no screening threshold.
     computed = {
-        "head_roll_relative_shoulders_deg": (_window_scalar(arrays, frames, _head_roll), fixation_window),
+        "head_roll_relative_shoulders_deg": (_window_scalar(arrays, frames, lambda a, f: _head_roll(a, f, eye_gate)), fixation_window),
         "head_pitch_relative_torso_deg": (_window_scalar(arrays, frames, _head_pitch_unsigned), fixation_window),
         "head_fixation_orientation_dispersion_p95_deg": (_orientation_dispersion(arrays, hold, "head"), hold_window),
         "head_post_fixation_drift_deg": (_orientation_drift(arrays, hold, "head"), hold_window),
@@ -966,6 +982,8 @@ def _movement_measurements(
     unregistered = sorted(set(result) - set(METRIC_REGISTRY))
     if unregistered:
         raise ScoringContractError(f"measurements produced without a registry record: {unregistered}")
+    if hold_info is not None and not hold_observed:
+        withhold_hold_metrics(result, hold_info)
     apply_landmark_quality_gate(result, arrays, segment, profile, contract)
     return result
 
@@ -1427,11 +1445,22 @@ def _line_roll(arrays: dict[str, Any], frame: int, part: str) -> float | None:
     return None if horizontal <= 1e-8 else float(np.degrees(np.arctan2(vector[2], horizontal)))
 
 
-def _head_roll(arrays: dict[str, Any], frame: int) -> float | None:
-    """Eye-line roll minus shoulder-line roll; both lines run athlete-left -> right."""
+def _head_roll(arrays: dict[str, Any], frame: int, min_eye_shoulder_ratio: float = 0.0) -> float | None:
+    """Eye-line roll minus shoulder-line roll; both lines run athlete-left -> right.
+
+    Only on frames where the face is seen well enough: when the athlete is side-on the
+    eye clusters collapse (about 2-3 cm instead of ~6 cm apart) and their roll is
+    meaningless, so frames whose eye separation falls below the profile ratio of the
+    shoulder width are not read.
+    """
     left = _face_cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)
     right = _face_cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL)
     if left is None or right is None:
+        return None
+    ls, rs = _point(arrays, frame, "left_shoulder"), _point(arrays, frame, "right_shoulder")
+    if ls is None or rs is None:
+        return None
+    if float(np.linalg.norm(right - left)) < min_eye_shoulder_ratio * float(np.linalg.norm(rs - ls)):
         return None
     eye_roll = _roll_vector(right - left)
     shoulder_roll = _line_roll(arrays, frame, "shoulder")
@@ -1459,12 +1488,10 @@ def _face_cluster(arrays: dict[str, Any], frame: int, local_indices: Any) -> np.
 
 
 def _orientation_vector(arrays: dict[str, Any], frame: int, part: str) -> np.ndarray | None:
-    if part == "head":
-        left = _face_cluster(arrays, frame, FACE_LEFT_EYE_LOCAL)
-        right = _face_cluster(arrays, frame, FACE_RIGHT_EYE_LOCAL)
-    else:
-        left = _point(arrays, frame, f"left_{part}")
-        right = _point(arrays, frame, f"right_{part}")
+    # "head" is the body ear line, as in the measurement module (eye clusters collapse side-on).
+    part = "ear" if part == "head" else part
+    left = _point(arrays, frame, f"left_{part}")
+    right = _point(arrays, frame, f"right_{part}")
     if left is None or right is None:
         return None
     vector = right - left
