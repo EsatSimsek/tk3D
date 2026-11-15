@@ -27,8 +27,8 @@ class FixationParameters:
     exit_threshold_multiplier: float = 1.5
     maximum_reprojection_px: float = 15.0
     minimum_cameras: int = 2
-    # Technique completion: the fastest hand's speed first falls to this fraction of its
-    # episode peak. Engineering default; 0.25-0.50 gave the same frames within 4 on the
+    # Technique completion: the later of the two hands whose speed first falls to this
+    # fraction of its own episode peak. Engineering default; 0.25-0.50 gave the same frames within 4 on the
     # one labelled recording, so the value is not tuned to those labels.
     completion_peak_fraction: float = 0.35
 

@@ -848,9 +848,13 @@ def measure_observable_accuracy_metrics(
 
     _direction_metrics(result, put, arrays, contract, fix_frames, direction, active, limits)
     _kick_metrics(result, put, arrays, contract, anchors, start, end, kick_side, rear, lead_leg_scale)
-    put("fixation_hold_observed", _hold_observed_value(hold), window=POST_FIXATION_TAIL, reason=None if hold is None else hold["reason"], evidence={"hold": hold})
+    # Without hold-detector signals there is no hold evidence at all; say so rather than
+    # report a landmark failure or a missing hold.
+    hold_reason = HOLD_SIGNALS_UNAVAILABLE_REASON if hold is None else hold["reason"]
+    put("fixation_hold_observed", _hold_observed_value(hold), window=POST_FIXATION_TAIL, reason=hold_reason, evidence={"hold": hold})
     put("fixation_hold_onset_delay_sec", (hold["onset_frame"] - fixation) / fps if hold_observed else None,
-        window=POST_FIXATION_TAIL, reason="hold_not_observed", evidence={"hold": hold})
+        window=POST_FIXATION_TAIL, reason=HOLD_SIGNALS_UNAVAILABLE_REASON if hold is None else HOLD_NOT_OBSERVED_REASON,
+        evidence={"hold": hold})
     if hold is not None and not hold_observed:
         withhold_hold_metrics(result, hold)
     apply_landmark_quality_gate(result, arrays, segment, profile, contract)
@@ -858,6 +862,7 @@ def measure_observable_accuracy_metrics(
 
 
 HOLD_NOT_OBSERVED_REASON = "hold_not_observed"
+HOLD_SIGNALS_UNAVAILABLE_REASON = "hold_detector_signals_unavailable"
 
 
 def _hold_observed_value(hold: dict[str, Any] | None) -> bool | None:
